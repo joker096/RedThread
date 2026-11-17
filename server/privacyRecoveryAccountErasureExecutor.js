@@ -25,6 +25,13 @@ function assertIsolated(env) {
   }
 }
 
+function hasUnresolvedTimedPremium(user) {
+  if (user.premium_lifetime === true || user.premium_until == null) return false;
+  const premiumUntil = new Date(user.premium_until).getTime();
+  const snapshotAt = new Date(user.billing_snapshot_at).getTime();
+  return !Number.isFinite(premiumUntil) || !Number.isFinite(snapshotAt) || premiumUntil > snapshotAt;
+}
+
 function digestEvent(row) {
   const canonical = [
     String(row.ledger_sequence), row.event_id, String(row.schema_version), row.event_type,
@@ -208,7 +215,8 @@ export async function preflightAccountErasurePrivacyRecovery({
     assertSubjectMapping(staged, mapping, pseudonymKey);
     const identity = await client.query(
       `SELECT id, email, status, paddle_customer_id, paddle_subscription_id,
-              paddle_subscription_status
+              paddle_subscription_status, premium_until, premium_lifetime,
+              statement_timestamp() AS billing_snapshot_at
          FROM users WHERE id = $1`,
       [mapping.subjectUserId]
     );
@@ -235,7 +243,8 @@ export async function preflightAccountErasurePrivacyRecovery({
     if ((user.paddle_subscription_id && (!['canceled', 'completed'].includes(subscriptionStatus) ||
           typeof user.paddle_customer_id !== 'string' || !/^ctm_[A-Za-z0-9]+$/.test(user.paddle_customer_id))) ||
         (!user.paddle_subscription_id && subscriptionStatus &&
-          !['canceled', 'completed'].includes(subscriptionStatus))) {
+          !['canceled', 'completed'].includes(subscriptionStatus)) ||
+        (!user.paddle_subscription_id && hasUnresolvedTimedPremium(user))) {
       throw new Error('privacy_recovery_account_erasure_paddle_subscription_unresolved');
     }
     const l3Media = await client.query(
@@ -277,7 +286,8 @@ async function applyAccountErasure(client, userId, env) {
 
   const userResult = await client.query(
     `SELECT id, email, status, paddle_customer_id, paddle_subscription_id,
-            paddle_subscription_status, premium_until, premium_lifetime
+            paddle_subscription_status, premium_until, premium_lifetime,
+            statement_timestamp() AS billing_snapshot_at
        FROM users WHERE id = $1 FOR UPDATE`,
     [userId]
   );
@@ -302,7 +312,8 @@ async function applyAccountErasure(client, userId, env) {
   const subscriptionStatus = String(user.paddle_subscription_status || '').toLowerCase();
   if ((user.paddle_subscription_id && (!['canceled', 'completed'].includes(subscriptionStatus) ||
         typeof user.paddle_customer_id !== 'string' || !/^ctm_[A-Za-z0-9]+$/.test(user.paddle_customer_id))) ||
-      (!user.paddle_subscription_id && subscriptionStatus && !['canceled', 'completed'].includes(subscriptionStatus))) {
+      (!user.paddle_subscription_id && subscriptionStatus && !['canceled', 'completed'].includes(subscriptionStatus)) ||
+      (!user.paddle_subscription_id && hasUnresolvedTimedPremium(user))) {
     throw new Error('privacy_recovery_account_erasure_paddle_subscription_unresolved');
   }
   const l3Media = await client.query(
