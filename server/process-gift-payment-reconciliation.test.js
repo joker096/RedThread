@@ -26,9 +26,17 @@ test('provider outcome must match immutable provider identity and financial snap
     status: 'refunded', providerKey: 'sandbox_provider',
     providerReference: 'txn_test_123', amountMinorUnits: 12501, currency: 'GEL'
   }, identity), { code: 'provider_identity_or_amount_mismatch' });
+  assert.throws(() => validateGiftProviderOutcome({
+    status: 'voided', providerKey: 'other_provider',
+    providerReference: 'txn_test_123', amountMinorUnits: 12500, currency: 'GEL'
+  }, identity), { code: 'provider_identity_or_amount_mismatch' });
+  assert.throws(() => validateGiftProviderOutcome({
+    status: 'voided', providerKey: 'sandbox_provider',
+    providerReference: 'txn_test_123', amountMinorUnits: 12500, currency: 'USD'
+  }, identity), { code: 'provider_identity_or_amount_mismatch' });
 });
 
-test('worker fails closed before claiming when no explicit provider adapter is injected', async () => {
+test('worker fails closed before claiming when no explicit read-only lookup adapter is injected', async () => {
   let calls = 0;
   const pool = {
     connect: async () => { throw new Error('must not acquire a database connection'); },
@@ -48,7 +56,7 @@ test('worker returns idle when no due reconciliation task exists', async () => {
   };
   const result = await processOneGiftPaymentReconciliation({
     pool,
-    providerAdapter: { reconcile: async () => { throw new Error('must not be called'); } }
+    providerAdapter: { lookup: async () => { throw new Error('must not be called'); } }
   });
   assert.deepEqual(result, { claimed: false });
 });
