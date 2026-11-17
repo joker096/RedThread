@@ -321,6 +321,16 @@ async function main() {
   process.on('SIGTERM', stop);
   try {
     do {
+      const now = Date.now();
+      if (now - lastMetricsAt >= 60_000) {
+        lastMetricsAt = now;
+        try {
+          const metrics = await getPaddleCheckoutRecoveryMetrics(pool);
+          console.log('Paddle checkout recovery metrics:', JSON.stringify(metrics));
+        } catch (error) {
+          console.error('Paddle checkout recovery metrics unavailable:', error?.message || 'unknown_error');
+        }
+      }
       const result = await runPaddleCheckoutRecoveryOnce(pool);
       if (result.processed) console.log('Paddle checkout recovery:', JSON.stringify(result));
       else if (!stopping) await new Promise(resolve => setTimeout(resolve, 5_000));
