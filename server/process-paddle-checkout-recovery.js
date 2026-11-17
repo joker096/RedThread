@@ -242,7 +242,8 @@ export async function runPaddleCheckoutRecoveryOnce(pool, {
     }
     const result = await finishRecovery(pool, attempt, decision, {
       dryRun,
-      errorCode: decision.action === 'defer' ? 'provider_page_limit_reached' : null
+      errorCode: decision.action === 'defer' ? 'provider_page_limit_reached'
+        : decision.action === 'not_found' ? 'provider_match_not_visible' : null
     });
     return { processed: true, userId: attempt.user_id, attemptId: attempt.attempt_id, pages: listed.pages, ...result };
   } catch (error) {
