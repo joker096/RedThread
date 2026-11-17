@@ -2,6 +2,13 @@ import { randomUUID } from 'node:crypto';
 
 const TERMINAL_PAYMENT_STATES = new Set(['voided', 'failed', 'refunded']);
 
+export function giftReconciliationRetryDelaySeconds(attemptCount) {
+  if (!Number.isInteger(attemptCount) || attemptCount < 1) {
+    throw new RangeError('gift_reconciliation_attempt_count_invalid');
+  }
+  return Math.min(3600, 30 * (2 ** Math.min(attemptCount - 1, 7)));
+}
+
 export function validateGiftProviderOutcome(outcome, identity) {
   if (!outcome || !TERMINAL_PAYMENT_STATES.has(outcome.status)) {
     throw Object.assign(new Error('provider_outcome_not_terminal'), { code: 'provider_outcome_not_terminal' });
@@ -126,13 +133,14 @@ async function releaseGiftTask(pool, task, errorCode, deadLetter) {
   const result = await pool.query(
     `UPDATE gift_payment_reconciliation_tasks
         SET status = 'failed', last_error_code = $4,
-            next_attempt_at = statement_timestamp() + INTERVAL '5 minutes',
+            next_attempt_at = statement_timestamp() + make_interval(secs => $6),
             dead_lettered_at = CASE WHEN $5 THEN statement_timestamp() ELSE dead_lettered_at END,
             lease_token = NULL, lease_owner = NULL, claimed_at = NULL, lease_expires_at = NULL
       WHERE id = $1 AND status = 'in_progress'
         AND lease_token = $2 AND lease_generation = $3
         AND lease_expires_at > statement_timestamp()`,
-    [task.id, task.lease_token, task.lease_generation, errorCode, deadLetter]
+    [task.id, task.lease_token, task.lease_generation, errorCode, deadLetter,
+      giftReconciliationRetryDelaySeconds(Number(task.attempt_count))]
   );
   return result.rowCount === 1;
 }
