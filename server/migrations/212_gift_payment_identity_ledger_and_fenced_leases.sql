@@ -94,6 +94,324 @@ CREATE TABLE gift_payment_provider_event_inbox (
   CHECK ((processing_status = 'quarantined') = (quarantine_code IS NOT NULL))
 );
 
+
+CREATE OR REPLACE FUNCTION guard_gift_payment_provider_event_inbox()
+RETURNS trigger LANGUAGE plpgsql AS $gift_provider_event_inbox_guard$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.processing_status <> 'pending' OR NEW.processed_at IS NOT NULL
+       OR NEW.quarantine_code IS NOT NULL THEN
+      RAISE EXCEPTION 'provider webhook evidence must enter the inbox as pending'
+        USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.provider_key IS DISTINCT FROM OLD.provider_key
+     OR NEW.provider_event_id IS DISTINCT FROM OLD.provider_event_id
+     OR NEW.event_type IS DISTINCT FROM OLD.event_type
+     OR NEW.payload_sha256 IS DISTINCT FROM OLD.payload_sha256
+     OR NEW.occurred_at IS DISTINCT FROM OLD.occurred_at
+     OR NEW.received_at IS DISTINCT FROM OLD.received_at THEN
+    RAISE EXCEPTION 'provider webhook event identity and evidence hash are immutable'
+      USING ERRCODE = '55000';
+  END IF;
+  IF OLD.processing_status <> 'pending'
+     OR NEW.processing_status NOT IN ('processed', 'quarantined') THEN
+    RAISE EXCEPTION 'provider webhook event may transition only once from pending to processed or quarantined'
+      USING ERRCODE = '23514';
+  END IF;
+  IF NEW.processing_status = 'processed' THEN
+    NEW.processed_at := statement_timestamp();
+    NEW.quarantine_code := NULL;
+  ELSE
+    IF NEW.quarantine_code IS NULL OR NEW.quarantine_code !~ '^[a-z0-9_]{1,80}
+  ON gift_payment_provider_event_inbox (received_at, id)
+  WHERE processing_status = 'pending';
+
+CREATE OR REPLACE FUNCTION guard_gift_payment_attempt_identity()
+RETURNS trigger LANGUAGE plpgsql AS $gift_payment_attempt_identity_guard$
+DECLARE
+  order_amount BIGINT;
+  order_currency CHAR(3);
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    SELECT total_minor_units, currency
+      INTO order_amount, order_currency
+    FROM gift_delivery_orders
+    WHERE id = NEW.order_id
+    FOR SHARE;
+    IF NOT FOUND OR order_amount <> NEW.amount_minor_units
+       OR order_currency <> NEW.currency THEN
+      RAISE EXCEPTION 'gift payment attempt amount/currency must match the immutable order snapshot'
+        USING ERRCODE = '23514';
+    END IF;
+    IF NEW.provider_reference IS NOT NULL THEN
+      NEW.provider_reference_recorded_at := statement_timestamp();
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.order_id IS DISTINCT FROM OLD.order_id
+     OR NEW.attempt_id IS DISTINCT FROM OLD.attempt_id
+     OR NEW.provider_key IS DISTINCT FROM OLD.provider_key
+     OR NEW.idempotency_key IS DISTINCT FROM OLD.idempotency_key
+     OR NEW.amount_minor_units IS DISTINCT FROM OLD.amount_minor_units
+     OR NEW.currency IS DISTINCT FROM OLD.currency
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'gift payment attempt identity is immutable'
+      USING ERRCODE = '55000';
+  END IF;
+
+  IF OLD.provider_reference IS NULL AND NEW.provider_reference IS NOT NULL THEN
+    NEW.provider_reference_recorded_at := statement_timestamp();
+  ELSIF NEW.provider_reference IS DISTINCT FROM OLD.provider_reference
+     OR NEW.provider_reference_recorded_at IS DISTINCT FROM OLD.provider_reference_recorded_at THEN
+    RAISE EXCEPTION 'gift provider reference may be recorded once and cannot be changed'
+      USING ERRCODE = '55000';
+  END IF;
+  RETURN NEW;
+END;
+$gift_payment_attempt_identity_guard$;
+
+CREATE TRIGGER gift_payment_attempt_identity_guard
+  BEFORE INSERT OR UPDATE ON gift_payment_attempt_identity
+  FOR EACH ROW EXECUTE FUNCTION guard_gift_payment_attempt_identity();
+
+CREATE OR REPLACE FUNCTION reject_gift_payment_identity_delete()
+RETURNS trigger LANGUAGE plpgsql AS $gift_payment_identity_no_delete$
+BEGIN
+  RAISE EXCEPTION 'gift payment attempt identity and provider event evidence are append-only'
+    USING ERRCODE = '55000';
+END;
+$gift_payment_identity_no_delete$;
+
+CREATE TRIGGER gift_payment_attempt_identity_no_delete
+  BEFORE DELETE ON gift_payment_attempt_identity
+  FOR EACH ROW EXECUTE FUNCTION reject_gift_payment_identity_delete();
+
+CREATE TRIGGER gift_payment_provider_event_no_delete
+  BEFORE DELETE ON gift_payment_provider_event_inbox
+  FOR EACH ROW EXECUTE FUNCTION reject_gift_payment_identity_delete();
+
+CREATE OR REPLACE FUNCTION guard_gift_payment_reconciliation_task_update()
+RETURNS trigger LANGUAGE plpgsql AS $gift_payment_task_lease_guard$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status <> 'pending' OR NEW.attempt_count <> 0
+       OR NEW.completed_at IS NOT NULL OR NEW.last_error_code IS NOT NULL
+       OR NEW.lease_generation <> 0 THEN
+      RAISE EXCEPTION 'gift payment reconciliation tasks must begin pending and unclaimed'
+        USING ERRCODE = '23514';
+    END IF;
+    NEW.updated_at := statement_timestamp();
+    RETURN NEW;
+  END IF;
+
+  IF NEW.id IS DISTINCT FROM OLD.id
+     OR NEW.order_id IS DISTINCT FROM OLD.order_id
+     OR NEW.reason IS DISTINCT FROM OLD.reason
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'gift payment reconciliation task identity is immutable'
+      USING ERRCODE = '55000';
+  END IF;
+  IF OLD.status = 'completed' THEN
+    RAISE EXCEPTION 'completed gift payment reconciliation tasks are immutable'
+      USING ERRCODE = '55000';
+  END IF;
+
+  IF OLD.status IN ('pending', 'failed') AND NEW.status = 'in_progress' THEN
+    IF NEW.attempt_count <> OLD.attempt_count + 1
+       OR NEW.lease_generation <> OLD.lease_generation + 1
+       OR NEW.lease_token IS NULL OR NEW.lease_owner IS NULL
+       OR NEW.claimed_at IS NULL OR NEW.lease_expires_at <= NEW.claimed_at THEN
+      RAISE EXCEPTION 'gift reconciliation claim must advance generation and establish a complete lease'
+        USING ERRCODE = '23514';
+    END IF;
+  ELSIF OLD.status = 'in_progress' AND NEW.status = 'in_progress' THEN
+    IF OLD.lease_expires_at <= statement_timestamp()
+       AND NEW.lease_generation = OLD.lease_generation + 1
+       AND NEW.attempt_count = OLD.attempt_count + 1
+       AND NEW.lease_token IS NOT NULL AND NEW.lease_token <> OLD.lease_token
+       AND NEW.lease_owner IS NOT NULL AND NEW.claimed_at IS NOT NULL
+       AND NEW.lease_expires_at > NEW.claimed_at THEN
+      -- Expired lease takeover: a new token and generation fence every stale worker.
+      NULL;
+    ELSIF NEW.attempt_count <> OLD.attempt_count
+       OR NEW.lease_generation <> OLD.lease_generation
+       OR NEW.lease_token IS DISTINCT FROM OLD.lease_token
+       OR NEW.lease_owner IS DISTINCT FROM OLD.lease_owner
+       OR NEW.claimed_at IS DISTINCT FROM OLD.claimed_at
+       OR NEW.lease_expires_at < OLD.lease_expires_at THEN
+      RAISE EXCEPTION 'gift reconciliation heartbeat must retain its lease fence and cannot shorten expiry'
+        USING ERRCODE = '23514';
+    END IF;
+  ELSIF OLD.status = 'in_progress' AND NEW.status IN ('pending', 'failed', 'completed') THEN
+    IF NEW.attempt_count <> OLD.attempt_count
+       OR NEW.lease_generation <> OLD.lease_generation
+       OR NEW.lease_token IS NOT NULL OR NEW.lease_owner IS NOT NULL
+       OR NEW.claimed_at IS NOT NULL OR NEW.lease_expires_at IS NOT NULL THEN
+      RAISE EXCEPTION 'gift reconciliation release must preserve generation and clear the lease'
+        USING ERRCODE = '23514';
+    END IF;
+  ELSIF OLD.status = 'failed' AND NEW.status = 'pending' THEN
+    IF NEW.attempt_count <> OLD.attempt_count
+       OR NEW.lease_generation <> OLD.lease_generation THEN
+      RAISE EXCEPTION 'rescheduling failed gift reconciliation must preserve counters'
+        USING ERRCODE = '23514';
+    END IF;
+  ELSIF NEW.status IS DISTINCT FROM OLD.status THEN
+    RAISE EXCEPTION 'invalid gift payment reconciliation task transition'
+      USING ERRCODE = '23514';
+  ELSIF NEW.attempt_count <> OLD.attempt_count
+     OR NEW.lease_generation <> OLD.lease_generation THEN
+    RAISE EXCEPTION 'gift reconciliation counters may change only during claim'
+      USING ERRCODE = '23514';
+  END IF;
+
+  IF NEW.status = 'failed' THEN
+    IF NEW.last_error_code IS NULL OR NEW.last_error_code !~ '^[a-z0-9_]{1,80}$' THEN
+      RAISE EXCEPTION 'failed gift reconciliation requires a bounded error code'
+        USING ERRCODE = '23514';
+    END IF;
+  ELSE
+    NEW.last_error_code := NULL;
+  END IF;
+  IF NEW.status = 'completed' THEN
+    NEW.completed_at := statement_timestamp();
+  ELSE
+    NEW.completed_at := NULL;
+  END IF;
+  NEW.updated_at := statement_timestamp();
+  RETURN NEW;
+END;
+$gift_payment_task_lease_guard$;
+
+DROP TRIGGER IF EXISTS gift_payment_reconciliation_tasks_guard_update
+  ON gift_payment_reconciliation_tasks;
+CREATE TRIGGER gift_payment_reconciliation_tasks_guard_update
+  BEFORE INSERT OR UPDATE ON gift_payment_reconciliation_tasks
+  FOR EACH ROW EXECUTE FUNCTION guard_gift_payment_reconciliation_task_update();
+
+
+-- Atomic one-task claim. Expired leases may be reclaimed, but each takeover
+-- advances both attempt_count and lease_generation and rotates the token.
+CREATE OR REPLACE FUNCTION claim_gift_payment_reconciliation_task(
+  p_worker_id TEXT,
+  p_lease_seconds INTEGER DEFAULT 90,
+  p_max_attempts INTEGER DEFAULT 8
+)
+RETURNS SETOF gift_payment_reconciliation_tasks
+LANGUAGE plpgsql
+AS $gift_reconciliation_claim$
+DECLARE
+  candidate gift_payment_reconciliation_tasks%ROWTYPE;
+  claimed gift_payment_reconciliation_tasks%ROWTYPE;
+  new_token UUID;
+BEGIN
+  IF p_worker_id IS NULL OR p_worker_id !~ '^[A-Za-z0-9._:-]{1,120}
+  'Append-only identity ledger for gift payment attempts. It stores provider IDs and financial snapshots only; never infer provider identity from task text or client input.';
+COMMENT ON TABLE gift_payment_provider_event_inbox IS
+  'Deduplicated webhook evidence metadata. Raw webhook payloads and recipient personal data are deliberately not stored.';
+
+     OR p_lease_seconds < 15 OR p_lease_seconds > 600
+     OR p_max_attempts < 1 OR p_max_attempts > 20 THEN
+    RAISE EXCEPTION 'invalid gift reconciliation worker claim parameters'
+      USING ERRCODE = '22023';
+  END IF;
+
+  LOOP
+    SELECT * INTO candidate
+    FROM gift_payment_reconciliation_tasks
+    WHERE (
+      (status IN ('pending', 'failed') AND next_attempt_at <= statement_timestamp())
+      OR (status = 'in_progress' AND lease_expires_at <= statement_timestamp())
+    )
+    ORDER BY next_attempt_at, created_at, id
+    FOR UPDATE SKIP LOCKED
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+      RETURN;
+    END IF;
+
+    IF candidate.attempt_count >= p_max_attempts THEN
+      UPDATE gift_payment_reconciliation_tasks
+      SET status = 'failed',
+          last_error_code = 'max_attempts_exhausted',
+          dead_lettered_at = COALESCE(dead_lettered_at, statement_timestamp()),
+          lease_token = NULL, lease_owner = NULL,
+          claimed_at = NULL, lease_expires_at = NULL
+      WHERE id = candidate.id;
+      CONTINUE;
+    END IF;
+
+    new_token := gen_random_uuid();
+    UPDATE gift_payment_reconciliation_tasks
+    SET status = 'in_progress',
+        attempt_count = attempt_count + 1,
+        lease_generation = lease_generation + 1,
+        lease_token = new_token,
+        lease_owner = p_worker_id,
+        claimed_at = statement_timestamp(),
+        lease_expires_at = statement_timestamp() + make_interval(secs => p_lease_seconds),
+        dead_lettered_at = NULL
+    WHERE id = candidate.id
+    RETURNING * INTO claimed;
+
+    RETURN NEXT claimed;
+    RETURN;
+  END LOOP;
+END;
+$gift_reconciliation_claim$;
+
+-- Lease extension is fenced by both opaque token and monotonically increasing generation.
+CREATE OR REPLACE FUNCTION heartbeat_gift_payment_reconciliation_task(
+  p_task_id BIGINT, p_lease_token UUID, p_lease_generation BIGINT,
+  p_lease_seconds INTEGER DEFAULT 90
+)
+RETURNS BOOLEAN LANGUAGE plpgsql AS $gift_reconciliation_heartbeat$
+DECLARE affected INTEGER;
+BEGIN
+  IF p_lease_seconds < 15 OR p_lease_seconds > 600 THEN
+    RAISE EXCEPTION 'invalid gift reconciliation heartbeat duration' USING ERRCODE = '22023';
+  END IF;
+  UPDATE gift_payment_reconciliation_tasks
+  SET lease_expires_at = GREATEST(lease_expires_at,
+        statement_timestamp() + make_interval(secs => p_lease_seconds))
+  WHERE id = p_task_id AND status = 'in_progress'
+    AND lease_token = p_lease_token
+    AND lease_generation = p_lease_generation
+    AND lease_expires_at > statement_timestamp();
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  RETURN affected = 1;
+END;
+$gift_reconciliation_heartbeat$;
+
+COMMENT ON FUNCTION claim_gift_payment_reconciliation_task(TEXT, INTEGER, INTEGER) IS
+  'Claims one due gift reconciliation task using SKIP LOCKED; expired leases are reclaimed with a rotated token and incremented fencing generation.';
+COMMENT ON FUNCTION heartbeat_gift_payment_reconciliation_task(BIGINT, UUID, BIGINT, INTEGER) IS
+  'Extends only a still-live lease matching both token and generation; stale workers cannot heartbeat after takeover.';
+
+COMMENT ON TABLE gift_payment_attempt_identity IS
+  'Append-only identity ledger for gift payment attempts. It stores provider IDs and financial snapshots only; never infer provider identity from task text or client input.';
+COMMENT ON TABLE gift_payment_provider_event_inbox IS
+  'Deduplicated webhook evidence metadata. Raw webhook payloads and recipient personal data are deliberately not stored.';
+ THEN
+      RAISE EXCEPTION 'quarantined provider webhook event requires a bounded reason code'
+        USING ERRCODE = '23514';
+    END IF;
+    NEW.processed_at := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$gift_provider_event_inbox_guard$;
+
+CREATE TRIGGER gift_payment_provider_event_inbox_guard
+  BEFORE INSERT OR UPDATE ON gift_payment_provider_event_inbox
+  FOR EACH ROW EXECUTE FUNCTION guard_gift_payment_provider_event_inbox();
+
 CREATE INDEX gift_payment_provider_event_pending_idx
   ON gift_payment_provider_event_inbox (received_at, id)
   WHERE processing_status = 'pending';
