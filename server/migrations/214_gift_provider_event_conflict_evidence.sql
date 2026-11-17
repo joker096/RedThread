@@ -3,7 +3,8 @@
 CREATE TABLE gift_payment_provider_event_conflicts (
   id BIGSERIAL PRIMARY KEY,
   provider_key VARCHAR(80) NOT NULL,
-  provider_event_id VARCHAR(200) NOT NULL,
+  provider_event_id VARCHAR(200) NOT NULL
+    CHECK (length(btrim(provider_event_id)) BETWEEN 1 AND 200),
   original_payload_sha256 CHAR(64) NOT NULL
     CHECK (original_payload_sha256 ~ '^[a-f0-9]{64}$'),
   conflicting_payload_sha256 CHAR(64) NOT NULL
