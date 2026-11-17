@@ -102,7 +102,7 @@ test('PostgreSQL recovery claims are exclusive and an expired lease fences the s
     );
     assert.equal(staleCompletion.rowCount, 0, 'the stale lease token must not attach a transaction');
   } finally {
-    await pool.query('DELETE FROM users WHERE id = $1', [fixture.userId]);
+    // Checkout-attempt history is immutable evidence; CI uses a disposable database.
     await pool.end();
   }
 });
@@ -178,7 +178,7 @@ test('recovery re-reads the same sandbox transaction after a DB failure followin
     assert.equal(finalState.rows[0].status, 'pending');
     assert.equal(finalState.rows[0].transaction_id, 'txn_recovered123');
   } finally {
-    await pool.query('DELETE FROM users WHERE id = $1', [fixture.userId]);
+    // Checkout-attempt history is immutable evidence; CI uses a disposable database.
     await pool.end();
   }
 }));
@@ -235,7 +235,7 @@ test('a stale recovery worker cannot attach a transaction after another worker t
       'the new lease owner remains untouched');
   } finally {
     releaseProviderResponse?.();
-    await pool.query('DELETE FROM users WHERE id = $1', [fixture.userId]);
+    // Checkout-attempt history is immutable evidence; CI uses a disposable database.
     await pool.end();
   }
 }));

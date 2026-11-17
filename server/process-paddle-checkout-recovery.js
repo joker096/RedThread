@@ -205,8 +205,8 @@ async function finishRecovery(pool, attempt, decision, { dryRun = true, errorCod
            recovery_lease_token = NULL,
            recovery_lease_expires_at = NULL,
            recovery_last_checked_at = statement_timestamp(),
-           recovery_next_attempt_at = CASE WHEN $4 IS NULL AND $6 IS NOT NULL THEN statement_timestamp() + ($7::int * INTERVAL '1 millisecond') ELSE recovery_next_attempt_at END,
-           recovery_last_error_code = $6,
+           recovery_next_attempt_at = CASE WHEN $4 IS NULL AND $6::text IS NOT NULL THEN statement_timestamp() + ($7::int * INTERVAL '1 millisecond') ELSE recovery_next_attempt_at END,
+           recovery_last_error_code = $6::text,
            updated_at = statement_timestamp()
        WHERE user_id = $1 AND attempt_id = $2::uuid
          AND status = 'creating'
