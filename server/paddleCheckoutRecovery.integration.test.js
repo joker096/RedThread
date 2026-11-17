@@ -168,7 +168,7 @@ test('recovery re-reads the same sandbox transaction after a DB failure followin
       fetchImpl,
       dryRun: false
     });
-    assert.equal(recovered.action, 'attach_pending');
+    assert.equal(recovered.action, 'attach_pending', JSON.stringify(recovered));
     assert.equal(recovered.transactionId, 'txn_recovered123');
     assert.equal(providerReads, 2, 'recovery must read the same provider transaction again');
     const finalState = await pool.query(
