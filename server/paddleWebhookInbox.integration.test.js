@@ -16,7 +16,7 @@ const { Pool } = pg;
 test('Paddle webhook inbox retry policy is bounded and exponential', () => {
   assert.equal(paddleWebhookRetryDelayMs(1), 5_000);
   assert.equal(paddleWebhookRetryDelayMs(2), 10_000);
-  assert.equal(paddleWebhookRetryDelayMs(8), 60 * 60_000);
+  assert.equal(paddleWebhookRetryDelayMs(8), 640_000);
   assert.throws(() => paddleWebhookRetryDelayMs(0), RangeError);
   assert.throws(() => paddleWebhookRetryDelayMs(PADDLE_WEBHOOK_MAX_ATTEMPTS + 1), RangeError);
 });
