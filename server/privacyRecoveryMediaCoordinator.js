@@ -2,11 +2,15 @@ import pg from 'pg';
 import { resolvePrivacyRecoveryMappings } from './privacyRecoveryMapping.js';
 import { applyPrivateMediaPrivacyRecoveryEvent } from './privacyRecoveryMediaExecutor.js';
 import { applyAccountErasurePrivacyRecoveryEvent, preflightAccountErasurePrivacyRecovery } from './privacyRecoveryAccountErasureExecutor.js';
+import { applyAdConsentRevocationPrivacyRecoveryEvent, preflightAdConsentRevocationPrivacyRecovery } from './privacyRecoveryAdConsentExecutor.js';
+import { applyGiftConsentWithdrawalPrivacyRecoveryEvent, preflightGiftConsentWithdrawalPrivacyRecovery } from './privacyRecoveryGiftConsentExecutor.js';
 import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
 
 const { Pool } = pg;
 const SUPPORTED_MEDIA_EVENTS = new Set([
   'account_erasure_requested',
+  'ad_consent_revoked',
+  'gift_order_consent_withdrawn',
   'private_photo_erasure_requested',
   'voice_intro_erasure_requested',
   'voice_intro_consent_withdrawn',
@@ -44,7 +48,9 @@ export async function runPrivateMediaPrivacyRecovery({
   photoStorageRoot,
   voiceStorageRoot,
   applyEvent,
-  preflightAccountErasure = preflightAccountErasurePrivacyRecovery
+  preflightAccountErasure = preflightAccountErasurePrivacyRecovery,
+  preflightAdConsent = preflightAdConsentRevocationPrivacyRecovery,
+  preflightGiftConsent = preflightGiftConsentWithdrawalPrivacyRecovery
 }) {
   assertIsolatedRestore(env);
   validateWatermarks(snapshotLedgerSequence, throughSequence);
@@ -72,6 +78,20 @@ export async function runPrivateMediaPrivacyRecovery({
       if (Number(events[index].sequence) !== snapshotLedgerSequence + index + 1) {
         throw new Error('privacy_recovery_executor_sequence_gap');
       }
+    }
+
+    const firstUnsupportedEvent = events.find(event => !SUPPORTED_MEDIA_EVENTS.has(event.event_type));
+    if (firstUnsupportedEvent) {
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return {
+        complete: false,
+        processedCount: 0,
+        alreadyAppliedCount: 0,
+        blockedSequence: Number(firstUnsupportedEvent.sequence),
+        blockedEventType: firstUnsupportedEvent.event_type,
+        throughSequence
+      };
     }
 
     const [users, voiceIntros, photos, giftOrders] = await Promise.all([
@@ -102,34 +122,54 @@ export async function runPrivateMediaPrivacyRecovery({
   // Validate the entire ordered range before the first write. A supported
   // media event followed by an unsupported domain event must not partially
   // replay the prefix of a batch whose full domain semantics are unavailable.
-  const firstUnsupported = mappings.find(mapping => !SUPPORTED_MEDIA_EVENTS.has(mapping.eventType));
-  if (firstUnsupported) {
-    return {
-      complete: false,
-      processedCount: 0,
-      alreadyAppliedCount: 0,
-      blockedSequence: Number(firstUnsupported.sequence),
-      blockedEventType: firstUnsupported.eventType,
-      throughSequence
-    };
-  }
-
   // Account erasure has destructive preconditions outside the event's SQL
   // writes (Paddle cancellation evidence and L3 object availability). Check
   // every such event before applying any earlier event in the requested range.
-  if (!applyEvent) {
-    for (const mapping of mappings) {
-      if (mapping.eventType !== 'account_erasure_requested') continue;
+  const accountErasureSequences = new Map();
+  for (const mapping of mappings) {
+    if (mapping.eventType !== 'account_erasure_requested' || !mapping.subjectUserId) continue;
+    const sequence = BigInt(mapping.sequence);
+    const previous = accountErasureSequences.get(mapping.subjectUserId);
+    if (previous === undefined || sequence < previous) {
+      accountErasureSequences.set(mapping.subjectUserId, sequence);
+    }
+  }
+  for (const mapping of mappings) {
+    const accountSequence = mapping.subjectUserId ? accountErasureSequences.get(mapping.subjectUserId) : null;
+    if (accountSequence !== undefined && accountSequence !== null &&
+        BigInt(mapping.sequence) > accountSequence) {
+      return {
+        complete: false,
+        processedCount: 0,
+        alreadyAppliedCount: 0,
+        blockedSequence: Number(mapping.sequence),
+        blockedEventType: mapping.eventType,
+        throughSequence
+      };
+    }
+  }
+
+  for (const mapping of mappings) {
+      const preflight = mapping.eventType === 'account_erasure_requested'
+        ? preflightAccountErasure
+        : mapping.eventType === 'ad_consent_revoked'
+          ? preflightAdConsent
+          : mapping.eventType === 'gift_order_consent_withdrawn'
+            ? preflightGiftConsent : null;
+      if (!preflight) continue;
       try {
-        await preflightAccountErasure({
+        await preflight({
           pool,
           mapping,
           pseudonymKey: env.PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY,
           env
         });
       } catch (error) {
-        if (typeof error?.message === 'string' &&
-            error.message.startsWith('privacy_recovery_account_erasure_')) {
+        const message = error?.message;
+        if (typeof message === 'string' &&
+            (message.startsWith('privacy_recovery_account_erasure_') ||
+             message.startsWith('privacy_recovery_ad_consent_') ||
+             message.startsWith('privacy_recovery_gift_consent_'))) {
           return {
             complete: false,
             processedCount: 0,
@@ -141,7 +181,6 @@ export async function runPrivateMediaPrivacyRecovery({
         }
         throw error;
       }
-    }
   }
 
   let processedCount = 0;
@@ -149,7 +188,11 @@ export async function runPrivateMediaPrivacyRecovery({
   for (const mapping of mappings) {
     const executor = applyEvent || (mapping.eventType === 'account_erasure_requested'
       ? applyAccountErasurePrivacyRecoveryEvent
-      : applyPrivateMediaPrivacyRecoveryEvent);
+      : mapping.eventType === 'ad_consent_revoked'
+        ? applyAdConsentRevocationPrivacyRecoveryEvent
+        : mapping.eventType === 'gift_order_consent_withdrawn'
+          ? applyGiftConsentWithdrawalPrivacyRecoveryEvent
+          : applyPrivateMediaPrivacyRecoveryEvent);
     const result = await executor({
       pool,
       mapping,
