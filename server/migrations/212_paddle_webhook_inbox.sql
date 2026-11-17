@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS paddle_webhook_inbox (
   CONSTRAINT paddle_webhook_inbox_attempt_count_check
     CHECK (attempt_count BETWEEN 0 AND 20),
   CONSTRAINT paddle_webhook_inbox_lease_consistency_check
-    CHECK ((status = 'processing') = (lease_token IS NOT NULL AND lease_expires_at IS NOT NULL)),
+    CHECK ((status = 'processing' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL) OR (status <> 'processing' AND lease_token IS NULL AND lease_expires_at IS NULL)),
   CONSTRAINT paddle_webhook_inbox_completion_check
     CHECK ((status = 'completed') = (processed_at IS NOT NULL)),
   CONSTRAINT paddle_webhook_inbox_payload_check
