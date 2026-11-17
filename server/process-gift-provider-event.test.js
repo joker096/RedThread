@@ -195,3 +195,92 @@ test('PostgreSQL inbox lease is reclaimed after worker interruption and stale ge
     await pool.end();
   }
 });
+
+
+test('processor requires an explicit provider key when multiple sandbox providers are configured', async () => {
+  let calls = 0;
+  await assert.rejects(
+    processOneGiftProviderEvent({
+      pool: { query: async () => { calls += 1; }, connect: async () => { calls += 1; } },
+      providers: {
+        provider_one: { accountId: 'acct_one', environment: 'sandbox' },
+        provider_two: { accountId: 'acct_two', environment: 'sandbox' }
+      }
+    }),
+    error => error.code === 'gift_provider_event_provider_key_required'
+  );
+  assert.equal(calls, 0);
+});
+
+test('PostgreSQL rejects partially populated verified event routing metadata', {
+  skip: !process.env.DATABASE_URL
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    await assert.rejects(
+      pool.query(
+        `INSERT INTO gift_payment_provider_event_inbox
+           (provider_key, provider_event_id, event_type, payload_sha256,
+            provider_reference, amount_minor_units, currency)
+         VALUES ('sandbox_provider', $1, 'transaction.updated', $2, 'txn_partial', 1000, 'GEL')`,
+        [`evt_partial_${randomUUID()}`, 'f'.repeat(64)]
+      ),
+      error => error.code === '23514'
+    );
+  } finally {
+    await pool.end();
+  }
+});
+
+test('PostgreSQL stale inbox lease cannot quarantine or complete an event after a newer generation takes over', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 35_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const providerKey = 'sandbox_provider';
+  const eventId = `evt_fence_${randomUUID()}`;
+  try {
+    await pool.query(
+      'SELECT record_verified_gift_provider_event($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      [providerKey, eventId, 'transaction.updated', '9'.repeat(64), new Date().toISOString(),
+        'acct_sandbox_test', 'sandbox', `unknown_${randomUUID()}`, 1000, 'GEL']
+    );
+    const first = await pool.query(
+      'SELECT * FROM claim_gift_provider_event_inbox($1,$2,15,8)',
+      ['stale-event-worker-a', providerKey]
+    );
+    assert.equal(first.rowCount, 1);
+    await pool.query('SELECT pg_sleep(15.2)');
+    const second = await pool.query(
+      'SELECT * FROM claim_gift_provider_event_inbox($1,$2,60,8)',
+      ['current-event-worker-b', providerKey]
+    );
+    assert.equal(second.rowCount, 1);
+    assert.equal(Number(second.rows[0].lease_generation), 2);
+    assert.notEqual(second.rows[0].lease_token, first.rows[0].lease_token);
+
+    const stale = await pool.query(
+      `UPDATE gift_payment_provider_event_inbox
+          SET processing_status = 'quarantined', quarantine_code = 'payment_identity_unknown',
+              lease_token = NULL, lease_owner = NULL, claimed_at = NULL, lease_expires_at = NULL
+        WHERE id = $1 AND processing_status = 'pending'
+          AND lease_token = $2 AND lease_generation = $3
+          AND lease_expires_at > statement_timestamp()`,
+      [first.rows[0].id, first.rows[0].lease_token, first.rows[0].lease_generation]
+    );
+    assert.equal(stale.rowCount, 0, 'stale worker cannot transition an event after lease takeover');
+
+    const current = await pool.query(
+      `UPDATE gift_payment_provider_event_inbox
+          SET processing_status = 'quarantined', quarantine_code = 'payment_identity_unknown',
+              lease_token = NULL, lease_owner = NULL, claimed_at = NULL, lease_expires_at = NULL
+        WHERE id = $1 AND processing_status = 'pending'
+          AND lease_token = $2 AND lease_generation = $3
+          AND lease_expires_at > statement_timestamp()`,
+      [second.rows[0].id, second.rows[0].lease_token, second.rows[0].lease_generation]
+    );
+    assert.equal(current.rowCount, 1, 'current fenced lease may finish its event');
+  } finally {
+    await pool.end();
+  }
+});
