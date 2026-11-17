@@ -19,7 +19,9 @@ function safeErrorCode(error) {
 export async function enqueueVerifiedPaddleWebhook(pool, event) {
   const eventId = event?.eventId || event?.event_id;
   const eventType = event?.eventType || event?.event_type;
-  const occurredAt = event?.occurredAt || event?.occurred_at || null;
+  const rawOccurredAt = event?.occurredAt || event?.occurred_at || null;
+  const occurredAt = typeof rawOccurredAt === 'string' && Number.isFinite(Date.parse(rawOccurredAt))
+    ? new Date(rawOccurredAt).toISOString() : null;
   if (typeof eventId !== 'string' || !eventId || eventId.length > 255 ||
       typeof eventType !== 'string' || !eventType || eventType.length > 128 ||
       !event?.data || typeof event.data !== 'object' || Array.isArray(event.data)) {
