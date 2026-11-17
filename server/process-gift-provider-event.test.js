@@ -94,6 +94,30 @@ test('PostgreSQL gift event processor binds exact attempt identity, wakes only e
     );
     assert.equal(payment.rows[0].payment_status, 'authorized',
       'event processing is evidence/routing only and must never mutate payment state');
+    const mismatchEventId = `evt_amount_${randomUUID()}`;
+    await client.query(
+      'SELECT record_verified_gift_provider_event($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      [providerKey, mismatchEventId, 'transaction.updated', 'c'.repeat(64), new Date().toISOString(),
+        accountId, 'sandbox', reference, 12501, 'GEL']
+    );
+    const amountMismatch = await processOneGiftProviderEvent({
+      pool, providers, workerId: 'gift-event-amount-mismatch'
+    });
+    assert.equal(amountMismatch.quarantined, true);
+    assert.equal(amountMismatch.code, 'provider_amount_currency_mismatch');
+
+    const accountMismatchEventId = `evt_account_${randomUUID()}`;
+    await client.query(
+      'SELECT record_verified_gift_provider_event($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      [providerKey, accountMismatchEventId, 'transaction.updated', 'd'.repeat(64), new Date().toISOString(),
+        'acct_other', 'sandbox', reference, 12500, 'GEL']
+    );
+    const accountMismatch = await processOneGiftProviderEvent({
+      pool, providers, workerId: 'gift-event-account-mismatch'
+    });
+    assert.equal(accountMismatch.quarantined, true);
+    assert.equal(accountMismatch.code, 'provider_account_environment_mismatch');
+
   } finally {
     client.release();
     await pool.end();
@@ -108,7 +132,7 @@ test('PostgreSQL event processor quarantines unknown references and amount/curre
   const providerKey = 'sandbox_provider';
   const providers = { [providerKey]: { accountId: 'acct_sandbox_test', environment: 'sandbox' } };
   const cases = [
-    { reference: `unknown_${randomUUID()}`, amount: 1000, currency: 'GEL', code: 'payment_identity_unknown' },
+    { reference: `unknown_${randomUUID()}`, amount: 1000, currency: 'GEL', code: 'payment_identity_unknown' }
   ];
   try {
     for (const scenario of cases) {
