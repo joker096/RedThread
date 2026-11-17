@@ -109,7 +109,7 @@ test('pagination never follows an untrusted host', async () => {
     }
   });
   await assert.rejects(
-    listPaddleTransactionsForAttempt({ apiKey: 'sandbox_test_key', attempt, fetchImpl, expected: { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' } }),
+    listPaddleTransactionsForAttempt({ apiKey: 'sandbox_test_key', attempt, fetchImpl, expected: { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' }, now: Date.parse('2026-11-17T07:03:00Z') }),
     /pagination_url_invalid/
   );
 });
