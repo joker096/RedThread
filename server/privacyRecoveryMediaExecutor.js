@@ -35,7 +35,7 @@ function assertUuid(value, code) {
 }
 
 function assertSubjectMapping(row, mapping, pseudonymKey) {
-  if (!mapping || mapping.status !== 'matched' || typeof pseudonymKey !== 'string' || pseudonymKey.length < 32) {
+  if (!mapping || typeof pseudonymKey !== 'string' || pseudonymKey.length < 32) {
     throw new Error('privacy_recovery_mapping_unresolved');
   }
   assertUuid(mapping.subjectUserId, 'privacy_recovery_subject_mapping_invalid');
@@ -45,6 +45,7 @@ function assertSubjectMapping(row, mapping, pseudonymKey) {
 
 function assertMapping(row, mapping, pseudonymKey) {
   assertSubjectMapping(row, mapping, pseudonymKey);
+  if (mapping.status !== 'matched') throw new Error('privacy_recovery_mapping_unresolved');
   if (!['voice_intro_consent_withdrawn', 'identity_l3_consent_withdrawn'].includes(row.event_type)) {
     assertUuid(mapping.resourceId, 'privacy_recovery_resource_mapping_invalid');
     const resourceRef = createHmac('sha256', pseudonymKey).update(mapping.resourceId, 'utf8').digest('hex');
