@@ -239,3 +239,123 @@ test('a stale recovery worker cannot attach a transaction after another worker t
     await pool.end();
   }
 }));
+
+
+test('provider timeout and delayed visibility retry the same attempt using read-only GETs', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 25_000
+}, async () => withSandboxPriceConfig(async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
+  const fixture = await createAttempt(pool, 'delayed-visibility');
+  const methods = [];
+  let providerReads = 0;
+  const fetchImpl = async (_url, options) => {
+    methods.push(options.method);
+    providerReads += 1;
+    if (providerReads === 1) throw new Error('simulated_provider_timeout');
+    if (providerReads === 2) {
+      return {
+        ok: true,
+        async json() {
+          return { data: [], meta: { pagination: { has_more: false, next: null } } };
+        }
+      };
+    }
+    return matchingProviderResponse(fixture.attemptId, fixture.userId, 'txn_delayed_visible123');
+  };
+  try {
+    await assert.rejects(
+      runPaddleCheckoutRecoveryOnce(pool, {
+        apiKey: 'sandbox_test_key', environment: 'sandbox', fetchImpl, dryRun: false
+      }),
+      /simulated_provider_timeout/
+    );
+    let state = await pool.query(
+      'SELECT status, transaction_id, recovery_attempt_count, recovery_lease_token, recovery_last_error_code FROM paddle_checkout_attempts WHERE user_id = $1',
+      [fixture.userId]
+    );
+    assert.equal(state.rows[0].status, 'creating');
+    assert.equal(state.rows[0].transaction_id, null);
+    assert.equal(Number(state.rows[0].recovery_attempt_count), 1);
+    assert.equal(state.rows[0].recovery_lease_token, null);
+    assert.equal(state.rows[0].recovery_last_error_code, 'simulated_provider_timeout');
+
+    await pool.query(
+      'UPDATE paddle_checkout_attempts SET recovery_next_attempt_at = statement_timestamp() WHERE user_id = $1',
+      [fixture.userId]
+    );
+    const notVisible = await runPaddleCheckoutRecoveryOnce(pool, {
+      apiKey: 'sandbox_test_key', environment: 'sandbox', fetchImpl, dryRun: false
+    });
+    assert.equal(notVisible.action, 'not_found',
+      'a temporarily invisible transaction remains unknown and is not treated as a failed checkout');
+    state = await pool.query(
+      'SELECT status, transaction_id, recovery_attempt_count FROM paddle_checkout_attempts WHERE user_id = $1',
+      [fixture.userId]
+    );
+    assert.equal(state.rows[0].status, 'creating');
+    assert.equal(state.rows[0].transaction_id, null);
+    assert.equal(Number(state.rows[0].recovery_attempt_count), 2);
+
+    await pool.query(
+      'UPDATE paddle_checkout_attempts SET recovery_next_attempt_at = statement_timestamp() WHERE user_id = $1',
+      [fixture.userId]
+    );
+    const visible = await runPaddleCheckoutRecoveryOnce(pool, {
+      apiKey: 'sandbox_test_key', environment: 'sandbox', fetchImpl, dryRun: false
+    });
+    assert.equal(visible.action, 'attach_pending');
+    assert.equal(visible.transactionId, 'txn_delayed_visible123');
+    assert.equal(providerReads, 3);
+    assert.deepEqual(methods, ['GET', 'GET', 'GET'],
+      'timeouts and delayed visibility must never trigger a transaction-creation POST');
+    state = await pool.query(
+      'SELECT status, transaction_id, recovery_attempt_count FROM paddle_checkout_attempts WHERE user_id = $1',
+      [fixture.userId]
+    );
+    assert.equal(state.rows[0].status, 'pending');
+    assert.equal(state.rows[0].transaction_id, 'txn_delayed_visible123');
+    assert.equal(Number(state.rows[0].recovery_attempt_count), 3);
+  } finally {
+    await pool.end();
+  }
+}));
+
+test('retry exhaustion quarantines an unknown checkout instead of creating a replacement transaction', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => withSandboxPriceConfig(async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
+  const fixture = await createAttempt(pool, 'retry-exhaustion');
+  let method;
+  try {
+    await pool.query(
+      'UPDATE paddle_checkout_attempts SET recovery_attempt_count = $2 WHERE user_id = $1',
+      [fixture.userId, 4]
+    );
+    await assert.rejects(
+      runPaddleCheckoutRecoveryOnce(pool, {
+        apiKey: 'sandbox_test_key',
+        environment: 'sandbox',
+        fetchImpl: async (_url, options) => {
+          method = options.method;
+          throw new Error('simulated_provider_timeout');
+        },
+        dryRun: false
+      }),
+      /simulated_provider_timeout/
+    );
+    const state = await pool.query(
+      'SELECT status, transaction_id, recovery_attempt_count, recovery_lease_token, recovery_last_error_code FROM paddle_checkout_attempts WHERE user_id = $1',
+      [fixture.userId]
+    );
+    assert.equal(state.rows[0].status, 'reconciliation_required');
+    assert.equal(state.rows[0].transaction_id, null);
+    assert.equal(Number(state.rows[0].recovery_attempt_count), 5);
+    assert.equal(state.rows[0].recovery_lease_token, null);
+    assert.equal(state.rows[0].recovery_last_error_code, 'simulated_provider_timeout');
+    assert.equal(method, 'GET', 'exhaustion must quarantine; it must not retry transaction creation');
+  } finally {
+    await pool.end();
+  }
+}));
