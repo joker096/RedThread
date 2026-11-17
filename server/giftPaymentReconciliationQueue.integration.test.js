@@ -209,8 +209,8 @@ test('gift reconciliation task completion requires a same-transaction provider o
       [orderId, matchId, senderId, recipientId, idempotencyKey]
     );
     const task = await client.query(
-      'INSERT INTO gift_payment_reconciliation_tasks (order_id, reason) ' +
-      'VALUES ($1, \'recipient_opted_out\') RETURNING id',
+      'INSERT INTO gift_payment_reconciliation_tasks (order_id, reason, next_attempt_at) ' +
+      'VALUES ($1, \'recipient_opted_out\', TIMESTAMPTZ \'1900-01-01 00:00:00+00\') RETURNING id',
       [orderId]
     );
     const taskId = task.rows[0].id;
