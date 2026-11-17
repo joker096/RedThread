@@ -55,6 +55,10 @@ test('only exact attempt, owner, plan, configured price and quantity are matched
   assert.equal(paddleRecoveryTransactionMatches(transaction({
     items: [{ price: { id: 'pri_month' }, quantity: 2 }]
   }), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' }).kind, 'price_conflict');
+  assert.equal(paddleRecoveryTransactionMatches(transaction({ currency_code: 'EUR' }), attempt,
+    { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' }).kind, 'financial_snapshot_conflict');
+  assert.equal(paddleRecoveryTransactionMatches(transaction({ details: { totals: { total: '991' } } }), attempt,
+    { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' }).kind, 'financial_snapshot_conflict');
 });
 
 test('zero, unique, duplicate and paid matches fail closed', () => {
@@ -62,8 +66,8 @@ test('zero, unique, duplicate and paid matches fail closed', () => {
   assert.equal(paddleRecoveryDecision([], { pageLimitReached: true }).action, 'defer');
   assert.equal(paddleRecoveryDecision([paddleRecoveryTransactionMatches(transaction(), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' })]).action, 'attach_pending');
   assert.equal(paddleRecoveryDecision([
-    paddleRecoveryTransactionMatches(transaction(), attempt, 'pri_month'),
-    paddleRecoveryTransactionMatches(transaction({ id: 'txn_other123' }), attempt, 'pri_month')
+    paddleRecoveryTransactionMatches(transaction(), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' }),
+    paddleRecoveryTransactionMatches(transaction({ id: 'txn_other123' }), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' })
   ]).reason, 'multiple_provider_matches');
   assert.equal(paddleRecoveryDecision([
     paddleRecoveryTransactionMatches(transaction({ status: 'completed' }), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' })
