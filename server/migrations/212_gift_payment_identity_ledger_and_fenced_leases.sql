@@ -235,6 +235,15 @@ BEGIN
       RAISE EXCEPTION 'rescheduling failed gift reconciliation must preserve counters'
         USING ERRCODE = '23514';
     END IF;
+  ELSIF OLD.status = 'pending' AND NEW.status = 'failed'
+        AND NEW.dead_lettered_at IS NOT NULL THEN
+    IF NEW.attempt_count <> OLD.attempt_count
+       OR NEW.lease_generation <> OLD.lease_generation
+       OR NEW.lease_token IS NOT NULL OR NEW.lease_owner IS NOT NULL
+       OR NEW.claimed_at IS NOT NULL OR NEW.lease_expires_at IS NOT NULL THEN
+      RAISE EXCEPTION 'dead-lettering pending gift reconciliation must preserve counters and clear the lease'
+        USING ERRCODE = '23514';
+    END IF;
   ELSIF NEW.status IS DISTINCT FROM OLD.status THEN
     RAISE EXCEPTION 'invalid gift payment reconciliation task transition'
       USING ERRCODE = '23514';
