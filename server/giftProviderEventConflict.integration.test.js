@@ -22,6 +22,13 @@ test('verified gift provider event recording deduplicates and preserves conflict
     );
     assert.equal(inserted.rows[0].result, 'inserted');
 
+    await assert.rejects(
+      client.query(
+        "INSERT INTO gift_payment_provider_event_conflicts (provider_key, provider_event_id, original_payload_sha256, conflicting_payload_sha256, conflicting_event_type) VALUES ('test_provider', '   ', repeat('a', 64), repeat('b', 64), 'transaction.updated')"
+      ),
+      error => error.code === '23514'
+    );
+
     const duplicate = await client.query(
       'SELECT record_verified_gift_provider_event($1, $2, $3, $4, $5) AS result',
       [providerKey, eventId, 'transaction.updated', firstHash, '2026-01-01T00:00:00Z']
