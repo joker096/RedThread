@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 export const PADDLE_WEBHOOK_LEASE_MS = 5 * 60_000;
 export const PADDLE_WEBHOOK_HEARTBEAT_MS = 60_000;
@@ -16,6 +16,19 @@ function safeErrorCode(error) {
   return /^[a-z0-9_]{1,64}$/.test(code) ? code : 'paddle_webhook_processing_failed';
 }
 
+function stableJsonStringify(value) {
+  if (value === null || typeof value !== 'object') {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) throw new TypeError('invalid_paddle_event_value');
+    return serialized;
+  }
+  if (Array.isArray(value)) {
+    return '[' + value.map(item => item === undefined ? 'null' : stableJsonStringify(item)).join(',') + ']';
+  }
+  return '{' + Object.keys(value).filter(key => value[key] !== undefined).sort()
+    .map(key => JSON.stringify(key) + ':' + stableJsonStringify(value[key])).join(',') + '}';
+}
+
 export async function enqueueVerifiedPaddleWebhook(pool, event) {
   const eventId = event?.eventId || event?.event_id;
   const eventType = event?.eventType || event?.event_type;
@@ -27,15 +40,71 @@ export async function enqueueVerifiedPaddleWebhook(pool, event) {
       !event?.data || typeof event.data !== 'object' || Array.isArray(event.data)) {
     throw new Error('invalid_paddle_event');
   }
-  const result = await pool.query(
-    `INSERT INTO paddle_webhook_inbox
-       (event_id, event_type, occurred_at, payload, status)
-     VALUES ($1, $2, $3::timestamptz, $4::jsonb, 'pending')
-     ON CONFLICT (event_id) DO NOTHING
-     RETURNING event_id`,
-    [eventId, eventType, occurredAt, JSON.stringify(event)]
-  );
-  return { duplicate: result.rowCount === 0, queued: result.rowCount === 1 };
+
+  // Hash a canonical representation so object-key ordering cannot turn an
+  // identical verified delivery into a false conflict. The raw payload is
+  // still retained only while the inbox item is pending/retryable.
+  const serializedPayload = stableJsonStringify(event);
+  const payloadSha256 = createHash('sha256').update(serializedPayload).digest('hex');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const inserted = await client.query(
+      `INSERT INTO paddle_webhook_inbox
+         (event_id, event_type, occurred_at, payload, payload_sha256, status)
+       VALUES ($1, $2, $3::timestamptz, $4::jsonb, $5, 'pending')
+       ON CONFLICT (event_id) DO NOTHING
+       RETURNING event_id`,
+      [eventId, eventType, occurredAt, serializedPayload, payloadSha256]
+    );
+    if (inserted.rowCount === 1) {
+      await client.query('COMMIT');
+      return { duplicate: false, queued: true, conflict: false };
+    }
+
+    const original = await client.query(
+      `SELECT event_type, occurred_at, payload_sha256
+         FROM paddle_webhook_inbox
+        WHERE event_id = $1
+        FOR UPDATE`,
+      [eventId]
+    );
+    if (original.rowCount !== 1) throw new Error('paddle_webhook_inbox_conflict_lookup_failed');
+
+    const first = original.rows[0];
+    if (first.payload_sha256 && first.payload_sha256 === payloadSha256) {
+      await client.query('COMMIT');
+      return { duplicate: true, queued: false, conflict: false };
+    }
+
+    // A legacy row without a stored hash cannot be proven identical. Preserve
+    // the conflicting delivery as hash-only evidence and fail closed.
+    await client.query(
+      `INSERT INTO paddle_webhook_inbox_conflicts
+         (event_id, original_payload_sha256, conflicting_payload_sha256,
+          conflicting_event_type, conflicting_occurred_at)
+       VALUES ($1, $2, $3, $4, $5::timestamptz)
+       ON CONFLICT (event_id, conflicting_payload_sha256) DO NOTHING`,
+      [eventId, first.payload_sha256, payloadSha256, eventType, occurredAt]
+    );
+    // If the original has not started processing, quarantine it so a conflicting
+    // event ID cannot be applied by a worker after the conflict is known.
+    await client.query(
+      `UPDATE paddle_webhook_inbox
+          SET status = 'dead_letter', payload = NULL,
+              lease_token = NULL, lease_expires_at = NULL,
+              last_error_code = 'event_id_payload_conflict'
+        WHERE event_id = $1 AND status IN ('pending', 'retry')`,
+      [eventId]
+    );
+    await client.query('COMMIT');
+    return { duplicate: true, queued: false, conflict: true };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function claimPaddleWebhook(pool, {
