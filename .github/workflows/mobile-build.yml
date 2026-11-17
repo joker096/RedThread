@@ -15,30 +15,44 @@ on:
       - "scripts/capacitor-entitlements.mjs"
       - "docs/MOBILE_*.md"
       - ".github/workflows/mobile-build.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "capacitor.config.ts"
+      - "index.html"
+      - "public/**"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/ensure-capacitor-platform.mjs"
+      - "scripts/capacitor-entitlements.mjs"
+      - "docs/MOBILE_*.md"
+      - ".github/workflows/mobile-build.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: mobile-build-${{ github.ref }}
+  group: mobile-build-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
   android:
-    name: Android debug APK
+    name: Android emulator smoke test
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     env:
       VOW_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
       VITE_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Verify exact checked-out commit
         env:
-          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - uses: actions/setup-node@v4
         with:
@@ -59,27 +73,46 @@ jobs:
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
+      - name: Install, launch and exercise identity return deep link on Android Emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -eu
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            adb shell am force-stop com.vow.app
+            adb shell monkey -p com.vow.app 1
+            sleep 8
+            adb shell pidof com.vow.app
+            adb shell am start -W -a android.intent.action.VIEW -d 'vow://identity/return' com.vow.app
+            sleep 3
+            adb shell pidof com.vow.app
+            adb logcat -d -t 2500 | grep -E 'FATAL EXCEPTION|AndroidRuntime' && exit 1 || true
       - uses: actions/upload-artifact@v4
         with:
-          name: vow-android-debug-${{ github.sha }}
+          name: vow-android-debug-${{ github.event.pull_request.head.sha || github.sha }}
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
 
   ios:
-    name: iOS simulator build
+    name: iOS Simulator smoke test
     runs-on: macos-15
-    timeout-minutes: 40
+    timeout-minutes: 50
     env:
       VOW_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
       VITE_APP_LINK_HOST: ${{ vars.VOW_APP_LINK_HOST }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Verify exact checked-out commit
         env:
-          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - uses: actions/setup-node@v4
         with:
@@ -100,11 +133,27 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath ios/build \
             build
+      - name: Boot an available iPhone Simulator
+        run: |
+          DEVICE_UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if x["isAvailable"] and x["name"].startswith("iPhone")))' )"
+          echo "SIMULATOR_UDID=$DEVICE_UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE_UDID"
+          xcrun simctl bootstatus "$DEVICE_UDID" -b
+      - name: Install, launch and exercise identity return deep link on iOS Simulator
+        run: |
+          set -eu
+          APP_PATH="ios/build/Build/Products/Debug-iphonesimulator/App.app"
+          xcrun simctl install "$SIMULATOR_UDID" "$APP_PATH"
+          xcrun simctl launch "$SIMULATOR_UDID" com.vow.app
+          sleep 8
+          xcrun simctl openurl "$SIMULATOR_UDID" 'vow://identity/return'
+          sleep 3
+          xcrun simctl launch "$SIMULATOR_UDID" com.vow.app
       - name: Package simulator app
         run: ditto -c -k --sequesterRsrc --keepParent ios/build/Build/Products/Debug-iphonesimulator/App.app app-ios-simulator.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: vow-ios-simulator-${{ github.sha }}
+          name: vow-ios-simulator-${{ github.event.pull_request.head.sha || github.sha }}
           path: app-ios-simulator.zip
           if-no-files-found: error
           retention-days: 14
