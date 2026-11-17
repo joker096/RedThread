@@ -55,14 +55,14 @@ test('Docker database network is isolated from the public web proxy container', 
     assert.match(worker, /migrate:\n        condition: service_completed_successfully/);
     assert.match(worker, /PADDLE_ENVIRONMENT: \$\{PADDLE_ENVIRONMENT:-sandbox\}/);
   }
-  assert.match(paddleInboxWorker, /node server\/process-paddle-webhook-inbox\.js/);
+  assert.match(paddleInboxWorker, /command: \["node", "server\/process-paddle-webhook-inbox\.js"\]/);
   assert.match(paddleInboxWorker, /networks: \[backend\]/);
   assert.doesNotMatch(paddleInboxWorker, /PADDLE_API_KEY|PADDLE_WEBHOOK_SECRET|PADDLE_CLIENT_TOKEN/,
     'the inbox worker must not receive provider credentials or browser tokens');
   assert.match(paddleInboxWorker, /PADDLE_PRICE_ID_1MONTH/);
   assert.match(paddleInboxWorker, /PADDLE_PRICE_ID_3MONTHS/);
   assert.match(paddleInboxWorker, /PADDLE_PRICE_ID_LIFETIME/);
-  assert.match(paddleRecoveryWorker, /node server\/process-paddle-checkout-recovery\.js/);
+  assert.match(paddleRecoveryWorker, /command: \["node", "server\/process-paddle-checkout-recovery\.js"\]/);
   assert.match(paddleRecoveryWorker, /PADDLE_API_KEY: \$\{PADDLE_API_KEY:-\}/);
   assert.match(paddleRecoveryWorker, /PADDLE_CHECKOUT_RECOVERY_APPLY: \$\{PADDLE_CHECKOUT_RECOVERY_APPLY:-false\}/);
   assert.match(paddleRecoveryWorker, /PADDLE_EXPECTED_CURRENCY_CODE/);
