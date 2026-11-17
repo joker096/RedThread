@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
+import { verifyAccountErasurePrivacyRecovery } from './privacyRecoveryAccountErasureVerification.js';
 
 const OUTCOMES = Object.freeze({
   private_photo_erasure_requested: ['photo_erasure_queued', 'photos'],
   voice_intro_erasure_requested: ['voice_intro_erasure_queued', 'voice'],
   voice_intro_consent_withdrawn: ['voice_intro_consent_withdrawn', 'voice_consent'],
-  identity_l3_consent_withdrawn: ['identity_l3_consent_withdrawn', 'identity_l3_consent']
+  identity_l3_consent_withdrawn: ['identity_l3_consent_withdrawn', 'identity_l3_consent'],
+  account_erasure_requested: ['account_erasure_replayed', 'account_erasure']
 });
 
 function eventDigest(row) {
@@ -79,9 +81,9 @@ export async function verifyPrivateMediaPrivacyRecovery({
         throw new Error('privacy_recovery_verification_receipt_mismatch');
       }
       if (!row.subject_user_id ||
-          (['voice_consent', 'identity_l3_consent'].includes(expected[1]) ? row.resource_id !== null : !row.resource_id) ||
+          (['voice_consent', 'identity_l3_consent', 'account_erasure'].includes(expected[1]) ? row.resource_id !== null : !row.resource_id) ||
           !Number.isSafeInteger(Number(row.purge_count)) || Number(row.purge_count) < 0 ||
-          (expected[1] !== 'voice_consent' && Number(row.purge_count) !== 1)) {
+          (['photo', 'voice'].includes(expected[1]) && Number(row.purge_count) !== 1)) {
         throw new Error('privacy_recovery_verification_effect_missing');
       }
       effects.push(row);
@@ -171,15 +173,17 @@ export async function verifyPrivateMediaPrivacyRecovery({
     );
     const obligationRows = obligationsResult.rows || [];
     for (const row of effects) {
-      const expectedQueue = row.event_type === 'private_photo_erasure_requested'
-        ? 'private_photo'
+      const expectedQueues = row.event_type === 'private_photo_erasure_requested'
+        ? ['private_photo']
         : row.event_type === 'identity_l3_consent_withdrawn'
-          ? 'identity_l3_media' : 'private_voice_intro';
+          ? ['identity_l3_media']
+          : row.event_type === 'account_erasure_requested'
+            ? ['private_photo', 'private_voice_intro'] : ['private_voice_intro'];
       const eventObligations = obligationRows.filter(item =>
         String(item.ledger_sequence) === String(row.ledger_sequence)
       );
       if (eventObligations.length !== Number(row.purge_count) ||
-          eventObligations.some(item => item.queue_name !== expectedQueue)) {
+          eventObligations.some(item => !expectedQueues.includes(item.queue_name))) {
         throw new Error('privacy_recovery_verification_purge_obligation_missing');
       }
     }
@@ -217,6 +221,9 @@ export async function verifyPrivateMediaPrivacyRecovery({
 
     await client.query('COMMIT');
     open = false;
+    const accountVerification = events.some(row => row.event_type === 'account_erasure_requested')
+      ? await verifyAccountErasurePrivacyRecovery({ pool, env, snapshotLedgerSequence, throughSequence })
+      : { verifiedAccountErasureCount: 0 };
     return {
       complete: true,
       verifiedEventCount: events.length,
@@ -225,6 +232,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
       verifiedVoiceConsentWithdrawalCount: consentEffects.length,
       verifiedPurgeObligationCount: obligationRows.length,
       verifiedPurgeCompletionCount: completionRows.length,
+      verifiedAccountErasureCount: accountVerification.verifiedAccountErasureCount,
       throughSequence
     };
   } catch (error) {
