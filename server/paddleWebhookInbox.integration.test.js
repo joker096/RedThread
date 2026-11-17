@@ -8,10 +8,23 @@ import {
   completePaddleWebhook,
   processOnePaddleWebhook,
   paddleWebhookRetryDelayMs,
-  PADDLE_WEBHOOK_MAX_ATTEMPTS
+  PADDLE_WEBHOOK_MAX_ATTEMPTS,
+  stableJsonStringify
 } from './paddleWebhookInbox.js';
 
 const { Pool } = pg;
+
+
+test('canonical Paddle webhook serialization preserves hydrated dates and rejects unsupported objects', () => {
+  const first = stableJsonStringify({ occurredAt: new Date('2026-11-17T10:00:00.000Z'), data: { id: 'txn_1' } });
+  const same = stableJsonStringify({ data: { id: 'txn_1' }, occurredAt: new Date('2026-11-17T10:00:00.000Z') });
+  const different = stableJsonStringify({ occurredAt: new Date('2026-11-17T10:00:01.000Z'), data: { id: 'txn_1' } });
+  assert.equal(first, same, 'object key order must not affect canonical serialization');
+  assert.notEqual(first, different, 'different hydrated provider timestamps must remain distinguishable');
+  assert.throws(() => stableJsonStringify({ occurredAt: new Date('invalid') }), { message: 'invalid_paddle_event_date' });
+  class ProviderObject { constructor() { this.value = 1; } }
+  assert.throws(() => stableJsonStringify({ nested: new ProviderObject() }), { message: 'unsupported_paddle_event_object' });
+});
 
 test('Paddle webhook inbox retry policy is bounded and exponential', () => {
   assert.equal(paddleWebhookRetryDelayMs(1), 5_000);

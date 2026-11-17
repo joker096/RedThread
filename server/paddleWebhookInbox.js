@@ -16,7 +16,7 @@ function safeErrorCode(error) {
   return /^[a-z0-9_]{1,64}$/.test(code) ? code : 'paddle_webhook_processing_failed';
 }
 
-function stableJsonStringify(value) {
+export function stableJsonStringify(value) {
   if (value === null || typeof value !== 'object') {
     const serialized = JSON.stringify(value);
     if (serialized === undefined) throw new TypeError('invalid_paddle_event_value');
