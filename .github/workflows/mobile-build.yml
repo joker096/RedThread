@@ -91,7 +91,7 @@ jobs:
             adb shell am start -W -a android.intent.action.VIEW -d 'vow://identity/return' com.vow.app
             sleep 3
             adb shell pidof com.vow.app
-            adb logcat -d -t 2500 | grep -E 'FATAL EXCEPTION|AndroidRuntime' && exit 1 || true
+            if adb logcat -d -t 2500 | grep -E 'FATAL EXCEPTION|AndroidRuntime'; then exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
           name: vow-android-debug-${{ github.event.pull_request.head.sha || github.sha }}
