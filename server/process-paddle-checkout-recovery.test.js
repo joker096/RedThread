@@ -137,3 +137,24 @@ test('recovery metrics report queue, lease, quarantine and age counters', async 
   assert.match(captured.sql, /FILTER \(WHERE status = 'reconciliation_required'\)/);
   assert.match(captured.sql, /recovery_lease_expires_at/);
 });
+
+test('checkout recovery alerts expose only aggregate threshold markers', async () => {
+  const { paddleCheckoutRecoveryAlerts } = await import('./process-paddle-checkout-recovery.js');
+  assert.deepEqual(paddleCheckoutRecoveryAlerts({
+    reconciliationRequiredCount: 2,
+    exhaustedDueCount: 1,
+    oldestCreatingAgeSeconds: 301,
+    dueCount: 100
+  }), [
+    'reconciliation_required_attempts_present',
+    'recovery_attempts_exhausted',
+    'oldest_creating_attempt_over_5m',
+    'checkout_recovery_backlog_over_100'
+  ]);
+  assert.deepEqual(paddleCheckoutRecoveryAlerts({
+    reconciliationRequiredCount: 0,
+    exhaustedDueCount: 0,
+    oldestCreatingAgeSeconds: 299,
+    dueCount: 99
+  }), []);
+});
