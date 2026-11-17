@@ -5,16 +5,6 @@ import { processPaddleEvent } from './paddleBilling.js';
 import { processOnePaddleWebhook } from './paddleWebhookInbox.js';
 
 const { Pool } = pg;
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) {
-  console.error('DATABASE_URL is required for the Paddle webhook inbox worker.');
-  process.exit(1);
-}
-if (process.env.PADDLE_ENVIRONMENT !== 'sandbox') {
-  console.error('Paddle webhook inbox worker is sandbox-only until a separately reviewed production design is approved.');
-  process.exit(1);
-}
-
 const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
 /**
@@ -74,6 +64,11 @@ export async function runPaddleWebhookInboxWorker({
 }
 
 async function main() {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error('DATABASE_URL is required for the Paddle webhook inbox worker.');
+  if (process.env.PADDLE_ENVIRONMENT !== 'sandbox') {
+    throw new Error('Paddle webhook inbox worker is sandbox-only until a separately reviewed production design is approved.');
+  }
   const pool = new Pool({
     connectionString: databaseUrl,
     max: 4,
