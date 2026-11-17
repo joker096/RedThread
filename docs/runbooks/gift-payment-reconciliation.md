@@ -6,6 +6,18 @@ The worker has no default provider adapter. Do not deploy or invoke it until a r
 
 The worker does not create payments, issue void/refund commands, cancel provider transactions, fulfil gifts, or grant entitlements. It only records a provider-confirmed terminal state already observed by the adapter. Never configure Production credentials. No provider-specific gift payment integration is currently enabled.
 
+## Verified event inbox contract
+
+Migration 214 adds `record_verified_gift_provider_event(...)`. Its caller MUST verify the provider signature against the exact raw request bytes, enforce timestamp/replay limits, and validate provider account/environment before calling it. The SQL function does not perform cryptographic verification and must never be exposed as an unauthenticated public endpoint.
+
+- A new verified event returns `inserted`.
+- An identical redelivery (same provider, event ID, hash, type and occurrence time) returns `duplicate`.
+- Reuse of an event ID with different content returns `conflict`, stores only the competing hash and event metadata in append-only conflict evidence, and quarantines the original inbox row if it is still pending.
+- Raw webhook bodies, signatures, personal data and payment credentials are never persisted by this inbox.
+- Conflicting event evidence is append-only. Do not delete, rewrite, or merge it manually.
+
+The inbox function does not update gift order/payment state and does not assert event ordering. A webhook event is a reconciliation signal only. The read-only provider lookup remains the source of truth for terminal payment state; stale or out-of-order webhook deliveries must never directly roll back an order state. The actual HTTP signature-verification route and its integration tests remain unimplemented.
+
 ## Operational health
 
 Query the aggregate view; it contains counters only and does not expose account or recipient data:
@@ -33,6 +45,10 @@ LIMIT 100;
 SELECT processing_status, COUNT(*)
 FROM gift_payment_provider_event_inbox
 GROUP BY processing_status;
+
+SELECT provider_key, COUNT(*)
+FROM gift_payment_provider_event_conflicts
+GROUP BY provider_key;
 ```
 
 Do not copy provider references or recipient data into tickets or logs. Do not edit completed tasks or append-only identity/event evidence.
@@ -52,6 +68,7 @@ Claims use `FOR UPDATE SKIP LOCKED`. Each claim increments `attempt_count` and `
 ## Current limitations
 
 - No gift payment provider adapter is configured.
-- Webhook signature verification/route integration and convergence with the attempt ledger are still separate implementation work.
+- No HTTP webhook route performs provider signature verification or calls the verified-event inbox function yet.
+- Verified event ingestion does not enqueue work or change payment status; that must be wired only to the existing read-only reconciliation process.
 - The current health view supplies aggregate SQL metrics; external alert delivery is not configured.
 - Production activation and live financial operations are prohibited.
