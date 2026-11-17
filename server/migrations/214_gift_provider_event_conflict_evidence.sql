@@ -97,6 +97,11 @@ BEGIN
 END;
 $record_verified_gift_provider_event$;
 
+-- The inbox function is a privileged boundary: only the trusted application
+-- database role may call it after verifying the exact raw-body signature.
+-- Never leave EXECUTE granted to PostgreSQL PUBLIC by default.
+REVOKE ALL ON FUNCTION record_verified_gift_provider_event(VARCHAR, VARCHAR, VARCHAR, CHAR, TIMESTAMPTZ) FROM PUBLIC;
+
 COMMENT ON TABLE gift_payment_provider_event_conflicts IS
   'Append-only hashes and metadata for verified webhook deliveries that reuse an event ID with different content; raw payloads and personal data are never stored.';
 COMMENT ON FUNCTION record_verified_gift_provider_event(VARCHAR, VARCHAR, VARCHAR, CHAR, TIMESTAMPTZ) IS

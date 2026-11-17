@@ -16,6 +16,17 @@ test('verified gift provider event recording deduplicates and preserves conflict
   const firstHash = 'a'.repeat(64);
   const conflictHash = 'b'.repeat(64);
   try {
+    const publicExecute = await client.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM pg_proc AS proc
+         CROSS JOIN LATERAL aclexplode(COALESCE(proc.proacl, acldefault('f', proc.proowner))) AS privilege
+         WHERE proc.oid = 'record_verified_gift_provider_event(VARCHAR,VARCHAR,VARCHAR,CHAR,TIMESTAMPTZ)'::regprocedure
+           AND privilege.grantee = 0 AND privilege.privilege_type = 'EXECUTE'
+       ) AS granted_to_public`
+    );
+    assert.equal(publicExecute.rows[0].granted_to_public, false,
+      'verified event ingestion must not be executable by PostgreSQL PUBLIC');
+
     const inserted = await client.query(
       'SELECT record_verified_gift_provider_event($1, $2, $3, $4, $5) AS result',
       [providerKey, eventId, 'transaction.updated', firstHash, '2026-01-01T00:00:00Z']
