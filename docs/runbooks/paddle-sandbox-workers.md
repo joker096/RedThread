@@ -72,3 +72,25 @@ docker compose --profile paddle-sandbox stop paddle-webhook-inbox-worker paddle-
 Stop the affected worker immediately if it makes an unexpected network request, logs secrets or personal data, processes an unverified event, or produces a financial identity mismatch. Preserve aggregate metrics, event IDs/hashes, lease generations, and quarantine reason codes. Do not manually clear leases while a worker may still be running.
 
 Do not use this runbook to activate Production. Production payment processing remains disabled pending a separate approved design, compliance review, provider authorization, and a new Draft PR with independent acceptance tests.
+
+
+## Webhook inbox queue health and alert thresholds
+
+The inbox worker emits aggregate-only metrics every 60 seconds. It never selects or logs event payloads, event IDs, customer identifiers, or user data for these metrics.
+
+Counters:
+- `pendingCount`: verified events waiting for their first processing attempt.
+- `retryCount`: events waiting for a scheduled retry.
+- `processingCount`: events currently held under a worker lease.
+- `expiredLeaseCount`: processing rows whose lease expired and can be reclaimed.
+- `deadLetterCount`: events quarantined after bounded processing attempts or an identity conflict.
+- `dueCount`: pending/retry events whose next attempt time has arrived.
+- `oldestUnfinishedAgeSeconds`: age of the oldest pending, retry, or processing event.
+
+The worker logs alert markers when any of these conditions are present:
+- `dead_letter_events_present`: inspect the dead-letter reason code and linked reconciliation case; do not replay blindly.
+- `expired_worker_leases_present`: check worker restarts, database connectivity, and whether a previous worker is still alive before manual intervention.
+- `oldest_event_over_5m`: investigate sustained processing delay.
+- `backlog_over_100_due_events`: inspect worker health and database capacity.
+
+These are operational alert signals, not automatic repair commands. Never delete or manually reset queue rows/leases to silence an alert. Preserve append-only conflict evidence and use the existing reconciliation procedures for financial identity mismatches.
