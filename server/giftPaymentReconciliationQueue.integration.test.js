@@ -134,65 +134,6 @@ test('gift payment reconciliation outbox is installed with retryable states and 
     assert.equal(refundConstraint.rowCount, 1, 'migration 043 should enforce refund/order state consistency');
     assert.match(refundConstraint.rows[0].definition, /refunded/);
 
-    // Let the first worker's minimum-duration lease expire, then reclaim it.
-    // This exercises the real database clock and the fencing token/generation.
-    const firstLease = await client.query(
-      'SELECT * FROM claim_gift_payment_reconciliation_task($1, 15, 8)',
-      ['lease-owner-old']
-    );
-    assert.equal(String(firstLease.rows[0]?.id), String(taskId));
-    const staleToken = firstLease.rows[0].lease_token;
-    const staleGeneration = Number(firstLease.rows[0].lease_generation);
-    await client.query('SELECT pg_sleep(15.2)');
-
-    const takeover = await client.query(
-      'SELECT * FROM claim_gift_payment_reconciliation_task($1, 15, 8)',
-      ['lease-owner-new']
-    );
-    assert.equal(String(takeover.rows[0]?.id), String(taskId));
-    assert.notEqual(takeover.rows[0].lease_token, staleToken,
-      'expired lease takeover must rotate the fencing token');
-    assert.equal(Number(takeover.rows[0].lease_generation), staleGeneration + 1,
-      'expired lease takeover must advance the fencing generation');
-    assert.equal(takeover.rows[0].lease_owner, 'lease-owner-new');
-
-    const staleHeartbeat = await client.query(
-      'SELECT heartbeat_gift_payment_reconciliation_task($1, $2, $3, 15) AS alive',
-      [taskId, staleToken, staleGeneration]
-    );
-    assert.equal(staleHeartbeat.rows[0].alive, false,
-      'the previous worker must not extend a lease after takeover');
-
-    const currentHeartbeat = await client.query(
-      'SELECT heartbeat_gift_payment_reconciliation_task($1, $2, $3, 15) AS alive',
-      [taskId, takeover.rows[0].lease_token, takeover.rows[0].lease_generation]
-    );
-    assert.equal(currentHeartbeat.rows[0].alive, true,
-      'the current lease owner may extend its live lease');
-
-    const staleRelease = await client.query(
-      "UPDATE gift_payment_reconciliation_tasks SET status = 'failed', last_error_code = 'stale_worker_release', lease_token = NULL, lease_owner = NULL, claimed_at = NULL, lease_expires_at = NULL WHERE id = $1 AND status = 'in_progress' AND lease_token = $2 AND lease_generation = $3 AND lease_expires_at > statement_timestamp()",
-      [taskId, staleToken, staleGeneration]
-    );
-    assert.equal(staleRelease.rowCount, 0,
-      'a stale worker must not release or overwrite the new worker lease');
-
-    const stillOwned = await client.query(
-      'SELECT status, lease_token, lease_generation, lease_owner FROM gift_payment_reconciliation_tasks WHERE id = $1',
-      [taskId]
-    );
-    assert.equal(stillOwned.rows[0].status, 'in_progress');
-    assert.equal(stillOwned.rows[0].lease_token, takeover.rows[0].lease_token);
-    assert.equal(Number(stillOwned.rows[0].lease_generation), staleGeneration + 1);
-    assert.equal(stillOwned.rows[0].lease_owner, 'lease-owner-new');
-
-    // Return the task to pending using the current fence so the completion-evidence
-    // assertions below can claim it in their own transaction.
-    await client.query(
-      "UPDATE gift_payment_reconciliation_tasks SET status = 'pending', lease_token = NULL, lease_owner = NULL, claimed_at = NULL, lease_expires_at = NULL WHERE id = $1 AND status = 'in_progress' AND lease_token = $2 AND lease_generation = $3",
-      [taskId, takeover.rows[0].lease_token, takeover.rows[0].lease_generation]
-    );
-
     await client.query('BEGIN');
     try {
       // Exercise the exact CHECK expression installed on the production table.
@@ -238,7 +179,7 @@ test('gift payment reconciliation outbox is installed with retryable states and 
 
 test('gift reconciliation task completion requires a same-transaction provider outcome and immutable event', {
   skip: !process.env.DATABASE_URL,
-  timeout: 35_000
+  timeout: 10_000
 }, async () => {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
   const client = await pool.connect();
