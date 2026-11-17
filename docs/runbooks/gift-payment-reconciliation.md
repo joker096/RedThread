@@ -2,73 +2,55 @@
 
 ## Safety boundary
 
-The worker has no default provider adapter. Do not deploy or invoke it until a reviewed sandbox adapter is explicitly injected by the application composition root. The adapter contract is strictly read-only `lookup({ providerKey, providerReference, idempotencyKey })`; it must query the provider's existing transaction state and return the exact provider identity, amount, currency, and a terminal provider-observed status. It must never create, authorize, capture, void, cancel, or refund a transaction. Unknown, pending, mismatched, or incomplete responses are not success.
+The reconciliation worker has no default provider adapter. Any future adapter must be explicitly reviewed and injected, and its lookup contract must remain read-only. No gift provider, verifier, account, or environment is currently configured. Paddle remains sandbox-only pending written approval; Production and Stripe are prohibited.
 
-The worker does not create payments, issue void/refund commands, cancel provider transactions, fulfil gifts, or grant entitlements. It only records a provider-confirmed terminal state already observed by the adapter. Never configure Production credentials. No provider-specific gift payment integration is currently enabled.
+The webhook route accepts exact raw bytes and delegates signature, timestamp, and replay verification to an injected verifier. It rejects any provider configuration other than sandbox. The inbox stores only the raw-body SHA-256 plus bounded verified routing metadata: provider account, environment, provider reference, amount in minor units, currency, event ID/type and timestamps. Raw payloads, signatures, recipient data and payment credentials are never stored.
 
-## Verified event inbox contract
+## Fenced inbox processor
 
-Migration 214 adds `record_verified_gift_provider_event(...)`. Its caller MUST verify the provider signature against the exact raw request bytes, enforce timestamp/replay limits, and validate provider account/environment before calling it. The SQL function does not perform cryptographic verification and must never be exposed as an unauthenticated public endpoint.
+Migration 215 adds a separate event processor lease, independent from the order reconciliation task lease:
 
-- A new verified event returns `inserted`.
-- An identical redelivery (same provider, event ID, hash, type and occurrence time) returns `duplicate`.
-- Reuse of an event ID with different content returns `conflict`, stores only the competing hash and event metadata in append-only conflict evidence, and quarantines the original inbox row if it is still pending.
-- Raw webhook bodies, signatures, personal data and payment credentials are never persisted by this inbox.
-- Conflicting event evidence is append-only. Do not delete, rewrite, or merge it manually.
+- Claims one pending event using `FOR UPDATE SKIP LOCKED`.
+- Every claim increments attempt count and fencing generation and rotates the opaque lease token.
+- Expired leases can be reclaimed after a worker restart. A stale worker cannot mark an event processed or quarantined.
+- Exact matching uses `provider_key + provider_reference` against the immutable `gift_payment_attempt_identity` row.
+- Provider account and environment are checked again against the explicitly injected sandbox provider configuration.
+- Amount and currency must exactly equal the immutable payment-attempt snapshot.
+- Unknown references, missing provider configuration, account/environment mismatches, and amount/currency mismatches are quarantined.
+- A successful match records the immutable `matched_attempt_id` and atomically makes an already-existing, retryable order reconciliation task due. It does not create lifecycle work from a webhook alone.
+- The processor never calls a provider, changes order/payment state, captures/refunds/voids a transaction, fulfils a gift, or grants an entitlement. The read-only reconciliation worker remains responsible for provider lookup and the separately fenced order-state transition.
 
-The inbox function does not update gift order/payment state and does not assert event ordering. A webhook event is a reconciliation signal only. The read-only provider lookup remains the source of truth for terminal payment state; stale or out-of-order webhook deliveries must never directly roll back an order state. A provider-neutral HTTP route exists and delegates exact raw-body signature, timestamp, and replay verification to an injected verifier before calling the inbox function. The provider registry in the API composition is deliberately empty, so every gift webhook currently returns a fail-closed 503. No provider verifier, account, or environment is configured.
+An event ID reused with different content remains append-only conflict evidence and quarantines the original pending event. No conflict resolution may overwrite the original hash or metadata.
 
 ## Operational health
 
-Query the aggregate view; it contains counters only and does not expose account or recipient data:
+Aggregate counters only; no account or recipient data is exposed:
 
 ```sql
 SELECT * FROM gift_payment_reconciliation_health;
-```
-
-Signals to alert on:
-- `due_tasks > 0` for longer than the worker polling SLO.
-- `expired_leases > 0` across two consecutive polling intervals.
-- `dead_letter_tasks > 0` (manual review required).
-- `tasks_missing_payment_identity > 0` (manual review; never infer identity).
-- `quarantined_provider_events > 0` (verify signature/identity conflict handling).
-
-## Read-only investigation
-
-```sql
-SELECT id, status, attempt_count, next_attempt_at, last_error_code,
-       lease_generation, lease_expires_at, dead_lettered_at
-FROM gift_payment_reconciliation_tasks
-ORDER BY created_at DESC
-LIMIT 100;
-
 SELECT processing_status, COUNT(*)
 FROM gift_payment_provider_event_inbox
 GROUP BY processing_status;
-
-SELECT provider_key, COUNT(*)
-FROM gift_payment_provider_event_conflicts
-GROUP BY provider_key;
+SELECT quarantine_code, COUNT(*)
+FROM gift_payment_provider_event_inbox
+WHERE processing_status = 'quarantined'
+GROUP BY quarantine_code;
 ```
 
-Do not copy provider references or recipient data into tickets or logs. Do not edit completed tasks or append-only identity/event evidence.
+Alert on due reconciliation tasks, expired leases, dead-lettered tasks, quarantined events, and tasks missing immutable payment identity. Do not copy provider references or recipient data into tickets or logs.
 
-## Recovery
+## Recovery and validation
 
-1. Disable the worker process if it is repeatedly failing, making unexpected provider calls, or producing identity/amount mismatches.
-2. Keep the provider adapter read-only. Preserve the task, lease generation, event hash, and audit evidence.
-3. Review dead-lettered or quarantined records manually against the provider's sandbox dashboard using the least-privilege operator account.
-4. Correct application code or adapter behavior in a Draft PR. Do not rewrite identity rows, re-use a provider reference, or force task completion.
-5. Re-run migrations, CI, Browser E2E, and PostgreSQL concurrency/crash tests on one exact commit SHA before considering deployment.
-
-## Lease semantics
-
-Claims use `FOR UPDATE SKIP LOCKED`. Each claim increments `attempt_count` and `lease_generation`, and rotates the opaque lease token. An expired lease can be reclaimed. Heartbeat and completion must match both token and generation and require a still-live lease; stale workers cannot finish after a takeover. Retry exhaustion is recorded with `dead_lettered_at` and is excluded from future claims.
+1. Stop the worker if it produces unexpected network calls, payment mutations, or integrity mismatches.
+2. Preserve event hashes, verified metadata, attempt identity, task state, lease generation and quarantine evidence.
+3. Investigate quarantined events against the provider's sandbox dashboard using a least-privilege operator account.
+4. Correct code only in a Draft PR; never rewrite immutable identity or event evidence.
+5. Require CI, Browser E2E, PostgreSQL concurrency/restart tests, and exact checkout-SHA verification on the same final commit before considering the change verified.
 
 ## Current limitations
 
-- No gift payment provider adapter is configured.
-- The HTTP route is present, but no provider verifier/account/environment is configured; it therefore fails closed with 503.
-- Verified event ingestion does not enqueue work or change payment status. There is not yet a safe event-to-order mapping/processor; the existing order reconciliation queue is separate and must not be fed by guessed references.
-- The current health view supplies aggregate SQL metrics; external alert delivery is not configured.
+- The provider registry remains empty, so the public gift webhook route continues to fail closed with HTTP 503.
+- No provider-specific cryptographic verifier or gift-payment provider adapter is enabled.
+- The processor is not wired into an executable deployment composition.
+- External alert delivery and retention policy review remain outstanding.
 - Production activation and live financial operations are prohibited.
