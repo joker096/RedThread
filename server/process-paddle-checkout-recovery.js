@@ -175,6 +175,16 @@ export async function getPaddleCheckoutRecoveryMetrics(pool) {
   };
 }
 
+export function paddleCheckoutRecoveryAlerts(metrics) {
+  const safe = metrics && typeof metrics === 'object' ? metrics : {};
+  const alerts = [];
+  if (Number(safe.reconciliationRequiredCount) > 0) alerts.push('reconciliation_required_attempts_present');
+  if (Number(safe.exhaustedDueCount) > 0) alerts.push('recovery_attempts_exhausted');
+  if (Number(safe.oldestCreatingAgeSeconds) >= 300) alerts.push('oldest_creating_attempt_over_5m');
+  if (Number(safe.dueCount) >= 100) alerts.push('checkout_recovery_backlog_over_100');
+  return alerts;
+}
+
 export async function claimPaddleCheckoutRecovery(pool, {
   leaseMs = PADDLE_CHECKOUT_RECOVERY_LEASE_MS,
   staleMs = PADDLE_CHECKOUT_RECOVERY_STALE_MS,
@@ -332,7 +342,13 @@ async function main() {
         }
       }
       const result = await runPaddleCheckoutRecoveryOnce(pool);
-      if (result.processed) console.log('Paddle checkout recovery:', JSON.stringify(result));
+      if (result.processed) console.log('Paddle checkout recovery:', JSON.stringify({
+        processed: true,
+        dryRun: result.dryRun === true,
+        action: result.action,
+        reason: result.reason,
+        pages: Number.isInteger(result.pages) ? result.pages : undefined
+      }));
       else if (!stopping) await new Promise(resolve => setTimeout(resolve, 5_000));
     } while (!stopping);
   } finally {
