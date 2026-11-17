@@ -20,7 +20,7 @@ test('verified gift provider event recording deduplicates and preserves conflict
       `SELECT EXISTS (
          SELECT 1 FROM pg_proc AS proc
          CROSS JOIN LATERAL aclexplode(COALESCE(proc.proacl, acldefault('f', proc.proowner))) AS privilege
-         WHERE proc.oid = 'record_verified_gift_provider_event(VARCHAR,VARCHAR,VARCHAR,CHAR,TIMESTAMPTZ)'::regprocedure
+         WHERE proc.oid = 'record_verified_gift_provider_event(VARCHAR,VARCHAR,VARCHAR,CHAR,TIMESTAMPTZ,VARCHAR,VARCHAR,VARCHAR,BIGINT,CHAR)'::regprocedure
            AND privilege.grantee = 0 AND privilege.privilege_type = 'EXECUTE'
        ) AS granted_to_public`
     );
@@ -28,8 +28,8 @@ test('verified gift provider event recording deduplicates and preserves conflict
       'verified event ingestion must not be executable by PostgreSQL PUBLIC');
 
     const inserted = await client.query(
-      'SELECT record_verified_gift_provider_event($1, $2, $3, $4, $5) AS result',
-      [providerKey, eventId, 'transaction.updated', firstHash, '2026-01-01T00:00:00Z']
+      'SELECT record_verified_gift_provider_event($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+      [providerKey, eventId, 'transaction.updated', firstHash, '2026-01-01T00:00:00Z', 'acct_sandbox_test', 'sandbox', 'txn_test_123', 12500, 'GEL']
     );
     assert.equal(inserted.rows[0].result, 'inserted');
 
@@ -58,14 +58,14 @@ test('verified gift provider event recording deduplicates and preserves conflict
     );
 
     const duplicate = await client.query(
-      'SELECT record_verified_gift_provider_event($1, $2, $3, $4, $5) AS result',
-      [providerKey, eventId, 'transaction.updated', firstHash, '2026-01-01T00:00:00Z']
+      'SELECT record_verified_gift_provider_event($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+      [providerKey, eventId, 'transaction.updated', firstHash, '2026-01-01T00:00:00Z', 'acct_sandbox_test', 'sandbox', 'txn_test_123', 12500, 'GEL']
     );
     assert.equal(duplicate.rows[0].result, 'duplicate');
 
     const conflict = await client.query(
-      'SELECT record_verified_gift_provider_event($1, $2, $3, $4, $5) AS result',
-      [providerKey, eventId, 'transaction.refunded', conflictHash, '2026-01-02T00:00:00Z']
+      'SELECT record_verified_gift_provider_event($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+      [providerKey, eventId, 'transaction.refunded', conflictHash, '2026-01-02T00:00:00Z', 'acct_sandbox_test', 'sandbox', 'txn_test_123', 12500, 'GEL']
     );
     assert.equal(conflict.rows[0].result, 'conflict');
 
@@ -92,8 +92,8 @@ test('verified gift provider event recording deduplicates and preserves conflict
     );
 
     const repeatedConflict = await client.query(
-      'SELECT record_verified_gift_provider_event($1, $2, $3, $4, $5) AS result',
-      [providerKey, eventId, 'transaction.refunded', conflictHash, '2026-01-02T00:00:00Z']
+      'SELECT record_verified_gift_provider_event($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+      [providerKey, eventId, 'transaction.refunded', conflictHash, '2026-01-02T00:00:00Z', 'acct_sandbox_test', 'sandbox', 'txn_test_123', 12500, 'GEL']
     );
     assert.equal(repeatedConflict.rows[0].result, 'conflict');
     const conflictCount = await client.query(
@@ -107,12 +107,12 @@ test('verified gift provider event recording deduplicates and preserves conflict
     const concurrentEventId = `test_concurrent_${randomUUID()}`;
     const concurrentResults = await Promise.all([
       pool.query(
-        'SELECT record_verified_gift_provider_event($1, $2, $3, $4, $5) AS result',
-        [providerKey, concurrentEventId, 'transaction.updated', firstHash, '2026-01-03T00:00:00Z']
+        'SELECT record_verified_gift_provider_event($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+        [providerKey, concurrentEventId, 'transaction.updated', firstHash, '2026-01-03T00:00:00Z', 'acct_sandbox_test', 'sandbox', 'txn_test_123', 12500, 'GEL']
       ),
       pool.query(
-        'SELECT record_verified_gift_provider_event($1, $2, $3, $4, $5) AS result',
-        [providerKey, concurrentEventId, 'transaction.updated', firstHash, '2026-01-03T00:00:00Z']
+        'SELECT record_verified_gift_provider_event($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result',
+        [providerKey, concurrentEventId, 'transaction.updated', firstHash, '2026-01-03T00:00:00Z', 'acct_sandbox_test', 'sandbox', 'txn_test_123', 12500, 'GEL']
       )
     ]);
     assert.deepEqual(
