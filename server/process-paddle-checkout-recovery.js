@@ -253,7 +253,7 @@ export async function runPaddleCheckoutRecoveryOnce(pool, {
     const listed = await listPaddleTransactionsForAttempt({ apiKey, attempt, fetchImpl, maxPages, expected });
     const classified = listed.matches.map(match => match);
     let decision = paddleRecoveryDecision(classified, { pageLimitReached: listed.pageLimitReached });
-    if (decision.action === 'not_found' && attempt.recovery_attempt_count >= PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS - 1) {
+    if (['not_found', 'defer'].includes(decision.action) && attempt.recovery_attempt_count >= PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS) {
       decision = { action: 'quarantine', reason: 'provider_match_not_proven_after_bounded_retries' };
     }
     const result = await finishRecovery(pool, attempt, decision, {
@@ -266,7 +266,10 @@ export async function runPaddleCheckoutRecoveryOnce(pool, {
     const code = typeof error?.message === 'string' && /^[a-z0-9_]{1,80}$/.test(error.message)
       ? error.message : 'paddle_recovery_failed';
     if (!dryRun) {
-      await finishRecovery(pool, attempt, { action: 'defer', reason: 'provider_lookup_failed' }, {
+      const exhausted = attempt.recovery_attempt_count >= PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS;
+      await finishRecovery(pool, attempt, exhausted
+        ? { action: 'quarantine', reason: 'provider_lookup_failed_after_bounded_retries' }
+        : { action: 'defer', reason: 'provider_lookup_failed' }, {
         dryRun: false, errorCode: code
       }).catch(() => {});
     }
