@@ -2,9 +2,9 @@
 
 ## Safety boundary
 
-The worker has no default provider adapter. Do not deploy or invoke it until a reviewed sandbox adapter is explicitly injected by the application composition root. The adapter contract is read-only `reconcile({ providerKey, providerReference, idempotencyKey })`; it must return the exact provider identity, amount, currency, and a terminal provider-observed status. Unknown, pending, mismatched, or incomplete responses are not success.
+The worker has no default provider adapter. Do not deploy or invoke it until a reviewed sandbox adapter is explicitly injected by the application composition root. The adapter contract is strictly read-only `lookup({ providerKey, providerReference, idempotencyKey })`; it must query the provider's existing transaction state and return the exact provider identity, amount, currency, and a terminal provider-observed status. It must never create, authorize, capture, void, cancel, or refund a transaction. Unknown, pending, mismatched, or incomplete responses are not success.
 
-This worker does not create payments, issue void/refund commands, cancel provider transactions, fulfil gifts, or grant entitlements. It only records a provider-confirmed terminal state already observed by the adapter. Never configure Production credentials. No provider-specific gift payment integration is currently enabled.
+The worker does not create payments, issue void/refund commands, cancel provider transactions, fulfil gifts, or grant entitlements. It only records a provider-confirmed terminal state already observed by the adapter. Never configure Production credentials. No provider-specific gift payment integration is currently enabled.
 
 ## Operational health
 
