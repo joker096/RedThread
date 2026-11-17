@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateGiftProviderOutcome, processOneGiftPaymentReconciliation } from './process-gift-payment-reconciliation.js';
+import { validateGiftProviderOutcome, processOneGiftPaymentReconciliation, giftReconciliationRetryDelaySeconds } from './process-gift-payment-reconciliation.js';
 
 const identity = {
   provider_key: 'sandbox_provider',
@@ -51,4 +51,14 @@ test('worker returns idle when no due reconciliation task exists', async () => {
     providerAdapter: { reconcile: async () => { throw new Error('must not be called'); } }
   });
   assert.deepEqual(result, { claimed: false });
+});
+
+test('reconciliation retries use bounded exponential backoff', () => {
+  assert.equal(giftReconciliationRetryDelaySeconds(1), 30);
+  assert.equal(giftReconciliationRetryDelaySeconds(2), 60);
+  assert.equal(giftReconciliationRetryDelaySeconds(3), 120);
+  assert.equal(giftReconciliationRetryDelaySeconds(8), 3600);
+  assert.equal(giftReconciliationRetryDelaySeconds(100), 3600);
+  assert.throws(() => giftReconciliationRetryDelaySeconds(0), RangeError);
+  assert.throws(() => giftReconciliationRetryDelaySeconds(1.5), RangeError);
 });
