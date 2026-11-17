@@ -68,6 +68,7 @@ CREATE TABLE gift_payment_attempt_identity (
   created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
   provider_reference_recorded_at TIMESTAMPTZ,
   UNIQUE (provider_key, provider_reference),
+  UNIQUE (order_id),
   CHECK ((provider_reference IS NULL) = (provider_reference_recorded_at IS NULL))
 );
 
@@ -325,7 +326,7 @@ COMMENT ON TABLE gift_payment_provider_event_inbox IS
     SELECT * INTO candidate
     FROM gift_payment_reconciliation_tasks
     WHERE (
-      (status IN ('pending', 'failed') AND next_attempt_at <= statement_timestamp())
+      (status IN ('pending', 'failed') AND dead_lettered_at IS NULL AND next_attempt_at <= statement_timestamp())
       OR (status = 'in_progress' AND lease_expires_at <= statement_timestamp())
     )
     ORDER BY next_attempt_at, created_at, id
