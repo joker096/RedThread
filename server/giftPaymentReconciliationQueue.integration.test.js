@@ -209,8 +209,8 @@ test('gift reconciliation task completion requires a same-transaction provider o
       [orderId, matchId, senderId, recipientId, idempotencyKey]
     );
     const task = await client.query(
-      'INSERT INTO gift_payment_reconciliation_tasks (order_id, reason) ' +
-      'VALUES ($1, \'recipient_opted_out\') RETURNING id',
+      'INSERT INTO gift_payment_reconciliation_tasks (order_id, reason, next_attempt_at) ' +
+      'VALUES ($1, \'recipient_opted_out\', TIMESTAMPTZ \'1900-01-01 00:00:00+00\') RETURNING id',
       [orderId]
     );
     const taskId = task.rows[0].id;
@@ -233,13 +233,15 @@ test('gift reconciliation task completion requires a same-transaction provider o
     );
 
     await client.query('BEGIN');
+    const claimedWithoutEvidence = await client.query(
+      'SELECT * FROM claim_gift_payment_reconciliation_task($1, 90, 8)',
+      ['completion-evidence-test']
+    );
+    assert.equal(String(claimedWithoutEvidence.rows[0]?.id), String(taskId));
     await client.query(
       'UPDATE gift_payment_reconciliation_tasks ' +
-      'SET status = \'in_progress\', attempt_count = attempt_count + 1 WHERE id = $1',
-      [taskId]
-    );
-    await client.query(
-      'UPDATE gift_payment_reconciliation_tasks SET status = \'completed\' WHERE id = $1',
+      'SET status = \'completed\', lease_token = NULL, lease_owner = NULL, ' +
+      'claimed_at = NULL, lease_expires_at = NULL WHERE id = $1',
       [taskId]
     );
     await assert.rejects(
@@ -272,13 +274,15 @@ test('gift reconciliation task completion requires a same-transaction provider o
       '\'fromPaymentStatus\', \'authorized\', \'toPaymentStatus\', \'voided\'))',
       [orderId, taskId]
     );
+    const claimedWithEvidence = await client.query(
+      'SELECT * FROM claim_gift_payment_reconciliation_task($1, 90, 8)',
+      ['completion-evidence-test']
+    );
+    assert.equal(String(claimedWithEvidence.rows[0]?.id), String(taskId));
     await client.query(
       'UPDATE gift_payment_reconciliation_tasks ' +
-      'SET status = \'in_progress\', attempt_count = attempt_count + 1 WHERE id = $1',
-      [taskId]
-    );
-    await client.query(
-      'UPDATE gift_payment_reconciliation_tasks SET status = \'completed\' WHERE id = $1',
+      'SET status = \'completed\', lease_token = NULL, lease_owner = NULL, ' +
+      'claimed_at = NULL, lease_expires_at = NULL WHERE id = $1',
       [taskId]
     );
     await client.query('COMMIT');
