@@ -62,7 +62,7 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: android-actions/setup-android@v4.0.4
-      - run: npm ci --no-audit --no-fund
+      - run: npm install --no-audit --no-fund
       - run: npm run build
       - name: Generate Android platform project
         run: npm run cap:ensure:android
@@ -117,7 +117,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci --no-audit --no-fund
+      - run: npm install --no-audit --no-fund
       - run: npm run build
       - name: Generate iOS platform project
         run: npm run cap:ensure:ios
