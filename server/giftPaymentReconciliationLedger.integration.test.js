@@ -59,7 +59,7 @@ test('gift payment reconciliation ledger installs fenced claim and immutable inb
 test('gift reconciliation claims are exclusive and expired leases fence stale workers', {
   skip: !process.env.DATABASE_URL,
   timeout: 35_000
-}, async t => {
+}, async () => {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
   const setup = await pool.connect();
   const senderId = (await import('node:crypto')).randomUUID();
@@ -140,16 +140,9 @@ test('gift reconciliation claims are exclusive and expired leases fence stale wo
       clientB.release();
     }
   } finally {
-    try {
-      if (taskId) {
-        await setup.query('DELETE FROM gift_payment_reconciliation_tasks WHERE id = $1', [taskId]);
-      }
-      await setup.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]);
-      await setup.query('DELETE FROM matches WHERE id = $1', [matchId]);
-      await setup.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[senderId, recipientId]]);
-    } finally {
-      setup.release();
-      await pool.end();
-    }
+    // These rows are append-only reconciliation evidence. CI uses a disposable database,
+    // so retain the fixture rather than bypassing the production immutability guards.
+    setup.release();
+    await pool.end();
   }
 });
