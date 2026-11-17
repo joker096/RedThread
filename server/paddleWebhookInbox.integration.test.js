@@ -71,7 +71,7 @@ test('verified Paddle events are durably deduplicated and worker completion is f
       [staleEventId]
     );
   } finally {
-    await pool.query('DELETE FROM paddle_webhook_inbox WHERE event_id LIKE $1', [eventId + '%']).catch(() => {});
+    await pool.query('DELETE FROM paddle_webhook_inbox WHERE event_id = ANY($1::text[])', [[eventId, eventId + '_stale']]).catch(() => {});
     await pool.end();
   }
 });
