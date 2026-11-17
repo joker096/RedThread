@@ -34,13 +34,17 @@ function assertUuid(value, code) {
   if (typeof value !== 'string' || !UUID.test(value)) throw new Error(code);
 }
 
-function assertMapping(row, mapping, pseudonymKey) {
+function assertSubjectMapping(row, mapping, pseudonymKey) {
   if (!mapping || mapping.status !== 'matched' || typeof pseudonymKey !== 'string' || pseudonymKey.length < 32) {
     throw new Error('privacy_recovery_mapping_unresolved');
   }
   assertUuid(mapping.subjectUserId, 'privacy_recovery_subject_mapping_invalid');
   const subjectRef = createHmac('sha256', pseudonymKey).update(mapping.subjectUserId, 'utf8').digest('hex');
   if (subjectRef !== String(row.subject_ref).toLowerCase()) throw new Error('privacy_recovery_subject_mapping_mismatch');
+}
+
+function assertMapping(row, mapping, pseudonymKey) {
+  assertSubjectMapping(row, mapping, pseudonymKey);
   if (!['voice_intro_consent_withdrawn', 'identity_l3_consent_withdrawn'].includes(row.event_type)) {
     assertUuid(mapping.resourceId, 'privacy_recovery_resource_mapping_invalid');
     const resourceRef = createHmac('sha256', pseudonymKey).update(mapping.resourceId, 'utf8').digest('hex');
@@ -112,6 +116,9 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
     const staged = await readStagedEvent(client, mapping);
     if (staged.event_type !== mapping.eventType) throw new Error('privacy_recovery_event_type_mismatch');
     const digest = digestEvent(staged);
+    // Resource rows may have been intentionally deleted by a successful replay,
+    // but an immutable receipt must never bypass subject-to-ledger validation.
+    assertSubjectMapping(staged, mapping, pseudonymKey);
     if (receiptLookup.rowCount) {
       const receipt = receiptLookup.rows[0];
       if (receiptLookup.rowCount !== 1 ||
