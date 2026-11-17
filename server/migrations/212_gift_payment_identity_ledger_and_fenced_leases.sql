@@ -10,14 +10,24 @@ ALTER TABLE gift_payment_reconciliation_tasks
   ADD COLUMN IF NOT EXISTS lease_generation BIGINT NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ;
 
+-- Older workers did not issue fencing tokens. Requeue their in-flight tasks
+-- before enforcing the new lease shape; no provider outcome is inferred.
+UPDATE gift_payment_reconciliation_tasks
+SET status = 'pending',
+    next_attempt_at = statement_timestamp(),
+    last_error_code = NULL,
+    completed_at = NULL,
+    lease_token = NULL,
+    lease_owner = NULL,
+    claimed_at = NULL,
+    lease_expires_at = NULL
+WHERE status = 'in_progress';
+
 DO $gift_reconciliation_lease_preflight$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM gift_payment_reconciliation_tasks
-    WHERE lease_generation < 0
-       OR (status = 'in_progress' AND
-           (lease_token IS NOT NULL OR lease_owner IS NOT NULL OR
-            claimed_at IS NOT NULL OR lease_expires_at IS NOT NULL))
+    WHERE lease_generation < 0 OR status = 'in_progress'
   ) THEN
     RAISE EXCEPTION 'gift reconciliation task lease state needs manual review before migration 212'
       USING ERRCODE = '23514';
@@ -189,7 +199,15 @@ BEGIN
         USING ERRCODE = '23514';
     END IF;
   ELSIF OLD.status = 'in_progress' AND NEW.status = 'in_progress' THEN
-    IF NEW.attempt_count <> OLD.attempt_count
+    IF OLD.lease_expires_at <= statement_timestamp()
+       AND NEW.lease_generation = OLD.lease_generation + 1
+       AND NEW.attempt_count = OLD.attempt_count + 1
+       AND NEW.lease_token IS NOT NULL AND NEW.lease_token <> OLD.lease_token
+       AND NEW.lease_owner IS NOT NULL AND NEW.claimed_at IS NOT NULL
+       AND NEW.lease_expires_at > NEW.claimed_at THEN
+      -- Expired lease takeover: a new token and generation fence every stale worker.
+      NULL;
+    ELSIF NEW.attempt_count <> OLD.attempt_count
        OR NEW.lease_generation <> OLD.lease_generation
        OR NEW.lease_token IS DISTINCT FROM OLD.lease_token
        OR NEW.lease_owner IS DISTINCT FROM OLD.lease_owner
@@ -244,6 +262,106 @@ DROP TRIGGER IF EXISTS gift_payment_reconciliation_tasks_guard_update
 CREATE TRIGGER gift_payment_reconciliation_tasks_guard_update
   BEFORE INSERT OR UPDATE ON gift_payment_reconciliation_tasks
   FOR EACH ROW EXECUTE FUNCTION guard_gift_payment_reconciliation_task_update();
+
+
+-- Atomic one-task claim. Expired leases may be reclaimed, but each takeover
+-- advances both attempt_count and lease_generation and rotates the token.
+CREATE OR REPLACE FUNCTION claim_gift_payment_reconciliation_task(
+  p_worker_id TEXT,
+  p_lease_seconds INTEGER DEFAULT 90,
+  p_max_attempts INTEGER DEFAULT 8
+)
+RETURNS SETOF gift_payment_reconciliation_tasks
+LANGUAGE plpgsql
+AS $gift_reconciliation_claim$
+DECLARE
+  candidate gift_payment_reconciliation_tasks%ROWTYPE;
+  claimed gift_payment_reconciliation_tasks%ROWTYPE;
+  new_token UUID;
+BEGIN
+  IF p_worker_id IS NULL OR p_worker_id !~ '^[A-Za-z0-9._:-]{1,120}
+  'Append-only identity ledger for gift payment attempts. It stores provider IDs and financial snapshots only; never infer provider identity from task text or client input.';
+COMMENT ON TABLE gift_payment_provider_event_inbox IS
+  'Deduplicated webhook evidence metadata. Raw webhook payloads and recipient personal data are deliberately not stored.';
+
+     OR p_lease_seconds < 15 OR p_lease_seconds > 600
+     OR p_max_attempts < 1 OR p_max_attempts > 20 THEN
+    RAISE EXCEPTION 'invalid gift reconciliation worker claim parameters'
+      USING ERRCODE = '22023';
+  END IF;
+
+  LOOP
+    SELECT * INTO candidate
+    FROM gift_payment_reconciliation_tasks
+    WHERE (
+      (status IN ('pending', 'failed') AND next_attempt_at <= statement_timestamp())
+      OR (status = 'in_progress' AND lease_expires_at <= statement_timestamp())
+    )
+    ORDER BY next_attempt_at, created_at, id
+    FOR UPDATE SKIP LOCKED
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+      RETURN;
+    END IF;
+
+    IF candidate.attempt_count >= p_max_attempts THEN
+      UPDATE gift_payment_reconciliation_tasks
+      SET status = 'failed',
+          last_error_code = 'max_attempts_exhausted',
+          dead_lettered_at = COALESCE(dead_lettered_at, statement_timestamp()),
+          lease_token = NULL, lease_owner = NULL,
+          claimed_at = NULL, lease_expires_at = NULL
+      WHERE id = candidate.id;
+      CONTINUE;
+    END IF;
+
+    new_token := gen_random_uuid();
+    UPDATE gift_payment_reconciliation_tasks
+    SET status = 'in_progress',
+        attempt_count = attempt_count + 1,
+        lease_generation = lease_generation + 1,
+        lease_token = new_token,
+        lease_owner = p_worker_id,
+        claimed_at = statement_timestamp(),
+        lease_expires_at = statement_timestamp() + make_interval(secs => p_lease_seconds),
+        dead_lettered_at = NULL
+    WHERE id = candidate.id
+    RETURNING * INTO claimed;
+
+    RETURN NEXT claimed;
+    RETURN;
+  END LOOP;
+END;
+$gift_reconciliation_claim$;
+
+-- Lease extension is fenced by both opaque token and monotonically increasing generation.
+CREATE OR REPLACE FUNCTION heartbeat_gift_payment_reconciliation_task(
+  p_task_id BIGINT, p_lease_token UUID, p_lease_generation BIGINT,
+  p_lease_seconds INTEGER DEFAULT 90
+)
+RETURNS BOOLEAN LANGUAGE plpgsql AS $gift_reconciliation_heartbeat$
+DECLARE affected INTEGER;
+BEGIN
+  IF p_lease_seconds < 15 OR p_lease_seconds > 600 THEN
+    RAISE EXCEPTION 'invalid gift reconciliation heartbeat duration' USING ERRCODE = '22023';
+  END IF;
+  UPDATE gift_payment_reconciliation_tasks
+  SET lease_expires_at = GREATEST(lease_expires_at,
+        statement_timestamp() + make_interval(secs => p_lease_seconds))
+  WHERE id = p_task_id AND status = 'in_progress'
+    AND lease_token = p_lease_token
+    AND lease_generation = p_lease_generation
+    AND lease_expires_at > statement_timestamp();
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  RETURN affected = 1;
+END;
+$gift_reconciliation_heartbeat$;
+
+COMMENT ON FUNCTION claim_gift_payment_reconciliation_task(TEXT, INTEGER, INTEGER) IS
+  'Claims one due gift reconciliation task using SKIP LOCKED; expired leases are reclaimed with a rotated token and incremented fencing generation.';
+COMMENT ON FUNCTION heartbeat_gift_payment_reconciliation_task(BIGINT, UUID, BIGINT, INTEGER) IS
+  'Extends only a still-live lease matching both token and generation; stale workers cannot heartbeat after takeover.';
 
 COMMENT ON TABLE gift_payment_attempt_identity IS
   'Append-only identity ledger for gift payment attempts. It stores provider IDs and financial snapshots only; never infer provider identity from task text or client input.';
