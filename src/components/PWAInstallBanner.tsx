@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useLocale } from '../i18n/LocaleProvider';
+import { isNativeVowApp } from '../utils/apiClient';
 import { 
   Smartphone, 
   Download, 
@@ -22,6 +23,7 @@ interface PWAInstallBannerProps {
 
 export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss }) => {
   const { t } = useLocale();
+  const nativeApp = isNativeVowApp();
   const [installed, setInstalled] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches
   );
@@ -66,7 +68,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onDismiss })
     };
   }, []);
 
-  if (!isOpen) return null;
+  if (nativeApp || !isOpen) return null;
 
   const handleInstall = async () => {
     if (!installPrompt || isInstalling) {
