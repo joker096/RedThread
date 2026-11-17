@@ -83,7 +83,8 @@ CREATE TABLE gift_payment_provider_event_inbox (
   id BIGSERIAL PRIMARY KEY,
   provider_key VARCHAR(80) NOT NULL
     CHECK (provider_key ~ '^[a-z][a-z0-9_]{1,79}$'),
-  provider_event_id VARCHAR(200) NOT NULL,
+  provider_event_id VARCHAR(200) NOT NULL
+    CHECK (length(btrim(provider_event_id)) BETWEEN 1 AND 200),
   event_type VARCHAR(120) NOT NULL
     CHECK (event_type ~ '^[a-z][a-z0-9_.-]{0,119}$'),
   payload_sha256 CHAR(64) NOT NULL
