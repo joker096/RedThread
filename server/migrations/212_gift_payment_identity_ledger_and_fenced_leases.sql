@@ -10,14 +10,27 @@ ALTER TABLE gift_payment_reconciliation_tasks
   ADD COLUMN IF NOT EXISTS lease_generation BIGINT NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ;
 
+-- Legacy in-flight tasks predate fencing tokens. Requeue them without
+-- assuming any provider-side outcome; the next worker must reconcile by identity.
+UPDATE gift_payment_reconciliation_tasks
+SET status = 'pending',
+    next_attempt_at = statement_timestamp(),
+    last_error_code = NULL,
+    completed_at = NULL
+WHERE status = 'in_progress'
+  AND lease_token IS NULL
+  AND lease_owner IS NULL
+  AND claimed_at IS NULL
+  AND lease_expires_at IS NULL;
+
 DO $gift_reconciliation_lease_preflight$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM gift_payment_reconciliation_tasks
     WHERE lease_generation < 0
        OR (status = 'in_progress' AND
-           (lease_token IS NOT NULL OR lease_owner IS NOT NULL OR
-            claimed_at IS NOT NULL OR lease_expires_at IS NOT NULL))
+           (lease_token IS NULL OR lease_owner IS NULL OR
+            claimed_at IS NULL OR lease_expires_at IS NULL))
   ) THEN
     RAISE EXCEPTION 'gift reconciliation task lease state needs manual review before migration 212'
       USING ERRCODE = '23514';
