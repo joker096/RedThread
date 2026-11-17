@@ -69,6 +69,7 @@ test('gift reconciliation claims are exclusive and expired leases fence stale wo
   const workerA = 'lease-test-worker-a';
   const workerB = 'lease-test-worker-b';
   let taskId;
+  let isolationLockHeld = false;
   try {
     for (const [id, suffix] of [[senderId, 'sender'], [recipientId, 'recipient']]) {
       await setup.query(
@@ -89,6 +90,15 @@ test('gift reconciliation claims are exclusive and expired leases fence stale wo
       [orderId]
     );
     taskId = task.rows[0].id;
+
+    // The CI database is shared by parallel integration tests. Lock every other
+    // queued task so both workers can only compete for this fixture task.
+    await setup.query('BEGIN');
+    isolationLockHeld = true;
+    await setup.query(
+      'SELECT id FROM gift_payment_reconciliation_tasks WHERE id <> $1 FOR UPDATE',
+      [taskId]
+    );
 
     const [clientA, clientB] = await Promise.all([pool.connect(), pool.connect()]);
     let firstClaim;
@@ -135,6 +145,8 @@ test('gift reconciliation claims are exclusive and expired leases fence stale wo
       );
       assert.equal(staleRelease.rowCount, 0,
         'a stale worker must not release or overwrite the new owner lease');
+      await setup.query('COMMIT');
+      isolationLockHeld = false;
     } finally {
       clientA.release();
       clientB.release();
@@ -142,6 +154,7 @@ test('gift reconciliation claims are exclusive and expired leases fence stale wo
   } finally {
     // These rows are append-only reconciliation evidence. CI uses a disposable database,
     // so retain the fixture rather than bypassing the production immutability guards.
+    if (isolationLockHeld) await setup.query('ROLLBACK').catch(() => {});
     setup.release();
     await pool.end();
   }
