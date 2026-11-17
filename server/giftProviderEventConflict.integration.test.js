@@ -22,11 +22,28 @@ test('verified gift provider event recording deduplicates and preserves conflict
     );
     assert.equal(inserted.rows[0].result, 'inserted');
 
-    await assert.rejects(
+    const invalidConflictInsert = (provider, event, originalHash, nextHash, eventType) =>
       client.query(
-        "INSERT INTO gift_payment_provider_event_conflicts (provider_key, provider_event_id, original_payload_sha256, conflicting_payload_sha256, conflicting_event_type) VALUES ('test_provider', '   ', repeat('a', 64), repeat('b', 64), 'transaction.updated')"
-      ),
-      error => error.code === '23514'
+        'INSERT INTO gift_payment_provider_event_conflicts ' +
+        '(provider_key, provider_event_id, original_payload_sha256, conflicting_payload_sha256, conflicting_event_type) ' +
+        'VALUES ($1, $2, $3, $4, $5)',
+        [provider, event, originalHash, nextHash, eventType]
+      );
+
+    await assert.rejects(
+      invalidConflictInsert(providerKey, '   ', firstHash, conflictHash, 'transaction.updated'),
+      error => error.code === '23514',
+      'conflict evidence must reject blank provider event IDs'
+    );
+    await assert.rejects(
+      invalidConflictInsert(' ', eventId, firstHash, conflictHash, 'transaction.updated'),
+      error => error.code === '23514',
+      'conflict evidence must reject malformed provider keys'
+    );
+    await assert.rejects(
+      invalidConflictInsert(providerKey, eventId, firstHash, conflictHash, 'Invalid Event Type'),
+      error => error.code === '23514',
+      'conflict evidence must reject malformed event types'
     );
 
     const duplicate = await client.query(
