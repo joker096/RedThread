@@ -43,6 +43,34 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.doesNotMatch(exposureRetentionWorker, /profiles:/,
     'daily exposure privacy cleanup must remain enabled in the default deployment');
   assert.deepEqual(networksFor('gift-request-expiry'), ['backend']);
+  const paddleInboxWorker = serviceBlock('paddle-webhook-inbox-worker');
+  const paddleRecoveryWorker = serviceBlock('paddle-checkout-recovery-worker');
+  assert.deepEqual(networksFor('paddle-webhook-inbox-worker'), ['backend']);
+  assert.deepEqual(networksFor('paddle-checkout-recovery-worker'), ['backend', 'egress']);
+  for (const worker of [paddleInboxWorker, paddleRecoveryWorker]) {
+    assert.match(worker, /profiles: \["paddle-sandbox"\]/,
+      'Paddle workers must be opt-in and absent from the default composition');
+    assert.match(worker, /cap_drop: \[ALL\]/);
+    assert.match(worker, /no-new-privileges:true/);
+    assert.match(worker, /migrate:\\n        condition: service_completed_successfully/);
+    assert.match(worker, /PADDLE_ENVIRONMENT: \$\{PADDLE_ENVIRONMENT:-sandbox\}/);
+  }
+  assert.match(paddleInboxWorker, /node server\/process-paddle-webhook-inbox\.js/);
+  assert.match(paddleInboxWorker, /networks: \[backend\]/);
+  assert.doesNotMatch(paddleInboxWorker, /PADDLE_API_KEY|PADDLE_WEBHOOK_SECRET|PADDLE_CLIENT_TOKEN/,
+    'the inbox worker must not receive provider credentials or browser tokens');
+  assert.match(paddleInboxWorker, /PADDLE_PRICE_ID_1MONTH/);
+  assert.match(paddleInboxWorker, /PADDLE_PRICE_ID_3MONTHS/);
+  assert.match(paddleInboxWorker, /PADDLE_PRICE_ID_LIFETIME/);
+  assert.match(paddleRecoveryWorker, /node server\/process-paddle-checkout-recovery\.js/);
+  assert.match(paddleRecoveryWorker, /PADDLE_API_KEY: \$\{PADDLE_API_KEY:-\}/);
+  assert.match(paddleRecoveryWorker, /PADDLE_CHECKOUT_RECOVERY_APPLY: \$\{PADDLE_CHECKOUT_RECOVERY_APPLY:-false\}/);
+  assert.match(paddleRecoveryWorker, /PADDLE_EXPECTED_CURRENCY_CODE/);
+  assert.match(paddleRecoveryWorker, /PADDLE_EXPECTED_AMOUNT_MINOR_1MONTH/);
+  assert.match(paddleRecoveryWorker, /PADDLE_EXPECTED_AMOUNT_MINOR_3MONTHS/);
+  assert.match(paddleRecoveryWorker, /PADDLE_EXPECTED_AMOUNT_MINOR_LIFETIME/);
+  assert.match(paddleRecoveryWorker, /networks: \[backend, egress\]/,
+    'only the sandbox read-only recovery worker may access the external network');
   assert.deepEqual(networksFor('identity-l3-expiry'), ['backend']);
   assert.deepEqual(networksFor('clamav'), ['backend']);
   assert.deepEqual(networksFor('identity-l3-worker'), ['backend']);
