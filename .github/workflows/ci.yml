@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "audit/**", "fix/**", "feat/**"]
+    branches: [main, "audit/**", "fix/**", "feat/**", "integration/**"]
   # Keep implementation/fix branches under the same verification gate.
   pull_request:
     branches: [main]
