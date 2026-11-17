@@ -113,9 +113,49 @@ Gate: письменное одобрение конкретной модели 
 - Android/iOS builds и emulator/simulator tests фиксируются отдельно и только при реальном наличии соответствующих workflows.
 - Все внешние операции остаются sandbox-only до отдельного разрешения.
 
-## Точка продолжения на 2026-11-17
-PR #445 HEAD: 01d645f4dfebef71daffaa38d46974a0f542a141.
-- CI run 44017977417: Success; exact checkout SHA step passed; migrations, lint, full test suite, build, API and web container builds passed.
-- Browser E2E run 44017977869: Success; exact checkout SHA step passed; npm run test:e2e passed.
-- Следующее: проверить, что PostgreSQL integration test не был skipped, затем добавить crash-window recovery и verified-event dedupe/out-of-order tests.
-- PR #445 остаётся Draft; main не менять и не сливать.
+## Точка продолжения на 2026-11-17 — актуализировано
+
+### Текущие PR и проверки
+
+- **PR #443 — Durable Webhook Inbox**
+  - HEAD: `e0d5e658d523636cc5b19feb676c6a981d04684c`.
+  - CI: run `44066860179` — Success; exact checkout SHA verified.
+  - Browser E2E: run `44066860393` — Success; exact checkout SHA verified.
+  - Дополнительно: canonical SHA-256, append-only conflict evidence, quarantine до claim, concurrent claim и replay/crash integration coverage.
+  - Остались: out-of-order transaction lifecycle tests, operational metrics/alerts и retention review.
+
+- **PR #444 — Orphaned Checkout Recovery**
+  - HEAD: `f325b4f638050e2acf6973379526c801bdc19802`.
+  - Добавлены PostgreSQL integration tests для конкурентного claim, lease takeover, stale worker fencing и сбоя после provider GET перед DB update с безопасной повторной read-only сверкой.
+  - CI и Browser E2E для этого SHA запущены; до их завершения предыдущие зелёные runs не засчитывать.
+  - Issue #439 остаётся открытым до проверки всех acceptance criteria, включая delayed visibility, provider timeout, retry exhaustion и virtual-device gates.
+
+- **PR #445 — Gift Payment Reconciliation Ledger**
+  - HEAD: `18ef566ab80d7b5ad2e9f83d10790e4c1b481e83`.
+  - CI: run `44062016968` — Success; exact checkout SHA verified.
+  - Browser E2E: run `44062016952` — Success; exact checkout SHA verified.
+  - PostgreSQL tests проверяют эксклюзивный claim, истечение lease, fencing и конфликтующие provider event IDs.
+
+- **PR #446 — Georgia Provider Roadmap**
+  - HEAD: `08ea08b0a8d5c7ee1ad5c31adec7b66c3bf1da4e`.
+  - Документационный PR; предварительный shortlist не является одобрением провайдера или разрешением на интеграцию.
+
+### Следующие задачи этапа 0
+
+1. Довести PR #443: out-of-order transaction events, backlog/dead-letter metrics, alerting и retention policy.
+2. Довести PR #444 по полному acceptance criteria Issue #439: delayed visibility, provider timeout, retry exhaustion, ambiguous/multiple matches, wrong owner/plan/price, crash/restart и stale lease.
+3. Проверить PR #445 на реальные DB crash/replay границы, а не только mock-проверки worker.
+4. Выполнить Issue #441: настоящий `package-lock.json`, `npm ci`, фиксированные версии зависимостей и одинаковый dependency graph для CI/E2E.
+5. Проверить наличие Android/iOS build и emulator/simulator workflows. Не объявлять virtual-device тесты пройденными, если такие jobs реально не запускались.
+
+### Коммерческие и эксплуатационные ограничения
+
+- Все PR остаются Draft; `main` не менять и не сливать.
+- Paddle worker и checkout recovery — только sandbox technical validation; это не означает, что Paddle одобрен для dating-модели Vow.
+- Stripe исключён. Не подключать коммерческого провайдера без письменного approval и отдельного решения.
+- Не включать Production, не выполнять реальные списания/возвраты/отмены.
+- Не менять VPS и существующие сайты.
+- Не создавать публичный web frontend Vow; целевые клиенты — Android и iOS.
+- Юрисдикция проекта — Грузия; владелец пока физическое лицо. Не предполагать LLC или статус individual entrepreneur.
+
+После каждого набора изменений запускать CI и Browser E2E на одном и том же актуальном HEAD SHA. Старые зелёные runs не засчитывать.
