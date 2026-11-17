@@ -95,6 +95,21 @@ test('gift reconciliation claims are exclusive and expired leases fence stale wo
       "INSERT INTO gift_delivery_orders (id, match_id, sender_id, recipient_id, product_name_snapshot, product_category, total_minor_units, currency, idempotency_key, status, payment_status) VALUES ($1, $2, $3, $4, 'Lease test gift', 'chocolate', 1500, 'USD', $5, 'awaiting_recipient_consent', 'authorized')",
       [orderId, matchId, senderId, recipientId, 'lease-test-' + orderId]
     );
+
+    await assert.rejects(
+      setup.query(
+        "INSERT INTO gift_payment_attempt_identity (order_id, attempt_id, provider_key, idempotency_key, amount_minor_units, currency) VALUES ($1, gen_random_uuid(), 'test_provider', '   ', 1500, 'USD')",
+        [orderId]
+      ),
+      error => error.code === '23514'
+    );
+    await assert.rejects(
+      setup.query(
+        "INSERT INTO gift_payment_attempt_identity (order_id, attempt_id, provider_key, provider_reference, provider_reference_recorded_at, idempotency_key, amount_minor_units, currency) VALUES ($1, gen_random_uuid(), 'test_provider', '   ', NOW(), 'lease-test-idempotency', 1500, 'USD')",
+        [orderId]
+      ),
+      error => error.code === '23514'
+    );
     const task = await setup.query(
       "INSERT INTO gift_payment_reconciliation_tasks (order_id, reason, next_attempt_at) VALUES ($1, 'recipient_opted_out', TIMESTAMPTZ '0001-01-01 00:00:00+00') RETURNING id",
       [orderId]
