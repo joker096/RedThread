@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { applyAccountErasurePrivacyRecoveryEvent, preflightAccountErasurePrivacyRecovery } from './privacyRecoveryAccountErasureExecutor.js';
 import { verifyAccountErasurePrivacyRecovery } from './privacyRecoveryAccountErasureVerification.js';
 
@@ -161,4 +161,45 @@ test('account erasure preflight blocks timed Premium without a linked Paddle sub
   assert.equal(calls.some(call => call.sql === 'COMMIT'), false);
   assert.equal(calls.some(call => call.sql === 'ROLLBACK'), true);
   assert.equal(calls.some(call => call.sql.includes('UPDATE users') || call.sql.includes('DELETE FROM')), false);
+});
+
+
+test('idempotent account erasure receipt never bypasses subject pseudonym validation', async () => {
+  const staged = {
+    ledger_sequence: '1',
+    event_id: eventId,
+    schema_version: 1,
+    event_type: 'account_erasure_requested',
+    subject_ref: createHmac('sha256', key).update(userId, 'utf8').digest('hex'),
+    resource_ref: null,
+    occurred_at: new Date('2026-11-16T10:00:00.000Z'),
+    received_at: new Date('2026-11-16T10:00:01.000Z')
+  };
+  const digest = createHash('sha256').update(JSON.stringify([
+    String(staged.ledger_sequence), staged.event_id, String(staged.schema_version),
+    staged.event_type, staged.subject_ref.toLowerCase(), null,
+    staged.occurred_at.toISOString(), staged.received_at.toISOString()
+  ])).digest('hex');
+  const receipt = {
+    ledger_sequence: '1', event_id: eventId, event_digest: digest,
+    event_type: 'account_erasure_requested', outcome_code: 'account_erasure_replayed'
+  };
+  const wrongMapping = { ...mapping, subjectUserId: '123e4567-e89b-42d3-a456-426614174099' };
+
+  for (const operation of [
+    applyAccountErasurePrivacyRecoveryEvent,
+    preflightAccountErasurePrivacyRecovery
+  ]) {
+    const { pool, calls } = poolWithQueries([
+      { rowCount: 1, rows: [receipt] },
+      { rowCount: 1, rows: [staged] }
+    ]);
+    await assert.rejects(
+      operation({ pool, mapping: wrongMapping, pseudonymKey: key, env: isolatedEnv }),
+      /privacy_recovery_account_erasure_subject_mapping_mismatch/
+    );
+    assert.equal(calls.some(call => call.sql === 'COMMIT'), false);
+    assert.equal(calls.some(call => call.sql === 'ROLLBACK'), true);
+    assert.equal(calls.some(call => call.sql.includes('UPDATE users') || call.sql.includes('DELETE FROM')), false);
+  }
 });
