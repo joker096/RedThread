@@ -434,7 +434,8 @@ $gift_reconciliation_heartbeat$;
 CREATE OR REPLACE VIEW gift_payment_reconciliation_health AS
 SELECT
   COUNT(*) FILTER (WHERE task.status = 'pending')::BIGINT AS pending_tasks,
-  COUNT(*) FILTER (WHERE task.status = 'pending'
+  COUNT(*) FILTER (WHERE task.status IN ('pending', 'failed')
+    AND task.dead_lettered_at IS NULL
     AND task.next_attempt_at <= statement_timestamp())::BIGINT AS due_tasks,
   COUNT(*) FILTER (WHERE task.status = 'in_progress')::BIGINT AS in_progress_tasks,
   COUNT(*) FILTER (WHERE task.status = 'in_progress'
