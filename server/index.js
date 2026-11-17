@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
+import { createGiftProviderWebhookHandler } from './giftProviderWebhook.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -101,6 +102,14 @@ app.use((_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
+// Provider-neutral gift ingress. Empty until a provider is selected and its
+// reviewed sandbox verifier/account/environment are explicitly configured.
+const giftPaymentWebhookProviders = Object.freeze({});
+app.post('/api/gifts/providers/:providerKey/webhook',
+  express.raw({ type: 'application/json', limit: '256kb' }),
+  createGiftProviderWebhookHandler({ pool, providers: giftPaymentWebhookProviders })
+);
+
 app.post('/api/paddle/webhook', express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
   const apiKey = process.env.PADDLE_API_KEY;
   const secret = process.env.PADDLE_WEBHOOK_SECRET;
@@ -114,28 +123,29 @@ app.post('/api/paddle/webhook', express.raw({ type: 'application/json', limit: '
   try {
     const { Paddle, Environment } = await import('@paddle/paddle-node-sdk');
     const paddle = new Paddle(apiKey, { environment: Environment.sandbox });
-    event = await paddle.webhooks.unmarshal(req.body.toString('utf8'), secret, signature);
-  } catch (error) {
-    console.warn('Paddle sandbox webhook signature or payload rejected:', error?.message || 'invalid_signature');
+    const { unmarshalPaddleWebhook } = await import('./paddleWebhookSignature.js');
+    event = await unmarshalPaddleWebhook({
+      unmarshal: (body, webhookSecret, header) => paddle.webhooks.unmarshal(body, webhookSecret, header),
+      rawBody: req.body.toString('utf8'),
+      secret,
+      signature
+    });
+  } catch {
+    // Never log webhook bodies, signature headers, secrets or parser details.
+    console.warn('Paddle sandbox webhook signature or payload rejected');
     return res.status(400).json({ error: 'invalid_paddle_webhook_signature' });
   }
 
   try {
-    const { processPaddleEvent } = await import('./paddleBilling.js');
-    const result = await processPaddleEvent(pool, event);
-    const eventType = event.eventType || event.event_type;
-    if (result?.reconciliationRequired &&
-        ['adjustment.created', 'adjustment.updated'].includes(eventType)) {
-      // The immutable webhook/adjustment and reconciliation case are already
-      // committed. Log only the provider event ID; never log the raw payload.
-      console.warn('Paddle adjustment queued for manual reconciliation:', {
-        eventId: event.eventId || event.event_id
-      });
-    }
-    return res.status(200).json({ received: true });
+    // Signature verification is complete. Acknowledge only after the verified
+    // event is durably committed to the inbox; financial side effects run in
+    // the separately supervised worker.
+    const { enqueueVerifiedPaddleWebhook } = await import('./paddleWebhookInbox.js');
+    const queued = await enqueueVerifiedPaddleWebhook(pool, event);
+    return res.status(200).json({ received: true, queued: !queued.duplicate });
   } catch (error) {
-    console.error('Paddle webhook processing failed:', error?.message || 'unknown error');
-    return res.status(500).json({ error: 'paddle_webhook_processing_failed' });
+    console.error('Paddle webhook inbox persistence failed:', error?.code || 'unknown_error');
+    return res.status(503).json({ error: 'paddle_webhook_inbox_unavailable' });
   }
 });
 
