@@ -154,3 +154,81 @@ test('an interrupted post-lookup attempt retries by looking up the same immutabl
   assert.equal(typeof providerAdapter.capture, 'undefined');
   assert.equal(typeof providerAdapter.refund, 'undefined');
 });
+
+test('a worker that loses its lease after provider lookup cannot commit the payment outcome', async () => {
+  let orderUpdateAttempted = false;
+  let eventInsertAttempted = false;
+  let transactionCommitted = false;
+  let transactionRolledBack = false;
+  const task = {
+    id: 'task-lease-lost',
+    order_id: 'order-lease-lost',
+    lease_token: 'stale-lease-token',
+    lease_generation: 4,
+    attempt_count: 4
+  };
+  const dbIdentity = {
+    ...identity,
+    id: 'identity-lease-lost',
+    order_id: task.order_id,
+    idempotency_key: 'gift-lease-lost-idempotency',
+    payment_status: 'authorized',
+    order_status: 'pending'
+  };
+  const pool = {
+    async query(sql) {
+      if (sql.includes('claim_gift_payment_reconciliation_task')) return { rows: [task] };
+      if (sql.includes('FROM gift_payment_attempt_identity')) return { rows: [dbIdentity] };
+      if (sql.includes("SET status = 'failed'")) return { rowCount: 0, rows: [] };
+      throw new Error('unexpected_pool_query');
+    },
+    async connect() {
+      return {
+        async query(sql) {
+          if (sql === 'BEGIN') return { rowCount: null, rows: [] };
+          if (sql === 'COMMIT') {
+            transactionCommitted = true;
+            return { rowCount: null, rows: [] };
+          }
+          if (sql === 'ROLLBACK') {
+            transactionRolledBack = true;
+            return { rowCount: null, rows: [] };
+          }
+          if (sql.includes('UPDATE gift_delivery_orders')) {
+            orderUpdateAttempted = true;
+            return { rowCount: 1, rows: [] };
+          }
+          if (sql.includes('INSERT INTO gift_delivery_order_events')) {
+            eventInsertAttempted = true;
+            return { rowCount: 1, rows: [] };
+          }
+          if (sql.includes("SET status = 'completed'")) return { rowCount: 0, rows: [] };
+          throw new Error('unexpected_client_query');
+        },
+        release() {}
+      };
+    }
+  };
+  const providerAdapter = {
+    async lookup() {
+      return {
+        status: 'voided',
+        providerKey: 'sandbox_provider',
+        providerReference: 'txn_test_123',
+        amountMinorUnits: 12500,
+        currency: 'GEL'
+      };
+    }
+  };
+
+  const result = await processOneGiftPaymentReconciliation({ pool, providerAdapter });
+  assert.deepEqual(result, {
+    claimed: true,
+    completed: false,
+    code: 'gift_reconciliation_lease_lost'
+  });
+  assert.equal(orderUpdateAttempted, true);
+  assert.equal(eventInsertAttempted, true);
+  assert.equal(transactionCommitted, false, 'the stale worker must never commit order or event changes');
+  assert.equal(transactionRolledBack, true, 'the whole outcome transaction must be rolled back');
+});
