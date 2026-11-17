@@ -70,14 +70,6 @@ test('gift reconciliation claims are exclusive and expired leases fence stale wo
   const workerB = 'lease-test-worker-b';
   let taskId;
   try {
-    const existing = await setup.query(
-      "SELECT COUNT(*)::int AS count FROM gift_payment_reconciliation_tasks WHERE (status IN ('pending', 'failed') AND dead_lettered_at IS NULL AND next_attempt_at <= statement_timestamp()) OR (status = 'in_progress' AND lease_expires_at <= statement_timestamp())"
-    );
-    if (existing.rows[0].count !== 0) {
-      t.skip('requires an isolated database with no other due gift reconciliation tasks');
-      return;
-    }
-
     for (const [id, suffix] of [[senderId, 'sender'], [recipientId, 'recipient']]) {
       await setup.query(
         "INSERT INTO users (id, email, role, status, email_verified_at) VALUES ($1, $2, 'member', 'active', NOW())",
@@ -93,7 +85,7 @@ test('gift reconciliation claims are exclusive and expired leases fence stale wo
       [orderId, matchId, senderId, recipientId, 'lease-test-' + orderId]
     );
     const task = await setup.query(
-      "INSERT INTO gift_payment_reconciliation_tasks (order_id, reason, next_attempt_at) VALUES ($1, 'recipient_opted_out', TIMESTAMPTZ '1900-01-01 00:00:00+00') RETURNING id",
+      "INSERT INTO gift_payment_reconciliation_tasks (order_id, reason, next_attempt_at) VALUES ($1, 'recipient_opted_out', TIMESTAMPTZ '0001-01-01 00:00:00+00') RETURNING id",
       [orderId]
     );
     taskId = task.rows[0].id;
@@ -148,7 +140,16 @@ test('gift reconciliation claims are exclusive and expired leases fence stale wo
       clientB.release();
     }
   } finally {
-    setup.release();
-    await pool.end();
+    try {
+      if (taskId) {
+        await setup.query('DELETE FROM gift_payment_reconciliation_tasks WHERE id = $1', [taskId]);
+      }
+      await setup.query('DELETE FROM gift_delivery_orders WHERE id = $1', [orderId]);
+      await setup.query('DELETE FROM matches WHERE id = $1', [matchId]);
+      await setup.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[senderId, recipientId]]);
+    } finally {
+      setup.release();
+      await pool.end();
+    }
   }
 });
