@@ -114,9 +114,16 @@ app.post('/api/paddle/webhook', express.raw({ type: 'application/json', limit: '
   try {
     const { Paddle, Environment } = await import('@paddle/paddle-node-sdk');
     const paddle = new Paddle(apiKey, { environment: Environment.sandbox });
-    event = await paddle.webhooks.unmarshal(req.body.toString('utf8'), secret, signature);
-  } catch (error) {
-    console.warn('Paddle sandbox webhook signature or payload rejected:', error?.message || 'invalid_signature');
+    const { unmarshalPaddleWebhook } = await import('./paddleWebhookSignature.js');
+    event = await unmarshalPaddleWebhook({
+      unmarshal: (body, webhookSecret, header) => paddle.webhooks.unmarshal(body, webhookSecret, header),
+      rawBody: req.body.toString('utf8'),
+      secret,
+      signature
+    });
+  } catch {
+    // Never log webhook bodies, signature headers, secrets or parser details.
+    console.warn('Paddle sandbox webhook signature or payload rejected');
     return res.status(400).json({ error: 'invalid_paddle_webhook_signature' });
   }
 
