@@ -124,7 +124,8 @@ export async function failPaddleWebhook(pool, eventId, leaseToken, attempt, erro
          lease_token = NULL, lease_expires_at = NULL,
          payload = CASE WHEN $3 = 'dead_letter' THEN NULL ELSE payload END,
          last_error_code = $5
-     WHERE event_id = $1 AND status = 'processing' AND lease_token = $2::uuid\n       AND lease_expires_at > statement_timestamp()`,
+     WHERE event_id = $1 AND status = 'processing' AND lease_token = $2::uuid
+       AND lease_expires_at > statement_timestamp()`,
     [eventId, leaseToken, terminal ? 'dead_letter' : 'retry', delay, safeErrorCode(error)]
   );
   return result.rowCount === 1;
