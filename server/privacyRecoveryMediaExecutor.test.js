@@ -30,6 +30,12 @@ const matchedMapping = {
   resourceId: null
 };
 
+const replayMapping = {
+  ...matchedMapping,
+  status: 'resource_unmatched',
+  resourceId: null
+};
+
 const mapping = {
   sequence: '42',
   eventId: event.event_id,
@@ -66,7 +72,7 @@ test('exact replay receipt is idempotent and checked before requiring a resource
     outcome_code: 'photo_erasure_queued'
   };
   const { pool, calls } = fakePool({ receipt });
-  const result = await applyPrivateMediaPrivacyRecoveryEvent({ pool, mapping: matchedMapping, env: isolatedEnv, pseudonymKey });
+  const result = await applyPrivateMediaPrivacyRecoveryEvent({ pool, mapping: replayMapping, env: isolatedEnv, pseudonymKey });
   assert.deepEqual(result, { applied: false, alreadyApplied: true, outcome: 'photo_erasure_queued' });
   assert.equal(calls.filter(call => call.sql === 'COMMIT').length, 1);
   assert.equal(calls.some(call => call.sql === 'ROLLBACK'), false);
@@ -81,7 +87,7 @@ test('existing receipt cannot bypass subject pseudonym validation', async () => 
     event_type: event.event_type,
     outcome_code: 'photo_erasure_queued'
   };
-  const wrongMapping = { ...matchedMapping, subjectUserId: '123e4567-e89b-42d3-a456-426614174099' };
+  const wrongMapping = { ...replayMapping, subjectUserId: '123e4567-e89b-42d3-a456-426614174099' };
   const { pool, calls } = fakePool({ receipt });
   await assert.rejects(
     applyPrivateMediaPrivacyRecoveryEvent({ pool, mapping: wrongMapping, env: isolatedEnv, pseudonymKey }),
