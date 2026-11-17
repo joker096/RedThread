@@ -41,7 +41,7 @@ const mapping = {
   eventId: event.event_id,
   eventType: event.event_type,
   status: 'subject_unmatched',
-  subjectUserId: null,
+  subjectUserId,
   resourceId: null
 };
 
