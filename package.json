@@ -20,6 +20,7 @@
     "gifts:expire-requests": "node server/expire-gift-requests.js",
     "identity:l3-expire": "node server/expire-identity-l3-approvals.js",
     "identity:l3-worker": "node server/process-identity-l3-queue.js",
+    "paddle:webhook-inbox": "node server/process-paddle-webhook-inbox.js",
     "photos:purge": "node server/process-private-photo-purge.js"
   },
   "dependencies": {
@@ -37,7 +38,7 @@
     "sharp": "^0.34.3",
     "express-rate-limit": "^7.5.0",
     "@paddle/paddle-js": "^1.4.0",
-    "@paddle/paddle-node-sdk": "^3.0.0",
+    "@paddle/paddle-node-sdk": "3.11.1",
     "google-auth-library": "^11.3.1"
   },
   "devDependencies": {
