@@ -395,6 +395,29 @@ COMMENT ON FUNCTION claim_gift_payment_reconciliation_task(TEXT, INTEGER, INTEGE
 COMMENT ON FUNCTION heartbeat_gift_payment_reconciliation_task(BIGINT, UUID, BIGINT, INTEGER) IS
   'Extends only a still-live lease matching both token and generation; stale workers cannot heartbeat after takeover.';
 
+
+-- Aggregate-only operational signal; never exposes account or recipient data.
+CREATE OR REPLACE VIEW gift_payment_reconciliation_health AS
+SELECT
+  COUNT(*) FILTER (WHERE status = 'pending')::BIGINT AS pending_tasks,
+  COUNT(*) FILTER (WHERE status = 'pending' AND next_attempt_at <= statement_timestamp())::BIGINT AS due_tasks,
+  COUNT(*) FILTER (WHERE status = 'in_progress')::BIGINT AS in_progress_tasks,
+  COUNT(*) FILTER (WHERE status = 'in_progress' AND lease_expires_at <= statement_timestamp())::BIGINT AS expired_leases,
+  COUNT(*) FILTER (WHERE dead_lettered_at IS NOT NULL)::BIGINT AS dead_letter_tasks,
+  COUNT(*) FILTER (WHERE status = 'failed' AND dead_lettered_at IS NULL)::BIGINT AS retryable_failures,
+  COUNT(*) FILTER (WHERE status IN ('pending', 'failed') AND dead_lettered_at IS NULL
+                     AND identity.order_id IS NULL)::BIGINT AS tasks_missing_payment_identity,
+  (SELECT COUNT(*)::BIGINT FROM gift_payment_provider_event_inbox
+    WHERE processing_status = 'quarantined') AS quarantined_provider_events,
+  MIN(created_at) FILTER (WHERE status IN ('pending', 'failed') AND dead_lettered_at IS NULL)
+    AS oldest_retryable_task_created_at
+FROM gift_payment_reconciliation_tasks AS task
+LEFT JOIN gift_payment_attempt_identity AS identity
+  ON identity.order_id = task.order_id;
+
+COMMENT ON VIEW gift_payment_reconciliation_health IS
+  'Aggregate gift-payment reconciliation health counters only; no user, order, provider reference, or recipient personal data.';
+
 COMMENT ON TABLE gift_payment_attempt_identity IS
   'Append-only identity ledger for gift payment attempts. It stores provider IDs and financial snapshots only; never infer provider identity from task text or client input.';
 COMMENT ON TABLE gift_payment_provider_event_inbox IS
