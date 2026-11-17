@@ -8,6 +8,10 @@ export const PADDLE_CHECKOUT_RECOVERY_STALE_MS = 120_000;
 export const PADDLE_CHECKOUT_RECOVERY_LEASE_MS = 90_000;
 export const PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS = 5;
 export const PADDLE_CHECKOUT_RECOVERY_MAX_PAGES = 5;
+export function paddleRecoveryRetryDelayMs(attempt) {
+  if (!Number.isInteger(attempt) || attempt < 1 || attempt > PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS) throw new RangeError('invalid_paddle_recovery_attempt');
+  return Math.min(60 * 60_000, 60_000 * (2 ** (attempt - 1)));
+}
 export const PADDLE_CHECKOUT_RECOVERY_PAGE_SIZE = 30;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PLAN_PRICE_ENV = Object.freeze({
@@ -148,6 +152,7 @@ export async function claimPaddleCheckoutRecovery(pool, {
          WHERE status = 'creating'
            AND created_at <= statement_timestamp() - ($1::int * INTERVAL '1 millisecond')
            AND recovery_attempt_count < $2
+           AND recovery_next_attempt_at <= statement_timestamp()
            AND (recovery_lease_expires_at IS NULL OR recovery_lease_expires_at <= statement_timestamp())
          ORDER BY created_at, user_id
          FOR UPDATE SKIP LOCKED LIMIT 1
@@ -189,6 +194,7 @@ async function finishRecovery(pool, attempt, decision, { dryRun = true, errorCod
            recovery_lease_token = NULL,
            recovery_lease_expires_at = NULL,
            recovery_last_checked_at = statement_timestamp(),
+           recovery_next_attempt_at = CASE WHEN $4 IS NULL AND $6 IS NOT NULL THEN statement_timestamp() + ($7::int * INTERVAL '1 millisecond') ELSE recovery_next_attempt_at END,
            recovery_last_error_code = $6,
            updated_at = statement_timestamp()
        WHERE user_id = $1 AND attempt_id = $2::uuid
@@ -197,7 +203,7 @@ async function finishRecovery(pool, attempt, decision, { dryRun = true, errorCod
          AND recovery_lease_expires_at > statement_timestamp()
          AND (transaction_id IS NULL OR transaction_id = $5)
        RETURNING status, transaction_id`,
-      [attempt.user_id, attempt.attempt_id, attempt.leaseToken, status, transactionId, errorCode]
+      [attempt.user_id, attempt.attempt_id, attempt.leaseToken, status, transactionId, errorCode, paddleRecoveryRetryDelayMs(attempt.recovery_attempt_count)]
     );
     if (!result.rowCount) throw new Error('paddle_checkout_recovery_lease_lost');
     return { ...decision, status: result.rows[0].status, transactionId: result.rows[0].transaction_id };
@@ -215,7 +221,13 @@ export async function runPaddleCheckoutRecoveryOnce(pool, {
 } = {}) {
   if (environment !== 'sandbox') throw new Error('paddle_checkout_recovery_sandbox_only');
   if (!apiKey) throw new Error('paddle_checkout_recovery_not_configured');
-  const attempt = await claimPaddleCheckoutRecovery(pool);
+  const attempt = dryRun
+    ? (await pool.query(\`SELECT user_id, attempt_id, plan, created_at, transaction_id, recovery_attempt_count
+         FROM paddle_checkout_attempts
+         WHERE status = 'creating' AND created_at <= statement_timestamp() - ($1::int * INTERVAL '1 millisecond')
+           AND recovery_attempt_count < $2 AND recovery_next_attempt_at <= statement_timestamp()
+         ORDER BY created_at, user_id LIMIT 1\`, [PADDLE_CHECKOUT_RECOVERY_STALE_MS, PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS])).rows[0]
+    : await claimPaddleCheckoutRecovery(pool);
   if (!attempt) return { processed: false };
   const priceId = process.env[PLAN_PRICE_ENV[attempt.plan]];
   try {
@@ -224,7 +236,10 @@ export async function runPaddleCheckoutRecoveryOnce(pool, {
     }
     const listed = await listPaddleTransactionsForAttempt({ apiKey, attempt, fetchImpl, maxPages, priceId });
     const classified = listed.matches.map(match => match);
-    const decision = paddleRecoveryDecision(classified, { pageLimitReached: listed.pageLimitReached });
+    let decision = paddleRecoveryDecision(classified, { pageLimitReached: listed.pageLimitReached });
+    if (decision.action === 'not_found' && attempt.recovery_attempt_count >= PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS - 1) {
+      decision = { action: 'quarantine', reason: 'provider_match_not_proven_after_bounded_retries' };
+    }
     const result = await finishRecovery(pool, attempt, decision, {
       dryRun,
       errorCode: decision.action === 'defer' ? 'provider_page_limit_reached' : null
