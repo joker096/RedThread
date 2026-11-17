@@ -64,8 +64,10 @@ CREATE TABLE gift_payment_attempt_identity (
   attempt_id UUID NOT NULL UNIQUE,
   provider_key VARCHAR(80) NOT NULL
     CHECK (provider_key ~ '^[a-z][a-z0-9_]{1,79}$'),
-  provider_reference VARCHAR(200),
-  idempotency_key VARCHAR(160) NOT NULL UNIQUE,
+  provider_reference VARCHAR(200)
+    CHECK (provider_reference IS NULL OR length(btrim(provider_reference)) > 0),
+  idempotency_key VARCHAR(160) NOT NULL UNIQUE
+    CHECK (length(btrim(idempotency_key)) > 0),
   amount_minor_units BIGINT NOT NULL CHECK (amount_minor_units > 0),
   currency CHAR(3) NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
