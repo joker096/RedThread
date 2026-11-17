@@ -19,6 +19,7 @@ function quarantineCodeFor(errorCode) {
 export async function processOneGiftProviderEvent({
   pool,
   providers = {},
+  providerKey,
   workerId = `gift-event-${randomUUID()}`,
   leaseSeconds = 60,
   maxAttempts = 8
@@ -29,10 +30,23 @@ export async function processOneGiftProviderEvent({
       code: 'gift_provider_event_processor_not_configured'
     });
   }
+  const configuredKeys = Object.keys(providers).sort();
+  const selectedProviderKey = providerKey || (configuredKeys.length === 1 ? configuredKeys[0] : null);
+  if (!selectedProviderKey || !/^[a-z][a-z0-9_]{1,79}$/.test(selectedProviderKey)) {
+    throw Object.assign(new Error('gift_provider_event_provider_key_required'), {
+      code: 'gift_provider_event_provider_key_required'
+    });
+  }
+  const selectedProvider = providers[selectedProviderKey];
+  if (!selectedProvider?.accountId || selectedProvider.environment !== 'sandbox') {
+    throw Object.assign(new Error('gift_provider_event_processor_not_configured'), {
+      code: 'gift_provider_event_processor_not_configured'
+    });
+  }
 
   const claim = await pool.query(
-    'SELECT * FROM claim_gift_provider_event_inbox($1, $2, $3)',
-    [workerId, leaseSeconds, maxAttempts]
+    'SELECT * FROM claim_gift_provider_event_inbox($1, $2, $3, $4)',
+    [workerId, selectedProviderKey, leaseSeconds, maxAttempts]
   );
   const event = claim.rows[0];
   if (!event) return { claimed: false };
@@ -71,7 +85,7 @@ export async function processOneGiftProviderEvent({
       return { claimed: true, processed: false, quarantined: true, code };
     };
 
-    const provider = providers[current.provider_key];
+    const provider = current.provider_key === selectedProviderKey ? selectedProvider : null;
     if (!provider || !provider.accountId || provider.environment !== 'sandbox') {
       return await quarantine('provider_configuration_missing');
     }
