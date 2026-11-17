@@ -168,3 +168,13 @@ Gate: письменное одобрение конкретной модели 
 - Юрисдикция проекта — Грузия; владелец пока физическое лицо. Не предполагать LLC или статус individual entrepreneur.
 
 После каждого набора изменений запускать CI и Browser E2E на одном и том же актуальном HEAD SHA. Старые зелёные runs не засчитывать.
+
+
+## Дополнение — 2026-11-17, контрольная точка после аудита #444
+
+- PR #444 HEAD `7df4f81f2c655841b63ad4c377f692fcc6e90d81`: CI run `44069337605` и Browser E2E run `44069346860` — Success на одном SHA. Тесты: 619 passed, 0 failed, 1 skipped (root-only test).
+- После этого добавлены queue metrics в worker: creating, due, active leases, reconciliation_required, exhausted-due и возраст старейшей creating attempt; worker выводит агрегаты раз в минуту. Это изменение требует нового CI + Browser E2E на новом SHA.
+- Checkout recovery остаётся sandbox-only. Никаких POST создания транзакций из recovery worker.
+- #443 остаётся отдельным этапом для проверки append-only webhook inbox, replay, duplicate/conflicting event IDs, event ordering и операционного retention.
+- #441 остаётся блокирующим dependency hygiene этапом: на main по-прежнему отсутствует package-lock.json; CI пока использует `npm install`, а не `npm ci`. Не объявлять lockfile gate закрытым.
+- Android/iOS virtual-device tests ещё не выполнены: в main не обнаружены нативные Android/iOS проекты и соответствующие emulator/simulator workflows.
