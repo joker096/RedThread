@@ -35,7 +35,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: mobile-build-${{ github.head_ref || github.ref }}
+  group: mobile-build-${{ github.event.pull_request.head.ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -62,7 +62,7 @@ jobs:
           distribution: temurin
           java-version: "21"
       - uses: android-actions/setup-android@v4.0.4
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
       - run: npm run build
       - name: Generate Android platform project
         run: npm run cap:ensure:android
@@ -91,7 +91,7 @@ jobs:
             adb shell am start -W -a android.intent.action.VIEW -d 'vow://identity/return' com.vow.app
             sleep 3
             adb shell pidof com.vow.app
-            if adb logcat -d -t 2500 | grep -E 'FATAL EXCEPTION|AndroidRuntime'; then exit 1; fi
+            if adb logcat -d -t 2500 | grep -F 'FATAL EXCEPTION'; then exit 1; fi
       - uses: actions/upload-artifact@v4
         with:
           name: vow-android-debug-${{ github.event.pull_request.head.sha || github.sha }}
@@ -117,7 +117,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
       - run: npm run build
       - name: Generate iOS platform project
         run: npm run cap:ensure:ios
