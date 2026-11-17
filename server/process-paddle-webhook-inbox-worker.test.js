@@ -9,6 +9,7 @@ test('inbox worker retries transient claim/database failures without exiting', a
   const errors = [];
   const result = await runPaddleWebhookInboxWorker({
     pool,
+    metricsEveryMs: 0,
     shouldStop: () => calls >= 2,
     processOne: async () => {
       calls += 1;
@@ -30,6 +31,7 @@ test('inbox worker sleeps while idle and observes shutdown after the wait', asyn
   let calls = 0;
   const result = await runPaddleWebhookInboxWorker({
     pool,
+    metricsEveryMs: 0,
     shouldStop: () => stopping,
     processOne: async () => { calls += 1; return { claimed: false }; },
     wait: async milliseconds => {
