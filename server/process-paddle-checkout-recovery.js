@@ -143,6 +143,38 @@ export async function listPaddleTransactionsForAttempt({
   return { matches, pages, pageLimitReached: hasMore && pages >= maxPages };
 }
 
+export async function getPaddleCheckoutRecoveryMetrics(pool) {
+  const result = await pool.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE status = 'creating')::int AS creating_count,
+       COUNT(*) FILTER (WHERE status = 'creating'
+         AND created_at <= statement_timestamp() - ($1::int * INTERVAL '1 millisecond')
+         AND recovery_next_attempt_at <= statement_timestamp()
+         AND (recovery_lease_expires_at IS NULL OR recovery_lease_expires_at <= statement_timestamp()))::int AS due_count,
+       COUNT(*) FILTER (WHERE status = 'creating'
+         AND recovery_lease_expires_at > statement_timestamp())::int AS leased_count,
+       COUNT(*) FILTER (WHERE status = 'reconciliation_required')::int AS reconciliation_required_count,
+       COUNT(*) FILTER (WHERE status = 'creating'
+         AND created_at <= statement_timestamp() - ($1::int * INTERVAL '1 millisecond')
+         AND recovery_next_attempt_at <= statement_timestamp()
+         AND (recovery_lease_expires_at IS NULL OR recovery_lease_expires_at <= statement_timestamp())
+         AND recovery_attempt_count >= $2)::int AS exhausted_due_count,
+       COALESCE(EXTRACT(EPOCH FROM (statement_timestamp() - MIN(created_at)
+         FILTER (WHERE status = 'creating'))), 0)::int AS oldest_creating_age_seconds
+     FROM paddle_checkout_attempts`,
+    [PADDLE_CHECKOUT_RECOVERY_STALE_MS, PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS]
+  );
+  const row = result.rows[0] || {};
+  return {
+    creatingCount: Number(row.creating_count || 0),
+    dueCount: Number(row.due_count || 0),
+    leasedCount: Number(row.leased_count || 0),
+    reconciliationRequiredCount: Number(row.reconciliation_required_count || 0),
+    exhaustedDueCount: Number(row.exhausted_due_count || 0),
+    oldestCreatingAgeSeconds: Number(row.oldest_creating_age_seconds || 0)
+  };
+}
+
 export async function claimPaddleCheckoutRecovery(pool, {
   leaseMs = PADDLE_CHECKOUT_RECOVERY_LEASE_MS,
   staleMs = PADDLE_CHECKOUT_RECOVERY_STALE_MS,
@@ -282,7 +314,7 @@ async function main() {
   if (!process.env.DATABASE_URL || !process.env.PADDLE_API_KEY) throw new Error('paddle_checkout_recovery_not_configured');
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2, connectionTimeoutMillis: 5_000,
     ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: true } : undefined });
-  let stopping = false;
+  let stopping = false;\n  let lastMetricsAt = 0;
   const stop = () => { stopping = true; };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);

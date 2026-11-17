@@ -116,3 +116,24 @@ test('pagination never follows an untrusted host', async () => {
     /pagination_url_invalid/
   );
 });
+
+test('recovery metrics report queue, lease, quarantine and age counters', async () => {
+  const { getPaddleCheckoutRecoveryMetrics } = await import('./process-paddle-checkout-recovery.js');
+  let captured;
+  const pool = { async query(sql, params) {
+    captured = { sql: String(sql), params };
+    return { rows: [{
+      creating_count: '8', due_count: '3', leased_count: '2',
+      reconciliation_required_count: '4', exhausted_due_count: '1',
+      oldest_creating_age_seconds: '720'
+    }] };
+  } };
+  assert.deepEqual(await getPaddleCheckoutRecoveryMetrics(pool), {
+    creatingCount: 8, dueCount: 3, leasedCount: 2,
+    reconciliationRequiredCount: 4, exhaustedDueCount: 1,
+    oldestCreatingAgeSeconds: 720
+  });
+  assert.deepEqual(captured.params, [120_000, 5]);
+  assert.match(captured.sql, /FILTER \(WHERE status = 'reconciliation_required'\)/);
+  assert.match(captured.sql, /recovery_lease_expires_at/);
+});
