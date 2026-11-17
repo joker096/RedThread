@@ -52,7 +52,7 @@ test('Docker database network is isolated from the public web proxy container', 
       'Paddle workers must be opt-in and absent from the default composition');
     assert.match(worker, /cap_drop: \[ALL\]/);
     assert.match(worker, /no-new-privileges:true/);
-    assert.match(worker, /migrate:\\n        condition: service_completed_successfully/);
+    assert.match(worker, /migrate:\n        condition: service_completed_successfully/);
     assert.match(worker, /PADDLE_ENVIRONMENT: \$\{PADDLE_ENVIRONMENT:-sandbox\}/);
   }
   assert.match(paddleInboxWorker, /node server\/process-paddle-webhook-inbox\.js/);
