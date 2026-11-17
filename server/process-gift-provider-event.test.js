@@ -150,3 +150,48 @@ test('PostgreSQL event processor quarantines unknown references and amount/curre
     await pool.end();
   }
 });
+
+
+test('PostgreSQL inbox lease is reclaimed after worker interruption and stale generation is fenced', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 35_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const providerKey = 'sandbox_provider';
+  const accountId = 'acct_sandbox_test';
+  const eventId = `evt_restart_${randomUUID()}`;
+  const providers = { [providerKey]: { accountId, environment: 'sandbox' } };
+  try {
+    await pool.query(
+      'SELECT record_verified_gift_provider_event($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      [providerKey, eventId, 'transaction.updated', 'e'.repeat(64), new Date().toISOString(),
+        accountId, 'sandbox', `unknown_${randomUUID()}`, 1000, 'GEL']
+    );
+    const first = await pool.query(
+      'SELECT * FROM claim_gift_provider_event_inbox($1,$2,15,8)',
+      ['crashed-gift-event-worker', providerKey]
+    );
+    assert.equal(first.rowCount, 1);
+    assert.equal(Number(first.rows[0].lease_generation), 1);
+    assert.ok(first.rows[0].lease_token);
+
+    // Simulate a process crash after claiming but before committing processing.
+    await pool.query('SELECT pg_sleep(15.2)');
+    const recovered = await processOneGiftProviderEvent({
+      pool, providers, workerId: 'restarted-gift-event-worker'
+    });
+    assert.equal(recovered.quarantined, true);
+    assert.equal(recovered.code, 'payment_identity_unknown');
+
+    const final = await pool.query(
+      'SELECT processing_status, lease_generation, attempt_count, quarantine_code FROM gift_payment_provider_event_inbox WHERE provider_key = $1 AND provider_event_id = $2',
+      [providerKey, eventId]
+    );
+    assert.equal(final.rows[0].processing_status, 'quarantined');
+    assert.equal(Number(final.rows[0].lease_generation), 2);
+    assert.equal(Number(final.rows[0].attempt_count), 2);
+    assert.equal(final.rows[0].quarantine_code, 'payment_identity_unknown');
+  } finally {
+    await pool.end();
+  }
+});
