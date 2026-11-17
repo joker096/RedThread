@@ -43,6 +43,13 @@ test('gift payment reconciliation ledger installs fenced claim and immutable inb
       error => error.code === '22023'
     );
 
+    await assert.rejects(
+      client.query(
+        "INSERT INTO gift_payment_provider_event_inbox (provider_key, provider_event_id, event_type, payload_sha256) VALUES ('test_provider', '   ', 'transaction.updated', repeat('a', 64))"
+      ),
+      error => error.code === '23514'
+    );
+
     await client.query('BEGIN');
     const inserted = await client.query(
       `INSERT INTO gift_payment_provider_event_inbox
