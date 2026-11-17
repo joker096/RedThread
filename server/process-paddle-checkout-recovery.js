@@ -69,6 +69,7 @@ export function paddleRecoveryTransactionMatches(transaction, attempt, expected)
 export function paddleRecoveryDecision(matches, { pageLimitReached = false } = {}) {
   if (!Array.isArray(matches)) throw new TypeError('matches must be an array');
   if (matches.length > 1) return { action: 'quarantine', reason: 'multiple_provider_matches' };
+  if (pageLimitReached) return { action: 'defer', reason: 'provider_page_limit_reached' };
   if (matches.length === 0) return {
     action: pageLimitReached ? 'defer' : 'not_found',
     reason: pageLimitReached ? 'provider_page_limit_reached' : 'provider_match_not_visible'
