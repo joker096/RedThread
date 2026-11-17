@@ -1,14 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { applyPrivateMediaPrivacyRecoveryEvent } from './privacyRecoveryMediaExecutor.js';
 
+const pseudonymKey = 'x'.repeat(32);
+const subjectUserId = '123e4567-e89b-42d3-a456-426614174001';
 const event = {
   ledger_sequence: '42',
   event_id: '123e4567-e89b-42d3-a456-426614174000',
   schema_version: 1,
   event_type: 'private_photo_erasure_requested',
-  subject_ref: 'a'.repeat(64),
+  subject_ref: createHmac('sha256', pseudonymKey).update(subjectUserId, 'utf8').digest('hex'),
   resource_ref: 'b'.repeat(64),
   occurred_at: new Date('2026-11-14T08:00:00.000Z'),
   received_at: new Date('2026-11-14T08:00:01.000Z')
@@ -19,12 +21,27 @@ const digest = createHash('sha256').update(JSON.stringify([
 ])).digest('hex');
 const isolatedEnv = { NODE_ENV: 'test', PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true', PRIVACY_RECOVERY_RESTORE_DATABASE_NAME: 'vow_restore_test', PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner', PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY' };
 
+const matchedMapping = {
+  sequence: '42',
+  eventId: event.event_id,
+  eventType: event.event_type,
+  status: 'matched',
+  subjectUserId,
+  resourceId: null
+};
+
+const replayMapping = {
+  ...matchedMapping,
+  status: 'resource_unmatched',
+  resourceId: null
+};
+
 const mapping = {
   sequence: '42',
   eventId: event.event_id,
   eventType: event.event_type,
   status: 'subject_unmatched',
-  subjectUserId: null,
+  subjectUserId,
   resourceId: null
 };
 
@@ -55,11 +72,29 @@ test('exact replay receipt is idempotent and checked before requiring a resource
     outcome_code: 'photo_erasure_queued'
   };
   const { pool, calls } = fakePool({ receipt });
-  const result = await applyPrivateMediaPrivacyRecoveryEvent({ pool, mapping, env: isolatedEnv, pseudonymKey: 'x'.repeat(32) });
+  const result = await applyPrivateMediaPrivacyRecoveryEvent({ pool, mapping: replayMapping, env: isolatedEnv, pseudonymKey });
   assert.deepEqual(result, { applied: false, alreadyApplied: true, outcome: 'photo_erasure_queued' });
   assert.equal(calls.filter(call => call.sql === 'COMMIT').length, 1);
   assert.equal(calls.some(call => call.sql === 'ROLLBACK'), false);
   assert.equal(calls.some(call => call.sql.includes('pg_advisory_xact_lock')), false);
+});
+
+test('existing receipt cannot bypass subject pseudonym validation', async () => {
+  const receipt = {
+    ledger_sequence: '42',
+    event_id: event.event_id,
+    event_digest: digest,
+    event_type: event.event_type,
+    outcome_code: 'photo_erasure_queued'
+  };
+  const wrongMapping = { ...replayMapping, subjectUserId: '123e4567-e89b-42d3-a456-426614174099' };
+  const { pool, calls } = fakePool({ receipt });
+  await assert.rejects(
+    applyPrivateMediaPrivacyRecoveryEvent({ pool, mapping: wrongMapping, env: isolatedEnv, pseudonymKey }),
+    /privacy_recovery_subject_mapping_mismatch/
+  );
+  assert.equal(calls.filter(call => call.sql === 'ROLLBACK').length, 1);
+  assert.equal(calls.some(call => call.sql === 'COMMIT'), false);
 });
 
 test('conflicting receipt identity or digest fails closed and rolls back', async () => {
@@ -72,7 +107,7 @@ test('conflicting receipt identity or digest fails closed and rolls back', async
   };
   const { pool, calls } = fakePool({ receipt });
   await assert.rejects(
-    applyPrivateMediaPrivacyRecoveryEvent({ pool, mapping, env: isolatedEnv, pseudonymKey: 'x'.repeat(32) }),
+    applyPrivateMediaPrivacyRecoveryEvent({ pool, mapping: matchedMapping, env: isolatedEnv, pseudonymKey }),
     /privacy_recovery_replay_receipt_conflict/
   );
   assert.equal(calls.filter(call => call.sql === 'ROLLBACK').length, 1);
