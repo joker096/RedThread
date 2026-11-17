@@ -128,3 +128,37 @@ test('account erasure preflight blocks unresolved Paddle checkout before any bat
   assert.equal(calls.some(call => call.sql === 'ROLLBACK'), true);
   assert.equal(calls.some(call => call.sql.includes('UPDATE users') || call.sql.includes('DELETE FROM')), false);
 });
+
+
+test('account erasure preflight blocks timed Premium without a linked Paddle subscription', async () => {
+  const staged = {
+    ledger_sequence: '1',
+    event_id: eventId,
+    schema_version: 1,
+    event_type: 'account_erasure_requested',
+    subject_ref: createHmac('sha256', key).update(userId, 'utf8').digest('hex'),
+    resource_ref: null,
+    occurred_at: new Date('2026-11-16T10:00:00.000Z'),
+    received_at: new Date('2026-11-16T10:00:01.000Z')
+  };
+  const { pool, calls } = poolWithQueries([
+    { rowCount: 0, rows: [] },
+    { rowCount: 1, rows: [staged] },
+    { rowCount: 1, rows: [{
+      id: userId, email: 'restore-user@example.invalid', status: 'active',
+      paddle_customer_id: null, paddle_subscription_id: null,
+      paddle_subscription_status: null, premium_until: new Date('2099-01-01T00:00:00.000Z'),
+      premium_lifetime: false, billing_snapshot_at: new Date('2026-11-17T00:00:00.000Z')
+    }] },
+    { rowCount: 0, rows: [] }
+  ]);
+  await assert.rejects(
+    preflightAccountErasurePrivacyRecovery({
+      pool, mapping, pseudonymKey: key, env: isolatedEnv
+    }),
+    /privacy_recovery_account_erasure_paddle_subscription_unresolved/
+  );
+  assert.equal(calls.some(call => call.sql === 'COMMIT'), false);
+  assert.equal(calls.some(call => call.sql === 'ROLLBACK'), true);
+  assert.equal(calls.some(call => call.sql.includes('UPDATE users') || call.sql.includes('DELETE FROM')), false);
+});
