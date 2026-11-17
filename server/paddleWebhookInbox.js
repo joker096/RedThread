@@ -22,8 +22,18 @@ function stableJsonStringify(value) {
     if (serialized === undefined) throw new TypeError('invalid_paddle_event_value');
     return serialized;
   }
+  // Paddle SDK timestamps may be hydrated as Date instances. Preserve their
+  // JSON wire representation so distinct provider timestamps hash differently.
+  if (value instanceof Date) {
+    if (!Number.isFinite(value.getTime())) throw new TypeError('invalid_paddle_event_date');
+    return JSON.stringify(value.toISOString());
+  }
   if (Array.isArray(value)) {
     return '[' + value.map(item => item === undefined ? 'null' : stableJsonStringify(item)).join(',') + ']';
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError('unsupported_paddle_event_object');
   }
   return '{' + Object.keys(value).filter(key => value[key] !== undefined).sort()
     .map(key => JSON.stringify(key) + ':' + stableJsonStringify(value[key])).join(',') + '}';
