@@ -8,7 +8,7 @@ The webhook route accepts exact raw bytes and delegates signature, timestamp, an
 
 ## Fenced inbox processor
 
-Migration 215 adds a separate event processor lease, independent from the order reconciliation task lease:
+Migrations 215–217 add a separate event processor lease, independent from the order reconciliation task lease. Migration 216 scopes every claim to one explicitly configured provider key; workers with multiple providers must select the key explicitly. Migration 217 rejects partial routing metadata:
 
 - Claims one pending event using `FOR UPDATE SKIP LOCKED`.
 - Every claim increments attempt count and fencing generation and rotates the opaque lease token.
