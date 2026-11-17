@@ -16,7 +16,7 @@ Migration 214 adds `record_verified_gift_provider_event(...)`. Its caller MUST v
 - Raw webhook bodies, signatures, personal data and payment credentials are never persisted by this inbox.
 - Conflicting event evidence is append-only. Do not delete, rewrite, or merge it manually.
 
-The inbox function does not update gift order/payment state and does not assert event ordering. A webhook event is a reconciliation signal only. The read-only provider lookup remains the source of truth for terminal payment state; stale or out-of-order webhook deliveries must never directly roll back an order state. The actual HTTP signature-verification route and its integration tests remain unimplemented.
+The inbox function does not update gift order/payment state and does not assert event ordering. A webhook event is a reconciliation signal only. The read-only provider lookup remains the source of truth for terminal payment state; stale or out-of-order webhook deliveries must never directly roll back an order state. A provider-neutral HTTP ingress now requires an explicitly injected verifier and stores only the SHA-256 hash of exact raw request bytes. The provider registry remains empty, so every gift webhook returns a fail-closed 503 until a reviewed sandbox verifier, account ID, and environment are configured. The ingress still does not enqueue reconciliation work or mutate payment status.
 
 ## Operational health
 
