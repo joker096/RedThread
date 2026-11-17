@@ -17,8 +17,11 @@ const payload = {
     id: 'txn_01jvowwebhooktest000001',
     status: 'completed',
     currency_code: 'USD',
-    details: { totals: { total: '990' } },
-    items: []
+    details: { tax_rates_used: [], line_items: [], totals: { total: '990' } },
+    items: [],
+    payments: [],
+    created_at: '2026-11-17T10:00:00.000Z',
+    updated_at: '2026-11-17T10:00:00.000Z'
   }
 };
 const rawBody = JSON.stringify(payload);
