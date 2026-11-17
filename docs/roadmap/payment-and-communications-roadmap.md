@@ -121,37 +121,46 @@ Gate: письменное одобрение конкретной модели 
   - HEAD: `e0d5e658d523636cc5b19feb676c6a981d04684c`.
   - CI: run `44066860179` — Success; exact checkout SHA verified.
   - Browser E2E: run `44066860393` — Success; exact checkout SHA verified.
-  - Дополнительно: canonical SHA-256, append-only conflict evidence, quarantine до claim, concurrent claim и replay/crash integration coverage.
-  - Остались: out-of-order transaction lifecycle tests, operational metrics/alerts и retention review.
+  - Added canonical SHA-256, append-only conflict evidence, quarantine before claim, concurrent claim and crash/replay integration coverage.
+  - Remaining: explicit out-of-order transaction lifecycle tests, operational metrics/alerts and retention review.
 
 - **PR #444 — Orphaned Checkout Recovery**
-  - HEAD: `f325b4f638050e2acf6973379526c801bdc19802`.
-  - Добавлены PostgreSQL integration tests для конкурентного claim, lease takeover, stale worker fencing и сбоя после provider GET перед DB update с безопасной повторной read-only сверкой.
-  - CI и Browser E2E для этого SHA запущены; до их завершения предыдущие зелёные runs не засчитывать.
-  - Issue #439 остаётся открытым до проверки всех acceptance criteria, включая delayed visibility, provider timeout, retry exhaustion и virtual-device gates.
+  - HEAD: `7df4f81f2c655841b63ad4c377f692fcc6e90d81`.
+  - CI: run `44069337605` — Success; exact checkout SHA verified.
+  - Browser E2E: run `44069346860` — Success; exact checkout SHA verified.
+  - Test suite: 620 tests, 619 passed, 0 failed, 1 skipped.
+  - PostgreSQL integration coverage: concurrent claims, expired-lease takeover, stale-worker fencing, DB failure after provider response, replay of the same transaction, provider timeout, delayed visibility and retry exhaustion.
+  - Remaining: operational metrics/alerts and final Issue #439 acceptance review.
 
 - **PR #445 — Gift Payment Reconciliation Ledger**
   - HEAD: `18ef566ab80d7b5ad2e9f83d10790e4c1b481e83`.
   - CI: run `44062016968` — Success; exact checkout SHA verified.
   - Browser E2E: run `44062016952` — Success; exact checkout SHA verified.
-  - PostgreSQL tests проверяют эксклюзивный claim, истечение lease, fencing и конфликтующие provider event IDs.
+  - PostgreSQL tests cover exclusive claims, expired leases, fencing and conflicting provider event IDs.
+  - Remaining: review real DB crash/replay boundaries beyond mocked worker tests.
 
 - **PR #446 — Georgia Provider Roadmap**
-  - HEAD: `08ea08b0a8d5c7ee1ad5c31adec7b66c3bf1da4e`.
-  - Документационный PR; предварительный shortlist не является одобрением провайдера или разрешением на интеграцию.
+  - HEAD: `59fecd8de2a8363f7d82fba717791667a1dd4da8`.
+  - CI: run `44067587305` — Success; exact checkout SHA verified.
+  - Browser E2E: run `44067587433` — Success; exact checkout SHA verified.
+  - The provider shortlist is preliminary and is not provider approval.
 
 ### Следующие задачи этапа 0
 
-1. Довести PR #443: out-of-order transaction events, backlog/dead-letter metrics, alerting и retention policy.
-2. Довести PR #444 по полному acceptance criteria Issue #439: delayed visibility, provider timeout, retry exhaustion, ambiguous/multiple matches, wrong owner/plan/price, crash/restart и stale lease.
-3. Проверить PR #445 на реальные DB crash/replay границы, а не только mock-проверки worker.
-4. Выполнить Issue #441: настоящий `package-lock.json`, `npm ci`, фиксированные версии зависимостей и одинаковый dependency graph для CI/E2E.
-5. Проверить наличие Android/iOS build и emulator/simulator workflows. Не объявлять virtual-device тесты пройденными, если такие jobs реально не запускались.
+1. Выполнить Issue #441: reproducible `package-lock.json`, exact Paddle SDK version, `npm ci`, lockfile consistency and signature-validation tests.
+2. Довести PR #443: out-of-order transaction events, backlog/dead-letter metrics, alerting and retention policy.
+3. Довести PR #444: operational metrics/alerts and final Issue #439 acceptance review.
+4. Проверить PR #445 на реальные DB crash/replay boundaries, а не только mock-проверки worker.
+5. Создать Android/iOS application projects and emulator/simulator workflows before marking virtual-device testing complete.
+
+### Mobile verification status
+
+В текущем `main` отсутствуют Android/iOS project directories and native build workflows. В `.github/workflows` currently exist only CI and Browser E2E. Therefore Android/iOS virtual-device verification has **not** been run and cannot be marked complete. Vow remains mobile-app-only in product scope; this is a missing implementation/test stage, not a request to build a public web frontend.
 
 ### Коммерческие и эксплуатационные ограничения
 
 - Все PR остаются Draft; `main` не менять и не сливать.
-- Paddle worker и checkout recovery — только sandbox technical validation; это не означает, что Paddle одобрен для dating-модели Vow.
+- Paddle worker and checkout recovery are sandbox-only technical validation; this does not mean Paddle is approved for Vow's dating model.
 - Stripe исключён. Не подключать коммерческого провайдера без письменного approval и отдельного решения.
 - Не включать Production, не выполнять реальные списания/возвраты/отмены.
 - Не менять VPS и существующие сайты.
