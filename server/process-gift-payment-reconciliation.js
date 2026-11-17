@@ -80,8 +80,7 @@ async function commitVerifiedOutcome(pool, task, identity, status) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const orderStatus = status === 'refunded' ? 'refunded' : identity.order_status;
-    const orderUpdate = await client.query(
+      const orderUpdate = await client.query(
       `UPDATE gift_delivery_orders
           SET payment_status = $2, status = CASE WHEN $2 = 'refunded' THEN 'refunded' ELSE status END,
               updated_at = statement_timestamp()
@@ -94,8 +93,8 @@ async function commitVerifiedOutcome(pool, task, identity, status) {
     await client.query(
       `INSERT INTO gift_delivery_order_events
          (order_id, actor_type, event_type, from_status, to_status, metadata)
-       VALUES ($1, 'payment_service', $2, $3, $4, $5::jsonb)`,
-      [task.order_id, eventType, identity.payment_status, status, JSON.stringify({
+       VALUES ($1, 'payment_service', $2, NULL, NULL, $3::jsonb)`,
+      [task.order_id, eventType, JSON.stringify({
         reconciliationTaskId: String(task.id),
         fromPaymentStatus: identity.payment_status,
         toPaymentStatus: status,
