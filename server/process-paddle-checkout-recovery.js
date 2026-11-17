@@ -233,11 +233,11 @@ export async function runPaddleCheckoutRecoveryOnce(pool, {
   if (environment !== 'sandbox') throw new Error('paddle_checkout_recovery_sandbox_only');
   if (!apiKey) throw new Error('paddle_checkout_recovery_not_configured');
   const attempt = dryRun
-    ? (await pool.query(\`SELECT user_id, attempt_id, plan, created_at, transaction_id, recovery_attempt_count
+    ? (await pool.query(`SELECT user_id, attempt_id, plan, created_at, transaction_id, recovery_attempt_count
          FROM paddle_checkout_attempts
          WHERE status = 'creating' AND created_at <= statement_timestamp() - ($1::int * INTERVAL '1 millisecond')
            AND recovery_attempt_count < $2 AND recovery_next_attempt_at <= statement_timestamp()
-         ORDER BY created_at, user_id LIMIT 1\`, [PADDLE_CHECKOUT_RECOVERY_STALE_MS, PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS])).rows[0]
+         ORDER BY created_at, user_id LIMIT 1`, [PADDLE_CHECKOUT_RECOVERY_STALE_MS, PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS])).rows[0]
     : await claimPaddleCheckoutRecovery(pool);
   if (!attempt) return { processed: false };
   const expected = {
