@@ -94,3 +94,15 @@ The worker logs alert markers when any of these conditions are present:
 - `backlog_over_100_due_events`: inspect worker health and database capacity.
 
 These are operational alert signals, not automatic repair commands. Never delete or manually reset queue rows/leases to silence an alert. Preserve append-only conflict evidence and use the existing reconciliation procedures for financial identity mismatches.
+
+## Checkout recovery observability and privacy
+
+Checkout recovery metrics are aggregate-only and must never include user IDs, checkout attempt IDs, transaction IDs, email addresses, or provider payloads. Worker outcome logs may contain only the action, bounded reason code, dry-run flag, and page count.
+
+Alert markers:
+- `reconciliation_required_attempts_present`: one or more attempts require manual financial reconciliation; do not grant Premium or replay automatically.
+- `recovery_attempts_exhausted`: due attempts reached the bounded retry limit; review provider visibility and quarantine evidence.
+- `oldest_creating_attempt_over_5m`: investigate prolonged checkout creation/recovery delay.
+- `checkout_recovery_backlog_over_100`: inspect worker health and database capacity.
+
+These markers are observational only. They do not mutate checkout attempts, clear leases, or trigger payment actions.
