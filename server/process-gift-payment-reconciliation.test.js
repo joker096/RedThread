@@ -103,7 +103,7 @@ test('an interrupted post-lookup attempt retries by looking up the same immutabl
     async connect() {
       if (!firstCommitBoundaryInterrupted) {
         firstCommitBoundaryInterrupted = true;
-        throw new Error('simulated_connection_loss_after_provider_lookup_before_commit');
+        throw Object.assign(new Error('simulated_connection_loss_after_provider_lookup_before_commit'), { code: 'simulated_connection_loss_after_provider_lookup_before_commit' });
       }
       return {
         async query(sql) {
