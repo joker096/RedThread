@@ -20,7 +20,8 @@
     "gifts:expire-requests": "node server/expire-gift-requests.js",
     "identity:l3-expire": "node server/expire-identity-l3-approvals.js",
     "identity:l3-worker": "node server/process-identity-l3-queue.js",
-    "photos:purge": "node server/process-private-photo-purge.js"
+    "photos:purge": "node server/process-private-photo-purge.js",
+    "paddle:checkout-recovery": "node server/process-paddle-checkout-recovery.js"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
