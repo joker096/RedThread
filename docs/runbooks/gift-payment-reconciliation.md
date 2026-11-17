@@ -16,7 +16,7 @@ Migration 214 adds `record_verified_gift_provider_event(...)`. Its caller MUST v
 - Raw webhook bodies, signatures, personal data and payment credentials are never persisted by this inbox.
 - Conflicting event evidence is append-only. Do not delete, rewrite, or merge it manually.
 
-The inbox function does not update gift order/payment state and does not assert event ordering. A webhook event is a reconciliation signal only. The read-only provider lookup remains the source of truth for terminal payment state; stale or out-of-order webhook deliveries must never directly roll back an order state. A provider-neutral HTTP ingress now requires an explicitly injected verifier and stores only the SHA-256 hash of exact raw request bytes. The provider registry remains empty, so every gift webhook returns a fail-closed 503 until a reviewed sandbox verifier, account ID, and environment are configured. The ingress still does not enqueue reconciliation work or mutate payment status.
+The inbox function does not update gift order/payment state and does not assert event ordering. A webhook event is a reconciliation signal only. The read-only provider lookup remains the source of truth for terminal payment state; stale or out-of-order webhook deliveries must never directly roll back an order state. A provider-neutral HTTP route exists and delegates exact raw-body signature, timestamp, and replay verification to an injected verifier before calling the inbox function. The provider registry in the API composition is deliberately empty, so every gift webhook currently returns a fail-closed 503. No provider verifier, account, or environment is configured.
 
 ## Operational health
 
@@ -68,7 +68,7 @@ Claims use `FOR UPDATE SKIP LOCKED`. Each claim increments `attempt_count` and `
 ## Current limitations
 
 - No gift payment provider adapter is configured.
-- No HTTP webhook route performs provider signature verification or calls the verified-event inbox function yet.
-- Verified event ingestion does not enqueue work or change payment status; that must be wired only to the existing read-only reconciliation process.
+- The HTTP route is present, but no provider verifier/account/environment is configured; it therefore fails closed with 503.
+- Verified event ingestion does not enqueue work or change payment status. There is not yet a safe event-to-order mapping/processor; the existing order reconciliation queue is separate and must not be fed by guessed references.
 - The current health view supplies aggregate SQL metrics; external alert delivery is not configured.
 - Production activation and live financial operations are prohibited.
