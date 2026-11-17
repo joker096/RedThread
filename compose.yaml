@@ -121,6 +121,54 @@ services:
         condition: service_completed_successfully
     networks: [backend]
 
+  paddle-webhook-inbox-worker:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    profiles: ["paddle-sandbox"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "${PGSSL:-false}"
+      PADDLE_ENVIRONMENT: ${PADDLE_ENVIRONMENT:-sandbox}
+      PADDLE_PRICE_ID_1MONTH: ${PADDLE_PRICE_ID_1MONTH:-}
+      PADDLE_PRICE_ID_3MONTHS: ${PADDLE_PRICE_ID_3MONTHS:-}
+      PADDLE_PRICE_ID_LIFETIME: ${PADDLE_PRICE_ID_LIFETIME:-}
+    command: ["node", "server/process-paddle-webhook-inbox.js"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+
+  paddle-checkout-recovery-worker:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    profiles: ["paddle-sandbox"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
+      PGSSL: "${PGSSL:-false}"
+      PADDLE_ENVIRONMENT: ${PADDLE_ENVIRONMENT:-sandbox}
+      PADDLE_API_KEY: ${PADDLE_API_KEY:-}
+      PADDLE_PRICE_ID_1MONTH: ${PADDLE_PRICE_ID_1MONTH:-}
+      PADDLE_PRICE_ID_3MONTHS: ${PADDLE_PRICE_ID_3MONTHS:-}
+      PADDLE_PRICE_ID_LIFETIME: ${PADDLE_PRICE_ID_LIFETIME:-}
+      PADDLE_EXPECTED_CURRENCY_CODE: ${PADDLE_EXPECTED_CURRENCY_CODE:-}
+      PADDLE_EXPECTED_AMOUNT_MINOR_1MONTH: ${PADDLE_EXPECTED_AMOUNT_MINOR_1MONTH:-}
+      PADDLE_EXPECTED_AMOUNT_MINOR_3MONTHS: ${PADDLE_EXPECTED_AMOUNT_MINOR_3MONTHS:-}
+      PADDLE_EXPECTED_AMOUNT_MINOR_LIFETIME: ${PADDLE_EXPECTED_AMOUNT_MINOR_LIFETIME:-}
+      PADDLE_CHECKOUT_RECOVERY_APPLY: ${PADDLE_CHECKOUT_RECOVERY_APPLY:-false}
+    command: ["node", "server/process-paddle-checkout-recovery.js"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend, egress]
+
   clamav:
     image: ${CLAMAV_IMAGE:-clamav/clamav:stable}
     restart: unless-stopped

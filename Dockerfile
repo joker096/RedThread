@@ -1,7 +1,7 @@
 FROM node:22-alpine AS build
 WORKDIR /app
-COPY package.json ./
-RUN npm install --no-audit --no-fund
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY . .
 RUN npm run build
 
@@ -9,8 +9,8 @@ FROM node:22-alpine AS api
 RUN apk add --no-cache ffmpeg
 ENV NODE_ENV=production
 WORKDIR /app
-COPY package.json ./
-RUN npm install --omit=dev --no-audit --no-fund
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
 COPY server ./server
 COPY scripts ./scripts
 RUN mkdir -p /app/uploads/private-photos /app/uploads/private-identity-l3 /run/identity-l3-tmp && chmod 700 /app/uploads/private-identity-l3 /run/identity-l3-tmp && chown -R node:node /app /run/identity-l3-tmp
