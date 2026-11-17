@@ -30,16 +30,22 @@ test('provider outcome must match immutable provider identity and financial snap
 
 test('worker fails closed before claiming when no explicit provider adapter is injected', async () => {
   let calls = 0;
-  const pool = { query: async () => { calls += 1; return { rows: [] }; } };
+  const pool = {
+    connect: async () => { throw new Error('must not acquire a database connection'); },
+    query: async () => { calls += 1; return { rows: [] }; }
+  };
   await assert.rejects(
     processOneGiftPaymentReconciliation({ pool }),
-    { code: 'gift_payment_provider_adapter_not_configured' }
+    error => error.code === 'gift_payment_provider_adapter_not_configured'
   );
   assert.equal(calls, 0, 'must not claim or mutate tasks without a provider adapter');
 });
 
 test('worker returns idle when no due reconciliation task exists', async () => {
-  const pool = { query: async () => ({ rows: [] }) };
+  const pool = {
+    connect: async () => { throw new Error('must not acquire a connection when the queue is empty'); },
+    query: async () => ({ rows: [] })
+  };
   const result = await processOneGiftPaymentReconciliation({
     pool,
     providerAdapter: { reconcile: async () => { throw new Error('must not be called'); } }
