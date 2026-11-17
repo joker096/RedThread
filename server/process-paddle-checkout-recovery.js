@@ -314,7 +314,8 @@ async function main() {
   if (!process.env.DATABASE_URL || !process.env.PADDLE_API_KEY) throw new Error('paddle_checkout_recovery_not_configured');
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2, connectionTimeoutMillis: 5_000,
     ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: true } : undefined });
-  let stopping = false;\n  let lastMetricsAt = 0;
+  let stopping = false;
+  let lastMetricsAt = 0;
   const stop = () => { stopping = true; };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
