@@ -64,6 +64,9 @@ test('only exact attempt, owner, plan, configured price and quantity are matched
 test('zero, unique, duplicate and paid matches fail closed', () => {
   assert.equal(paddleRecoveryDecision([]).action, 'not_found');
   assert.equal(paddleRecoveryDecision([], { pageLimitReached: true }).action, 'defer');
+  assert.equal(paddleRecoveryDecision([
+    paddleRecoveryTransactionMatches(transaction(), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' })
+  ], { pageLimitReached: true }).action, 'defer', 'one match is not unique until every candidate page has been checked');
   assert.equal(paddleRecoveryDecision([paddleRecoveryTransactionMatches(transaction(), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' })]).action, 'attach_pending');
   assert.equal(paddleRecoveryDecision([
     paddleRecoveryTransactionMatches(transaction(), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' }),
