@@ -31,13 +31,18 @@ export function paddleRecoveryWindow(createdAt, now = Date.now()) {
   };
 }
 
-export function paddleRecoveryTransactionMatches(transaction, attempt, expectedPriceId) {
+export function paddleRecoveryTransactionMatches(transaction, attempt, expected) {
+  const expectedPriceId = expected?.priceId;
+  const expectedCurrencyCode = expected?.currencyCode;
+  const expectedAmountMinorUnits = expected?.amountMinorUnits;
   const custom = transaction?.custom_data;
   const attemptId = attempt?.attempt_id;
   const validIdentity = UUID_RE.test(String(attemptId || '')) &&
     UUID_RE.test(String(attempt?.user_id || '')) &&
     ['1month', '3months', 'lifetime'].includes(attempt?.plan);
-  if (!validIdentity || !expectedPriceId || typeof expectedPriceId !== 'string') {
+  if (!validIdentity || !expectedPriceId || typeof expectedPriceId !== 'string' ||
+      typeof expectedCurrencyCode !== 'string' || !/^[A-Z]{3}$/.test(expectedCurrencyCode) ||
+      typeof expectedAmountMinorUnits !== 'string' || !/^\\d+$/.test(expectedAmountMinorUnits)) {
     return { kind: 'invalid_configuration' };
   }
   if (custom?.checkoutAttemptId !== attemptId) return { kind: 'no_match' };
@@ -50,6 +55,11 @@ export function paddleRecoveryTransactionMatches(transaction, attempt, expectedP
     Number(item?.quantity) === 1
   );
   if (items.length !== 1 || exactItems.length !== 1) return { kind: 'price_conflict' };
+  const currencyCode = String(transaction?.currency_code || '').toUpperCase();
+  const amountMinorUnits = transaction?.details?.totals?.total;
+  if (currencyCode !== expectedCurrencyCode || String(amountMinorUnits) !== expectedAmountMinorUnits) {
+    return { kind: 'financial_snapshot_conflict' };
+  }
   if (typeof transaction?.id !== 'string' || !/^txn_[A-Za-z0-9]+$/.test(transaction.id)) {
     return { kind: 'invalid_transaction' };
   }
@@ -90,11 +100,11 @@ function safeSandboxNextUrl(value) {
 
 export async function listPaddleTransactionsForAttempt({
   apiKey, attempt, fetchImpl = globalThis.fetch, maxPages = PADDLE_CHECKOUT_RECOVERY_MAX_PAGES,
-  now = Date.now(), priceId
+  now = Date.now(), expected
 } = {}) {
   if (typeof apiKey !== 'string' || !apiKey || typeof fetchImpl !== 'function' ||
       !Number.isInteger(maxPages) || maxPages < 1 || maxPages > 10 ||
-      !PLAN_PRICE_ENV[attempt?.plan] || !priceId) {
+      !PLAN_PRICE_ENV[attempt?.plan] || !expected?.priceId || !expected?.currencyCode || !expected?.amountMinorUnits) {
     throw new Error('paddle_checkout_recovery_not_configured');
   }
   const window = paddleRecoveryWindow(attempt.created_at, now);
@@ -121,7 +131,7 @@ export async function listPaddleTransactionsForAttempt({
     }
     pages += 1;
     for (const transaction of payload.data) {
-      const result = paddleRecoveryTransactionMatches(transaction, attempt, priceId);
+      const result = paddleRecoveryTransactionMatches(transaction, attempt, expected);
       if (result.kind !== 'no_match') matches.push(result);
     }
     hasMore = payload.meta.pagination.has_more === true;
@@ -229,12 +239,17 @@ export async function runPaddleCheckoutRecoveryOnce(pool, {
          ORDER BY created_at, user_id LIMIT 1\`, [PADDLE_CHECKOUT_RECOVERY_STALE_MS, PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS])).rows[0]
     : await claimPaddleCheckoutRecovery(pool);
   if (!attempt) return { processed: false };
-  const priceId = process.env[PLAN_PRICE_ENV[attempt.plan]];
+  const expected = {
+    priceId: process.env[PLAN_PRICE_ENV[attempt.plan]],
+    currencyCode: String(process.env.PADDLE_EXPECTED_CURRENCY_CODE || '').toUpperCase(),
+    amountMinorUnits: process.env['PADDLE_EXPECTED_AMOUNT_MINOR_' + attempt.plan.replace(/[^a-z0-9]/g, '').toUpperCase()]
+  };
   try {
-    if (!priceId || !/^pri_[A-Za-z0-9]+$/.test(priceId)) {
+    if (!expected.priceId || !/^pri_[A-Za-z0-9]+$/.test(expected.priceId) ||
+        !/^[A-Z]{3}$/.test(expected.currencyCode) || !/^\\d+$/.test(String(expected.amountMinorUnits || ''))) {
       return await finishRecovery(pool, attempt, { action: 'quarantine', reason: 'expected_price_not_configured' }, { dryRun, errorCode: 'expected_price_not_configured' });
     }
-    const listed = await listPaddleTransactionsForAttempt({ apiKey, attempt, fetchImpl, maxPages, priceId });
+    const listed = await listPaddleTransactionsForAttempt({ apiKey, attempt, fetchImpl, maxPages, expected });
     const classified = listed.matches.map(match => match);
     let decision = paddleRecoveryDecision(classified, { pageLimitReached: listed.pageLimitReached });
     if (decision.action === 'not_found' && attempt.recovery_attempt_count >= PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS - 1) {
