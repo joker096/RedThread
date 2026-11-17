@@ -199,6 +199,7 @@ export async function preflightAccountErasurePrivacyRecovery({
     }
     const staged = stagedResult.rows[0];
     const digest = digestEvent(staged);
+    assertSubjectMapping(staged, mapping, pseudonymKey);
     if (receiptResult.rowCount) {
       const receipt = receiptResult.rows[0];
       if (receiptResult.rowCount !== 1 ||
@@ -212,7 +213,6 @@ export async function preflightAccountErasurePrivacyRecovery({
       return { ready: true, alreadyApplied: true };
     }
 
-    assertSubjectMapping(staged, mapping, pseudonymKey);
     const identity = await client.query(
       `SELECT id, email, status, paddle_customer_id, paddle_subscription_id,
               paddle_subscription_status, premium_until, premium_lifetime,
@@ -433,6 +433,7 @@ export async function applyAccountErasurePrivacyRecoveryEvent({
     }
     const staged = stagedResult.rows[0];
     const digest = digestEvent(staged);
+    assertSubjectMapping(staged, mapping, pseudonymKey);
     if (receiptResult.rowCount) {
       const receipt = receiptResult.rows[0];
       if (receiptResult.rowCount !== 1 ||
@@ -446,7 +447,6 @@ export async function applyAccountErasurePrivacyRecoveryEvent({
       return { applied: false, alreadyApplied: true, outcome: OUTCOME };
     }
 
-    assertSubjectMapping(staged, mapping, pseudonymKey);
     // Match the account deletion/checkout lock order: checkout first,
     // then account safety, then pair-level gift locks inside the executor.
     await client.query(
