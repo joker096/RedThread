@@ -21,6 +21,8 @@ const transaction = (overrides = {}) => ({
   status: 'ready',
   custom_data: { userId: attempt.user_id, plan: attempt.plan, checkoutAttemptId: attempt.attempt_id },
   items: [{ price: { id: 'pri_month' }, quantity: 1 }],
+  currency_code: 'USD',
+  details: { totals: { total: '990' } },
   ...overrides
 });
 
@@ -38,33 +40,33 @@ test('recovery bounds and time window are deterministic', () => {
 });
 
 test('only exact attempt, owner, plan, configured price and quantity are matched', () => {
-  assert.deepEqual(paddleRecoveryTransactionMatches(transaction(), attempt, 'pri_month'), {
+  assert.deepEqual(paddleRecoveryTransactionMatches(transaction(), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' }), {
     kind: 'match', transactionId: 'txn_abc123', status: 'ready'
   });
   assert.equal(paddleRecoveryTransactionMatches(transaction({
     custom_data: { ...transaction().custom_data, checkoutAttemptId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }
-  }), attempt, 'pri_month').kind, 'no_match');
+  }), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' }).kind, 'no_match');
   assert.equal(paddleRecoveryTransactionMatches(transaction({
     custom_data: { ...transaction().custom_data, userId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }
-  }), attempt, 'pri_month').kind, 'identity_conflict');
+  }), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' }).kind, 'identity_conflict');
   assert.equal(paddleRecoveryTransactionMatches(transaction({
     items: [{ price: { id: 'pri_other' }, quantity: 1 }]
-  }), attempt, 'pri_month').kind, 'price_conflict');
+  }), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' }).kind, 'price_conflict');
   assert.equal(paddleRecoveryTransactionMatches(transaction({
     items: [{ price: { id: 'pri_month' }, quantity: 2 }]
-  }), attempt, 'pri_month').kind, 'price_conflict');
+  }), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' }).kind, 'price_conflict');
 });
 
 test('zero, unique, duplicate and paid matches fail closed', () => {
   assert.equal(paddleRecoveryDecision([]).action, 'not_found');
   assert.equal(paddleRecoveryDecision([], { pageLimitReached: true }).action, 'defer');
-  assert.equal(paddleRecoveryDecision([paddleRecoveryTransactionMatches(transaction(), attempt, 'pri_month')]).action, 'attach_pending');
+  assert.equal(paddleRecoveryDecision([paddleRecoveryTransactionMatches(transaction(), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' })]).action, 'attach_pending');
   assert.equal(paddleRecoveryDecision([
     paddleRecoveryTransactionMatches(transaction(), attempt, 'pri_month'),
     paddleRecoveryTransactionMatches(transaction({ id: 'txn_other123' }), attempt, 'pri_month')
   ]).reason, 'multiple_provider_matches');
   assert.equal(paddleRecoveryDecision([
-    paddleRecoveryTransactionMatches(transaction({ status: 'completed' }), attempt, 'pri_month')
+    paddleRecoveryTransactionMatches(transaction({ status: 'completed' }), attempt, { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' })
   ]).action, 'quarantine_with_transaction');
 });
 
@@ -83,7 +85,7 @@ test('transaction list uses sandbox endpoint, bounded cursor pagination and exac
     };
   };
   const result = await listPaddleTransactionsForAttempt({
-    apiKey: 'sandbox_test_key', attempt, fetchImpl, priceId: 'pri_month',
+    apiKey: 'sandbox_test_key', attempt, fetchImpl, expected: { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' },
     now: Date.parse('2026-11-17T07:03:00Z')
   });
   assert.equal(urls.length, 1);
@@ -100,7 +102,7 @@ test('pagination never follows an untrusted host', async () => {
     }
   });
   await assert.rejects(
-    listPaddleTransactionsForAttempt({ apiKey: 'sandbox_test_key', attempt, fetchImpl, priceId: 'pri_month' }),
+    listPaddleTransactionsForAttempt({ apiKey: 'sandbox_test_key', attempt, fetchImpl, expected: { priceId: 'pri_month', currencyCode: 'USD', amountMinorUnits: '990' } }),
     /pagination_url_invalid/
   );
 });
