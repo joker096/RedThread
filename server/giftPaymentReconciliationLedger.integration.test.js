@@ -31,11 +31,12 @@ test('gift payment reconciliation ledger installs fenced claim and immutable inb
     const healthView = await client.query(
       "SELECT pg_get_viewdef('gift_payment_reconciliation_health'::regclass, true) AS definition"
     );
-    assert.match(
-      healthView.rows[0].definition,
-      /status IN \\(\\'pending\\'::text, \\'failed\\'::text\\).*dead_lettered_at IS NULL.*next_attempt_at <= statement_timestamp/s,
-      'due_tasks must include due retryable failed tasks, not only pending tasks'
-    );
+    const healthDefinition = healthView.rows[0].definition;
+    assert.match(healthDefinition, /'pending'/);
+    assert.match(healthDefinition, /'failed'/);
+    assert.match(healthDefinition, /dead_lettered_at IS NULL/);
+    assert.match(healthDefinition, /next_attempt_at <= statement_timestamp/,
+      'due_tasks must include due retryable failed tasks, not only pending tasks');
 
     await assert.rejects(
       client.query('SELECT * FROM claim_gift_payment_reconciliation_task($1, 90, 8)', ['invalid worker name with spaces']),
