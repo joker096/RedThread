@@ -489,6 +489,20 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       assert.equal(unverifiedPublicViewer.status, 403);
       assert.equal((await unverifiedPublicViewer.json()).error, 'identity_verification_required');
 
+      ledger.failNext();
+      const rejectedWithdrawal = await request('/api/profiles/me/voice-intro', {
+        method: 'DELETE',
+        headers: { Cookie: owner.cookie }
+      });
+      assert.equal(rejectedWithdrawal.status, 503,
+        'a Ledger outage must not remove the encrypted voice clip or withdraw its consent');
+      const voiceStateBeforeRetry = await db.query(
+        'SELECT c.withdrawn_at, COUNT(v.user_id)::int AS clip_count FROM profile_voice_intro_consents c LEFT JOIN profile_voice_intros v ON v.user_id = c.user_id WHERE c.user_id = $1 GROUP BY c.withdrawn_at',
+        [owner.id]
+      );
+      assert.equal(voiceStateBeforeRetry.rows[0]?.withdrawn_at, null);
+      assert.equal(voiceStateBeforeRetry.rows[0]?.clip_count, 1);
+
       const withdrawn = await request('/api/profiles/me/voice-intro', {
         method: 'DELETE',
         headers: { Cookie: owner.cookie }
