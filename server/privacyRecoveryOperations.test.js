@@ -140,4 +140,5 @@ test('resource transition operation IDs are stable across retries and distinct a
 test('resource transition operation IDs reject missing or unbounded identity components', () => {
   assert.throws(() => derivePrivacyRecoveryOperationId({ eventType: 'gift_order_consent_withdrawn', userId: 'user-1' }), /privacy_recovery_operation_identity_invalid/);
   assert.throws(() => derivePrivacyRecoveryOperationId({ eventType: 'gift_order_consent_withdrawn', userId: 'user-1', resourceId: 'order-1', generation: 'x'.repeat(201) }), /privacy_recovery_operation_identity_invalid/);
+  assert.throws(() => derivePrivacyRecoveryOperationId({ eventType: 'gift_order_consent_withdrawn', userId: 'user-1', resourceId: 'order-1', generation: Number.NaN }), /privacy_recovery_operation_identity_invalid/);
 });
