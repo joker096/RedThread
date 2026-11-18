@@ -123,3 +123,13 @@ test('address draft consent withdrawal is a supported pseudonymized Ledger event
   assert.notEqual(payload.subject_ref, 'recipient-user');
   assert.notEqual(payload.resource_ref, 'gift-order');
 });
+
+test('address draft withdrawal payload requires the exact order resource', async () => {
+  await assert.rejects(
+    appendPrivacyRecoveryEvent({
+      eventType: 'gift_address_draft_consent_withdrawn',
+      userId: 'recipient-user'
+    }, { env: baseEnv, fetchImpl: async () => { throw new Error('must not call'); } }),
+    /invalid_privacy_recovery_event/
+  );
+});
