@@ -808,6 +808,17 @@ function requireDatabase(_req, res, next) {
 }
 
 async function validateRequestOrigin(req, res, next) {
+  // Only the original session may retry its own pending account deletion.
+  const originalRequestPath = String(req.originalUrl || req.url || '').split('?')[0];
+  const requestPath = String(req.path || '').split('?')[0];
+  const mountedRequestPath = String(req.baseUrl || '').replace(/\/+$/, '') + '/' + requestPath.replace(/^\/+/, '');
+  const accountDeletionRetry = req.method === 'DELETE' && (
+    req.route?.path === '/api/account' ||
+    (req.baseUrl === '/api' && req.route?.path === '/account') ||
+    originalRequestPath === '/api/account' ||
+    requestPath === '/api/account' ||
+    mountedRequestPath === '/api/account'
+  );
   const origin = req.get('origin');
   if (origin) {
     try {
@@ -835,11 +846,19 @@ async function validateRequestOrigin(req, res, next) {
        JOIN users u ON u.id = s.user_id
        WHERE s.access_token_hash = $1
          AND s.access_expires_at > NOW()
-         AND s.revoked_at IS NULL
-         AND u.status = 'active'
+         AND (
+           s.revoked_at IS NULL
+           OR ($3::boolean AND u.status = 'suspended'
+               AND u.deletion_pending_at IS NOT NULL
+               AND s.revoked_reason = 'account_unavailable')
+         )
+         AND (
+           (u.status = 'active' AND u.deletion_pending_at IS NULL)
+           OR ($3::boolean AND u.status = 'suspended' AND u.deletion_pending_at IS NOT NULL)
+         )
          AND ($2::boolean = FALSE OR u.email_verified_at IS NOT NULL)
        LIMIT 1`,
-      [hashMobileToken(mobileToken, 'access'), emailVerificationRequired]
+      [hashMobileToken(mobileToken, 'access'), emailVerificationRequired, accountDeletionRetry]
     );
     if (!authenticated.rowCount) return res.status(401).json({ error: 'not_authenticated' });
     if (origin) applyMobileCorsHeaders(origin, res);
