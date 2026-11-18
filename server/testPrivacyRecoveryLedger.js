@@ -8,6 +8,7 @@ export async function startTestPrivacyRecoveryLedger() {
   const events = [];
   const byId = new Map();
   let sequence = 0;
+  let failuresRemaining = 0;
   const server = createServer(async (request, response) => {
     if (request.method !== 'POST' || request.url !== '/v1/events') {
       response.writeHead(404).end();
@@ -19,6 +20,11 @@ export async function startTestPrivacyRecoveryLedger() {
       const event = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if (!event || typeof event.event_id !== 'string') {
         response.writeHead(400).end();
+        return;
+      }
+      if (failuresRemaining > 0) {
+        failuresRemaining -= 1;
+        response.writeHead(503).end();
         return;
       }
       const prior = byId.get(event.event_id);
@@ -51,6 +57,10 @@ export async function startTestPrivacyRecoveryLedger() {
   return {
     url: `http://127.0.0.1:${address.port}/`,
     events,
+    failNext(count = 1) {
+      if (!Number.isSafeInteger(count) || count < 1 || count > 100) throw new TypeError('invalid_test_ledger_failure_count');
+      failuresRemaining += count;
+    },
     close: () => new Promise((resolve, reject) =>
       server.close(error => error ? reject(error) : resolve())
     )
