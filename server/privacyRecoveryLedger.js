@@ -11,7 +11,7 @@ export const PRIVACY_RECOVERY_EVENT_TYPES = Object.freeze([
 ]);
 
 const ALLOWED_EVENT_TYPES = new Set(PRIVACY_RECOVERY_EVENT_TYPES);
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function hmacHex(key, value) {
   return createHmac('sha256', key).update(value, 'utf8').digest('hex');
