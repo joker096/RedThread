@@ -171,3 +171,16 @@ the account, removes permitted consent and engagement records, and records the
 transaction. A Ledger outage prevents the destructive callback while the account remains fail-closed in the pending state, available for retry with the same operation identity. A stale account
 or billing snapshot returns a retryable conflict. No PostgreSQL advisory lock
 is held while waiting for the remote Ledger.
+
+
+### Account deletion pending guard migration
+
+Migration `245_account_deletion_pending_guard.sql` adds
+`users.deletion_pending_at`. Before releasing account locks for the Ledger
+round-trip, the route atomically marks the account suspended and records this
+timestamp. Ordinary authenticated API requests, web/mobile login and mobile
+refresh fail closed while the marker exists. Only an authenticated DELETE
+`/api/account` retry is allowed through, so the same deterministic operation
+can resume after a Ledger or PostgreSQL outage without reopening the account.
+The successful apply transaction tombstones the account; the marker remains
+as historical fail-closed state.
