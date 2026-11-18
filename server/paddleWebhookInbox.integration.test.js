@@ -160,6 +160,46 @@ test('verified Paddle events are durably deduplicated and worker completion is f
     const onlyClaim = concurrentClaims.find(Boolean);
     assert.equal(await completePaddleWebhook(pool, concurrentEventId, onlyClaim.lease_token), true);
 
+    // A conflicting delivery arriving while the original is being processed
+    // must serialize behind the event lock; it cannot invalidate an in-flight
+    // domain transaction midway through its atomic financial effects.
+    const racingEventId = eventId + '_racing_conflict';
+    await enqueueVerifiedPaddleWebhook(pool, { ...event, eventId: racingEventId });
+    let enteredProcessing;
+    const enteredProcessingPromise = new Promise(resolve => { enteredProcessing = resolve; });
+    let releaseProcessing;
+    const processingGate = new Promise(resolve => { releaseProcessing = resolve; });
+    const racingWorker = processOnePaddleWebhook(pool, async (_db, payload) => {
+      assert.equal(payload.eventId, racingEventId);
+      enteredProcessing();
+      await processingGate;
+    });
+    await enteredProcessingPromise;
+    const racingConflictEvent = {
+      ...event,
+      eventId: racingEventId,
+      data: { ...event.data, id: 'txn_conflicting_' + randomUUID().replaceAll('-', '') }
+    };
+    let conflictFinished = false;
+    const racingConflict = enqueueVerifiedPaddleWebhook(pool, racingConflictEvent).then(result => {
+      conflictFinished = true;
+      return result;
+    });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(conflictFinished, false,
+      'conflicting delivery must wait until the active event transaction has completed');
+    releaseProcessing();
+    const racingProcessed = await racingWorker;
+    assert.equal(racingProcessed.processed, true);
+    assert.deepEqual(await racingConflict,
+      { duplicate: true, queued: false, conflict: true });
+    const racingState = await pool.query(
+      'SELECT status FROM paddle_webhook_inbox WHERE event_id = $1',
+      [racingEventId]
+    );
+    assert.equal(racingState.rows[0].status, 'completed',
+      'the first verified delivery completes before the later conflicting reuse is recorded');
+
     const staleEventId = eventId + '_stale';
     await enqueueVerifiedPaddleWebhook(pool, { ...event, eventId: staleEventId });
     const claimed = await claimPaddleWebhook(pool);
