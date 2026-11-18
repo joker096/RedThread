@@ -5,6 +5,11 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 : "${DATABASE_URL:?Set DATABASE_URL through your deployment secret manager}"
 : "${PRIVATE_MEDIA_DIR:?Set PRIVATE_MEDIA_DIR to the mounted private media directory}"
 : "${BACKUP_AGE_RECIPIENT:?Set BACKUP_AGE_RECIPIENT to an age public recipient}"
+: "${BACKUP_CONFIRM_QUIESCED:?Confirm uploads, replacements, deletion purges and moderation media changes are paused}"
+if [[ "$BACKUP_CONFIRM_QUIESCED" != "I_UNDERSTAND_MEDIA_AND_DATABASE_WRITES_ARE_QUIESCED" ]]; then
+  echo "explicit database/media quiescence confirmation is required for a coordinated bundle" >&2
+  exit 1
+fi
 BACKUP_ROOT="${BACKUP_DIR:-./backups/bundles}"
 SNAPSHOT_ID="${BACKUP_SNAPSHOT_ID:-$(date -u +%Y%m%dT%H%M%SZ)_$$}"
 if ! [[ "$SNAPSHOT_ID" =~ ^[A-Za-z0-9_-]{1,64}$ ]]; then
