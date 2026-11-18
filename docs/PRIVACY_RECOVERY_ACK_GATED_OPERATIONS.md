@@ -1,6 +1,6 @@
 # ACK-gated privacy recovery operations
 
-Status: foundation implemented on an isolated Draft branch; gift-order consent withdrawal and ad-consent revocation are migrated, with route-level PostgreSQL concurrency coverage still pending.
+Status: foundation implemented on an isolated Draft branch. Gift-order consent withdrawal, ad-consent revocation, L3 consent withdrawal, voice-intro erasure/consent withdrawal, profile-photo erasure, and account erasure are migrated. PostgreSQL route-level failure/concurrency coverage remains incomplete.
 
 ## Required ordering
 
@@ -31,18 +31,23 @@ Ledger outage, rejection, malformed ACK, or timeout prevents the domain callback
 
 The current `server/index.js` handlers cannot safely call the new runner from inside their existing transaction. The runner opens independent PostgreSQL transactions for intent, ACK persistence and domain apply. Route integration must therefore release pre-ACK locks, preserve only immutable identifiers / lifecycle generation, obtain the Ledger ACK, and reacquire locks plus revalidate all domain predicates inside `apply(client)`.
 
-- **Account erasure:** the handler performs Paddle cancellation/reconciliation before its deletion transaction and holds account-safety serialization around that workflow. Keep provider cancellation outside the ACK-gated DB callback; after ACK, revalidate active account state, subscription reconciliation state and private-media purge prerequisites before anonymization/deletion. A retry identity must be stable for the account-erasure lifecycle.
+- **Account erasure — migrated:** Paddle checkout/subscription cancellation and reconciliation remain before the privacy Ledger request. Both session-level checkout and safety advisory locks are released before waiting for the Ledger ACK. The apply callback reacquires transaction-scoped checkout, safety and account-reuse locks, then revalidates account identity/creation generation, billing/checkout state and L3 private-media prerequisites before tombstoning. Photo/voice purge queues, gift safety holds, consent-history cleanup, anonymization and account-reuse restriction are committed atomically with the operation's `applied` state. A deterministic operation ID is scoped to the account creation generation.
 - **Voice intro withdrawal + clip erasure:** the handler currently locks the consent row and clip rows, emits one event per clip plus a consent event, then withdraws consent and queues/deletes clips in the same transaction. Capture the consent grant timestamp/version and clip IDs as preflight facts, but reacquire locks and verify the same grant and clip set after ACK. Each clip erasure and consent withdrawal need separate stable operation identities.
-- **Profile photo erasure:** profile update currently combines profile changes and asset deletion. Only the removed asset IDs should be ACK-gated; re-read ownership and current references after ACK so a concurrently retained/replaced photo is not deleted.
-- **Identity L3 withdrawal:** preserve token revocation, submission state changes and private-media purge queueing as one DB apply transaction. Revalidate the active consent/submission generation after ACK; do not revoke capabilities before ACK.
-- **Ad consent revocation:** use the exact consent grant/version being revoked as the operation generation. Re-lock and compare that version after ACK before writing the preference/history rows.
+- **Profile photo erasure — migrated:** the route captures exact removed photo IDs, storage paths and `created_at` values before ACK without holding row locks. A batch ACKs every removed asset before mutation. The apply transaction reacquires the account-safety lock and compares the complete immutable asset set; it then updates the profile, removes asset metadata and enqueues physical file purges atomically. A changed asset set aborts with a retryable conflict.
+- **Identity L3 withdrawal — migrated:** token revocation, submission state changes and private-media purge queueing share one apply transaction; the active consent/submission generation is revalidated after ACK.
+- **Ad consent revocation — migrated:** the exact consent grant/version is the operation generation; the route re-locks and compares the complete snapshot after ACK before writing preference/history rows.
 - **Gift order consent withdrawal — migrated:** the route now performs a lock-free preflight, derives a stable operation ID from the gift order lifecycle, obtains and persists the matching Ledger ACK, then reacquires participant safety locks and revalidates account/order eligibility inside the apply transaction. Order cancellation, address-vault ciphertext revocation, audit event and deduplicated notification are committed atomically. PostgreSQL route-level failure/concurrency tests are still required before treating this migration as validated.
 
 Do not treat a stale preflight result as authorization to apply after ACK. If state changed while the Ledger request was in flight, abort the apply transaction and leave the operation acknowledged for explicit reconciliation; never silently apply to a different lifecycle.
 
 ## Remaining work
 
-Migrate the remaining privacy-critical routes (account erasure, voice consent/erasure, photo erasure, L3 consent withdrawal and ad consent revocation) to this protocol; add PostgreSQL route-level failure/concurrency tests for the migrated gift route and each remaining event type; ensure clients reuse an idempotency key on retry; add route-level PostgreSQL integration tests for each event type and each failure window; add an operation resumer; then run CI, Browser E2E, native builds and Android/iOS virtual-device smoke checks on one exact HEAD. No Production, VPS, external Ledger provisioning or payment activation is part of this branch.
+- Add PostgreSQL-backed route-level tests for every migrated path: Ledger outage before ACK, database failure after ACK, stale lifecycle change during ACK, duplicate HTTP retry, and concurrent requests.
+- Add a durable operation resumer/reconciler for `pending` and `acknowledged` rows, with bounded retries and operator-visible terminal failures.
+- Audit any other privacy-critical event paths outside `server/index.js` and ensure they cannot bypass ACK-gated operations.
+- Run CI and Browser E2E on the same exact HEAD with checkout SHA verified; then Android/iOS native builds and virtual-device smoke checks on the validated SHA.
+
+No Production, VPS, external Ledger provisioning or payment activation is part of this branch.
 
 
 ## Ad consent revocation migration
@@ -130,3 +135,39 @@ The batch coordinator has unit coverage for a partial Ledger outage, retry
 from already-persisted ACKs, all-or-nothing domain apply, and completed-batch
 idempotency. The voice route has structural regression coverage. PostgreSQL
 route-level concurrency tests and full CI/E2E validation remain outstanding.
+
+
+## Profile photo erasure migration
+
+The profile update route now captures the exact removed photo asset set before
+contacting the Ledger, without holding PostgreSQL row locks. Each removed asset
+gets a deterministic operation ID scoped to the owner, asset ID and immutable
+upload creation timestamp. The batch coordinator obtains and persists all
+Ledger ACKs before running the profile update.
+
+The apply transaction reacquires the gift/account safety lock, revalidates the
+retained photo ownership and compares every removed asset's ID, storage path and
+exact creation timestamp against the preflight snapshot. A concurrent replacement
+or asset-set change aborts the transaction with a retryable conflict. Profile
+mutation, photo metadata deletion and durable physical-purge queue insertion
+commit together with all batch operations marked applied. The route no longer
+uses the legacy privacy outbox.
+
+## Account erasure migration
+
+Paddle checkout and subscription cancellation/reconciliation remain outside
+the privacy Ledger apply callback. Once provider-side reconciliation is complete,
+the route releases both session-level checkout and account-safety advisory locks
+before requesting the Ledger ACK. The deterministic operation ID is scoped to
+the account UUID and immutable account creation timestamp.
+
+The apply callback reacquires transaction-scoped checkout, account-safety and
+account-reuse locks, then revalidates the active account identity, account
+generation, current billing/checkout state and L3 private-media purge
+prerequisites. It atomically queues private photo and voice-intro purges,
+suspends gift orders and revokes gift-address references, tombstones/anonymizes
+the account, removes permitted consent and engagement records, and records the
+90-day account-reuse restriction. The operation is marked applied in the same
+transaction. A Ledger outage prevents the destructive callback; a stale account
+or billing snapshot returns a retryable conflict. No PostgreSQL advisory lock
+is held while waiting for the remote Ledger.
