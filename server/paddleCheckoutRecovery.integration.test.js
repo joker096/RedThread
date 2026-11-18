@@ -359,3 +359,23 @@ test('retry exhaustion quarantines an unknown checkout instead of creating a rep
     await pool.end();
   }
 }));
+
+
+test('checkout recovery due index supports retry-time scheduling and dry-run excludes active leases', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 10_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    const index = await pool.query(
+      `SELECT indexdef FROM pg_indexes
+       WHERE schemaname = 'public' AND tablename = 'paddle_checkout_attempts'
+         AND indexname = 'paddle_checkout_attempts_recovery_due_schedule_idx'`
+    );
+    assert.equal(index.rowCount, 1, 'migration 218 must create the due scheduling index');
+    assert.match(index.rows[0].indexdef, /recovery_next_attempt_at, created_at/);
+    assert.match(index.rows[0].indexdef, /WHERE \(status = 'creating'::text\)/);
+  } finally {
+    await pool.end();
+  }
+});
