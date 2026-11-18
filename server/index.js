@@ -18,7 +18,6 @@ import { normalizeGiftRequestInput } from './giftRequestInput.js';
 import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, enqueueExpiredGiftPaymentReconciliation, notifyGiftRequestUpdate, hasPendingRecipientDecline } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, hasAdConsentRevocation, getAdConsentLifecycleGeneration, isSameAdConsentLifecycle, AD_CONSENT_VERSION } from './adConsentPreferences.js';
-import { enqueuePrivacyRecoveryEvent } from './privacyRecoveryOutbox.js';
 import { derivePrivacyRecoveryOperationId, runAckGatedPrivacyRecoveryOperation, runAckGatedPrivacyRecoveryBatch } from './privacyRecoveryOperations.js';
 import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION, IdentityL3UploadTokenError, issueIdentityL3UploadCapability } from './identityL3UploadTokens.js';
 import { assertIdentityL3StorageReady, assertIdentityL3TemporaryStorageReady, clearIdentityL3TemporaryFiles, deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
@@ -2147,11 +2146,13 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
           throw new Error('account_deletion_billing_state_changed_retry');
         }
         const currentSubscriptionStatus = String(current.paddle_subscription_status || '').toLowerCase();
+        const currentPremiumUntil = current.premium_until == null
+          ? null : new Date(current.premium_until).getTime();
         if ((current.paddle_subscription_id &&
               !['canceled', 'completed'].includes(currentSubscriptionStatus)) ||
             (currentSubscriptionStatus && !['canceled', 'completed'].includes(currentSubscriptionStatus)) ||
-            (current.premium_lifetime !== true && current.premium_until &&
-              new Date(current.premium_until).getTime() > Date.now())) {
+            (current.premium_lifetime !== true && currentPremiumUntil !== null &&
+              (!Number.isFinite(currentPremiumUntil) || currentPremiumUntil > Date.now()))) {
           throw new Error('account_deletion_billing_state_changed_retry');
         }
 
