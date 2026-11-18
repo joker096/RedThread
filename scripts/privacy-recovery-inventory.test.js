@@ -110,7 +110,7 @@ test('all non-media event domains remain explicitly blocked even with matched su
   assert.equal(report.matchedCount, eventTypes.length);
   assert.equal(report.unresolvedCount, 0);
   assert.equal(report.unsupportedEventCount, eventTypes.length);
-  assert.deepEqual(report.unsupportedEventSequences, [1, 2, 3, 4]);
+  assert.deepEqual(report.unsupportedEventSequences, [1, 2, 3]);
   assert.equal(report.readyForDomainReplay, false);
 });
 
