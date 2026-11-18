@@ -886,8 +886,13 @@ function publicUser(row) {
 }
 
 async function requireSession(req, res, next) {
+  // Express exposes the matched route path once this middleware runs inside
+  // the route stack. Prefer it, while retaining the normalized request path
+  // for compatible middleware/test adapters. Only the exact DELETE endpoint
+  // may authenticate a fail-closed deletion retry.
+  const requestPath = String(req.path || req.originalUrl || req.url || '').split('?')[0];
   const accountDeletionRetry = req.method === 'DELETE' &&
-    String(req.originalUrl || req.url || req.path || '').split('?')[0] === '/api/account';
+    (req.route?.path === '/api/account' || requestPath === '/api/account');
   if (!pool) return res.status(503).json({ error: 'database_not_configured' });
 
   const authorization = req.get('authorization');
