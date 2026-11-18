@@ -94,14 +94,39 @@ test("ledger rejects a declared oversized body before reading its stream", async
 });
 
 class FakeLedgerDb {
-  constructor() { this.rows = []; this.sequence = 0; }
+  constructor() { this.rows = []; this.sequence = 0; this.barriers = []; }
   prepare(sql) {
     const db = this;
     return {
       values: [],
       bind(...values) { this.values = values; return this; },
       async run() {
+        if (sql.includes("INSERT INTO privacy_snapshot_barriers")) {
+          const [barrierId, snapshotId, createdAt] = this.values;
+          if (db.barriers.some(row => row.status === "active") ||
+              db.barriers.some(row => row.snapshot_id === snapshotId || row.barrier_id === barrierId)) {
+            return { success: true, meta: { changes: 0 } };
+          }
+          db.barriers.push({
+            barrier_id: barrierId, snapshot_id: snapshotId, status: "active",
+            ledger_sequence: db.sequence, created_at: createdAt, released_at: null
+          });
+          return { success: true, meta: { changes: 1 } };
+        }
+        if (sql.includes("UPDATE privacy_snapshot_barriers")) {
+          const [releasedAt, barrierId, snapshotId] = this.values;
+          const row = db.barriers.find(item =>
+            item.barrier_id === barrierId && item.snapshot_id === snapshotId && item.status === "active"
+          );
+          if (!row) return { success: true, meta: { changes: 0 } };
+          row.status = "released";
+          row.released_at = releasedAt;
+          return { success: true, meta: { changes: 1 } };
+        }
         if (sql.includes("INSERT INTO privacy_events")) {
+          if (db.barriers.some(row => row.status === "active")) {
+            return { success: true, meta: { changes: 0 } };
+          }
           const [eventId, schemaVersion, eventType, subjectRef, resourceRef, occurredAt, receivedAt, payloadHash] = this.values;
           if (db.rows.some(row => row.event_id === eventId)) throw new Error("unique constraint");
           db.rows.push({
@@ -109,20 +134,32 @@ class FakeLedgerDb {
             event_type: eventType, subject_ref: subjectRef, resource_ref: resourceRef,
             occurred_at: occurredAt, received_at: receivedAt, payload_sha256: payloadHash
           });
-          return { success: true };
+          return { success: true, meta: { changes: 1 } };
         }
         if (sql.includes("UPDATE privacy_events") || sql.includes("DELETE FROM privacy_events")) throw new Error("append-only");
-        return { success: true };
+        return { success: true, meta: { changes: 1 } };
       },
       async first() {
-        if (sql.includes("WHERE event_id = ?")) return db.rows.find(row => row.event_id === this.values[0]) ?? null;
+        if (sql.includes("FROM privacy_events WHERE event_id = ?")) {
+          return db.rows.find(row => row.event_id === this.values[0]) ?? null;
+        }
+        if (sql.includes("FROM privacy_snapshot_barriers WHERE snapshot_id = ?")) {
+          return db.barriers.find(row => row.snapshot_id === this.values[0]) ?? null;
+        }
+        if (sql.includes("FROM privacy_snapshot_barriers WHERE barrier_id = ?")) {
+          return db.barriers.find(row => row.barrier_id === this.values[0]) ?? null;
+        }
+        if (sql.includes("FROM privacy_snapshot_barriers WHERE status = 'active'")) {
+          return db.barriers.find(row => row.status === "active") ?? null;
+        }
         if (sql.includes("MAX(sequence)")) return { sequence: db.sequence };
         return null;
       },
       async all() {
         if (sql.includes("FROM privacy_events WHERE sequence > ? AND sequence <= ?")) {
           const [after, through, limit] = this.values;
-          return { results: db.rows.filter(row => row.sequence > after && row.sequence <= through).slice(0, limit).map(({ payload_sha256, ...row }) => row) };
+          return { results: db.rows.filter(row => row.sequence > after && row.sequence <= through)
+            .slice(0, limit).map(({ payload_sha256, ...row }) => row) };
         }
         return { results: [] };
       }
