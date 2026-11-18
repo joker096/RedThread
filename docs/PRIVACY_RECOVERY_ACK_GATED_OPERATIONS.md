@@ -43,3 +43,31 @@ Do not treat a stale preflight result as authorization to apply after ACK. If st
 ## Remaining work
 
 Migrate the remaining privacy-critical routes (account erasure, voice consent/erasure, photo erasure, L3 consent withdrawal and ad consent revocation) to this protocol; add PostgreSQL route-level failure/concurrency tests for the migrated gift route and each remaining event type; ensure clients reuse an idempotency key on retry; add route-level PostgreSQL integration tests for each event type and each failure window; add an operation resumer; then run CI, Browser E2E, native builds and Android/iOS virtual-device smoke checks on one exact HEAD. No Production, VPS, external Ledger provisioning or payment activation is part of this branch.
+
+
+## Ad consent revocation migration
+
+The `PUT /api/ads/consent` route now sends every detected withdrawal of an
+existing ad purpose through the ACK-gated operation coordinator. The preflight
+read is lock-free; it captures the exact consent row lifecycle using the stored
+policy version and `updated_at`. The deterministic operation ID is scoped to
+that lifecycle, so HTTP retries reuse the same intent rather than generating a
+new event.
+
+After the independent Ledger ACK is durably stored, the apply transaction
+reacquires the active-account and consent-row locks and compares the complete
+consent snapshot with the preflight snapshot. If a re-consent or another
+preference write won during the Ledger round-trip, the callback aborts with
+`ad_consent_state_changed_retry`; the acknowledged operation remains available
+for reconciliation and cannot revoke the newer consent. Preference upsert and
+history insertion remain in the same PostgreSQL transaction.
+
+Non-revoking writes retain their normal transaction, but repeat the revocation
+check after acquiring the row lock. If a concurrent write turns the request
+into a revocation, the route returns HTTP 409 and requires a retry through the
+ACK-gated path. No database lock is held while waiting for the Ledger.
+
+Unit coverage now exercises master/dependent/category withdrawal detection,
+stable lifecycle generation, and snapshot-change detection. A dedicated
+PostgreSQL-backed route/concurrency test is still required before this route
+can be considered fully integration-verified.
