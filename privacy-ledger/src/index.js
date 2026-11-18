@@ -267,7 +267,9 @@ export async function handleRequest(request, env) {
     if (!row || row.status !== "released" || !row.released_at) {
       return json({ error: "snapshot_barrier_release_conflict" }, 409);
     }
-    const proof = await signedBarrierProof(env, row);
+    let proof;
+    try { proof = await signedBarrierProof(env, row); }
+    catch { return json({ error: "snapshot_barrier_proof_signing_failed" }, 503); }
     return json({ accepted: true, ...proof }, 200);
   }
 
