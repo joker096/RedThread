@@ -95,6 +95,7 @@ function validEvent(value) {
   if (Object.keys(value).length !== 5 + (value.resource_ref === undefined ? 0 : 1)) return false;
   if (typeof value.event_id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.event_id)) return false;
   if (value.schema_version !== 1 || !EVENT_TYPES.has(value.event_type)) return false;
+  if (value.event_type === 'gift_address_draft_consent_withdrawn' && value.resource_ref === undefined) return false;
   if (typeof value.subject_ref !== "string" || !/^[a-f0-9]{64}$/i.test(value.subject_ref)) return false;
   if (value.resource_ref !== undefined && (typeof value.resource_ref !== "string" || !/^[a-f0-9]{64}$/i.test(value.resource_ref))) return false;
   if (typeof value.occurred_at !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value.occurred_at)) return false;
