@@ -150,6 +150,21 @@ function snapshotBarrierProofPayload(proof) {
   };
 }
 
+function parseSnapshotProofPublicKey(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) {
+    throw new Error('privacy_recovery_snapshot_barrier_public_key_not_configured');
+  }
+  try {
+    const der = Buffer.from(value, 'base64');
+    if (der.toString('base64') !== value) throw new Error('invalid base64');
+    const key = createPublicKey({ key: der, format: 'der', type: 'spki' });
+    if (key.asymmetricKeyType !== 'ed25519') throw new Error('wrong key type');
+    return key;
+  } catch {
+    throw new Error('privacy_recovery_snapshot_barrier_public_key_invalid');
+  }
+}
+
 function verifySnapshotBarrierProof(proof, { snapshotId, barrierId, status, proofPublicKey }) {
   if (!proof || typeof proof !== 'object' || Array.isArray(proof)) {
     throw new Error('privacy_recovery_snapshot_barrier_invalid_proof');
@@ -165,20 +180,8 @@ function verifySnapshotBarrierProof(proof, { snapshotId, barrierId, status, proo
       !/^[a-f0-9]{64}$/i.test(proof.signature || '')) {
     throw new Error('privacy_recovery_snapshot_barrier_invalid_proof');
   }
-  if (typeof proofPublicKey !== 'string' ||
-      !/^[A-Za-z0-9+/]+={0,2}$/.test(proofPublicKey)) {
-    throw new Error('privacy_recovery_snapshot_barrier_public_key_not_configured');
-  }
-  let publicKey;
-  try {
-    const der = Buffer.from(proofPublicKey, 'base64');
-    if (der.toString('base64') !== proofPublicKey) throw new Error('invalid base64');
-    publicKey = createPublicKey({ key: der, format: 'der', type: 'spki' });
-  } catch {
-    throw new Error('privacy_recovery_snapshot_barrier_public_key_invalid');
-  }
-  if (publicKey.asymmetricKeyType !== 'ed25519' ||
-      !verifySignature(null, Buffer.from(JSON.stringify(payload)), publicKey, Buffer.from(proof.signature, 'hex'))) {
+  const publicKey = parseSnapshotProofPublicKey(proofPublicKey);
+  if (!verifySignature(null, Buffer.from(JSON.stringify(payload)), publicKey, Buffer.from(proof.signature, 'hex'))) {
     throw new Error('privacy_recovery_snapshot_barrier_signature_invalid');
   }
   return { ...payload, signature: proof.signature };
@@ -189,10 +192,12 @@ async function postSnapshotBarrier(path, body, {
 } = {}) {
   const endpoint = env.PRIVACY_RECOVERY_LEDGER_URL;
   const authSecret = env.PRIVACY_RECOVERY_LEDGER_HMAC_SECRET;
+  const proofPublicKey = env.PRIVACY_RECOVERY_LEDGER_PROOF_PUBLIC_KEY;
   if (!endpoint || !authSecret || authSecret.length < 32 || typeof fetchImpl !== 'function') {
     throw new Error('privacy_recovery_ledger_not_configured');
   }
   const parsedEndpoint = validateEndpoint(endpoint, env);
+  parseSnapshotProofPublicKey(proofPublicKey);
   const rawBody = JSON.stringify(body);
   const timestamp = String(Math.floor(now() / 1000));
   let response;
@@ -219,7 +224,7 @@ async function postSnapshotBarrier(path, body, {
     const code = typeof result?.error === 'string' ? result.error : 'rejected';
     throw new Error('privacy_recovery_snapshot_barrier_' + code);
   }
-  return { result, proofPublicKey: env.PRIVACY_RECOVERY_LEDGER_PROOF_PUBLIC_KEY };
+  return { result, proofPublicKey };
 }
 
 export async function createPrivacyRecoverySnapshotBarrier({
