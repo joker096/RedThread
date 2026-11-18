@@ -3512,87 +3512,136 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
   }
   if (updates.length === 0) return res.status(400).json({ error: 'no_valid_profile_fields' });
 
-  let client;
-  let removedAssets = [];
   try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    // Serialize profile changes + screening against gift acceptance for this user.
-    await acquireGiftSafetyUserLocks(client, req.authUser.id);
-    // photoUrls ownership was checked before opening this transaction for fast
-    // rejection. Recheck after the user lock so a concurrent photo removal
-    // cannot leave this profile pointing at an asset that has already been deleted.
+    // Discover the exact immutable upload identities without holding locks
+    // while the remote Ledger ACK is obtained.
+    let expectedRemovedAssets = [];
     if (Object.hasOwn(body, 'photoUrls')) {
-      const photoIds = body.photoUrls.map(url => url.slice('/api/photos/'.length));
-      if (photoIds.length) {
-        const ownedPhotos = await client.query(
-          'SELECT id FROM photo_assets WHERE user_id = $1 AND id = ANY($2::uuid[]) FOR SHARE',
+      const keepIds = body.photoUrls.filter(url => url.startsWith('/api/photos/'))
+        .map(url => url.slice('/api/photos/'.length));
+      const preflight = await pool.query(
+        `SELECT id, storage_path, created_at::text AS created_at
+           FROM photo_assets
+          WHERE user_id = $1
+            AND NOT (id = ANY($2::uuid[]))
+          ORDER BY id`,
+        [req.authUser.id, keepIds]
+      );
+      expectedRemovedAssets = preflight.rows;
+    }
+
+    const privacyOperations = expectedRemovedAssets.map(photo => ({
+      operationId: derivePrivacyRecoveryOperationId({
+        eventType: 'private_photo_erasure_requested',
+        userId: req.authUser.id,
+        resourceId: photo.id,
+        generation: photo.created_at
+      }),
+      event: {
+        eventType: 'private_photo_erasure_requested',
+        userId: req.authUser.id,
+        resourceId: photo.id
+      }
+    }));
+
+    const applyProfileUpdate = async transactionClient => {
+      // Serialize profile changes + screening against gift acceptance for this user.
+      await acquireGiftSafetyUserLocks(transactionClient, req.authUser.id);
+      if (Object.hasOwn(body, 'photoUrls')) {
+        const photoIds = body.photoUrls.filter(url => url.startsWith('/api/photos/'))
+          .map(url => url.slice('/api/photos/'.length));
+        if (photoIds.length) {
+          const ownedPhotos = await transactionClient.query(
+            'SELECT id FROM photo_assets WHERE user_id = $1 AND id = ANY($2::uuid[]) FOR SHARE',
+            [req.authUser.id, photoIds]
+          );
+          if (ownedPhotos.rowCount !== new Set(photoIds).size) {
+            throw new Error('profile_photo_ownership_changed_retry');
+          }
+        }
+
+        const selectedPhotos = await transactionClient.query(
+          `SELECT id, storage_path, created_at::text AS created_at
+             FROM photo_assets
+            WHERE user_id = $1
+              AND NOT (id = ANY($2::uuid[]))
+            ORDER BY id FOR UPDATE`,
           [req.authUser.id, photoIds]
         );
-        if (ownedPhotos.rowCount !== new Set(photoIds).size) {
-          await client.query('ROLLBACK');
-          return res.status(400).json({ error: 'invalid_photo_urls' });
+        const actual = selectedPhotos.rows;
+        const expectedIdentity = expectedRemovedAssets.map(row =>
+          [row.id, row.storage_path, row.created_at]
+        );
+        const actualIdentity = actual.map(row =>
+          [row.id, row.storage_path, row.created_at]
+        );
+        if (JSON.stringify(actualIdentity) !== JSON.stringify(expectedIdentity)) {
+          throw new Error('private_photo_erasure_set_changed_retry');
         }
       }
-    }
-    let photosPendingErasure = [];
-    if (Object.hasOwn(body, 'photoUrls')) {
-      const selectedPhotos = await client.query(
-        `SELECT id FROM photo_assets
+
+      const result = await transactionClient.query(
+        `UPDATE profiles SET ${updates.join(', ')}, updated_at = statement_timestamp()
          WHERE user_id = $1
-           AND NOT (('/api/photos/' || id::text) = ANY($2::text[]))
-         ORDER BY id FOR UPDATE`,
-        [req.authUser.id, body.photoUrls.filter(url => url.startsWith('/api/photos/'))]
+           AND EXISTS (SELECT 1 FROM users WHERE users.id = profiles.user_id AND users.status = 'active')
+         RETURNING user_id AS id, display_name AS "displayName", gender, country, city, bio,
+           photo_urls AS "photoUrls", occupation, education, languages,
+           relationship_intent AS "relationshipIntent", is_visible AS "isVisible",
+           family_format AS "familyFormat", has_children AS "hasChildren",
+           children_disclosure_confirmed_at AS "childrenDisclosureConfirmedAt",
+           wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement"`,
+        values
       );
-      photosPendingErasure = selectedPhotos.rows;
-      for (const photo of photosPendingErasure) {
-        try {
-          await enqueuePrivacyRecoveryEvent(client, {
-            eventType: 'private_photo_erasure_requested',
-            userId: req.authUser.id,
-            resourceId: photo.id
-          });
-        } catch (error) {
-          await client.query('ROLLBACK');
-          console.error('Privacy recovery ledger rejected photo erasure:', error?.message || 'unknown error');
-          return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+      if (!result.rows[0]) throw new Error('profile_not_found');
+
+      if (Object.hasOwn(body, 'photoUrls')) {
+        const removed = await transactionClient.query(
+          "DELETE FROM photo_assets WHERE user_id = $1 AND NOT (('/api/photos/' || id::text) = ANY($2::text[])) RETURNING storage_path AS \"storagePath\"",
+          [req.authUser.id, body.photoUrls.filter(url => url.startsWith('/api/photos/'))]
+        );
+        if (removed.rowCount !== expectedRemovedAssets.length) {
+          throw new Error('private_photo_erasure_set_changed_retry');
         }
+        await queuePrivatePhotoPurges(transactionClient, removed.rows.map(asset => asset.storagePath));
       }
+
+      const screening = await screenProfilePrivate(result.rows[0]);
+      await persistScreening(req.authUser.id, 'profile', screening, transactionClient);
+      return {
+        profile: result.rows[0],
+        screening: {
+          engine: screening.engine,
+          externalProcessing: false,
+          flags: screening.flags,
+          requiresReview: screening.requiresReview
+        }
+      };
+    };
+
+    let outcome;
+    if (privacyOperations.length) {
+      const batch = await runAckGatedPrivacyRecoveryBatch({
+        pool,
+        operations: privacyOperations,
+        apply: applyProfileUpdate
+      });
+      outcome = batch.result;
+    } else {
+      outcome = await withPooledTransaction(pool, applyProfileUpdate);
     }
-    const result = await client.query(
-      `UPDATE profiles SET ${updates.join(', ')}, updated_at = statement_timestamp()
-       WHERE user_id = $1
-         AND EXISTS (SELECT 1 FROM users WHERE users.id = profiles.user_id AND users.status = 'active')
-       RETURNING user_id AS id, display_name AS "displayName", gender, country, city, bio,
-         photo_urls AS "photoUrls", occupation, education, languages,
-         relationship_intent AS "relationshipIntent", is_visible AS "isVisible",
-         family_format AS "familyFormat", has_children AS "hasChildren",
-         children_disclosure_confirmed_at AS "childrenDisclosureConfirmedAt",
-         wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement"`,
-      values
-    );
-    if (!result.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'profile_not_found' });
-    }
-    if (Object.hasOwn(body, 'photoUrls')) {
-      const removed = await client.query(
-        "DELETE FROM photo_assets WHERE user_id = $1 AND NOT (('/api/photos/' || id::text) = ANY($2::text[])) RETURNING storage_path AS \"storagePath\"",
-        [req.authUser.id, body.photoUrls.filter(url => url.startsWith('/api/photos/'))]
-      );
-      removedAssets = removed.rows;
-      await queuePrivatePhotoPurges(client, removedAssets.map(asset => asset.storagePath));
-    }
-    const screening = await screenProfilePrivate(result.rows[0]);
-    await persistScreening(req.authUser.id, 'profile', screening, client);
-    await client.query('COMMIT');
-    return res.json({ profile: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flags: screening.flags, requiresReview: screening.requiresReview } });
+    return res.json(outcome);
   } catch (error) {
-    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.message === 'privacy_recovery_ledger_unavailable' ||
+        error?.message === 'privacy_recovery_ledger_ack_required') {
+      console.error('Privacy recovery Ledger rejected photo erasure:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
+    if (['profile_photo_ownership_changed_retry', 'private_photo_erasure_set_changed_retry'].includes(error?.message)) {
+      return res.status(409).json({ error: 'profile_photo_state_changed_retry' });
+    }
+    if (error?.message === 'profile_not_found') return res.status(404).json({ error: 'profile_not_found' });
     console.error('Profile update failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'profile_update_failed' });
-  } finally {
-    client?.release();
   }
 });
 
