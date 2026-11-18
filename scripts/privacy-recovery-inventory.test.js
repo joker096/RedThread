@@ -17,9 +17,9 @@ const env = {
   PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY'
 };
 
-function fakePool({ events = [], users = [], voiceIntros = [], photos = [], giftOrders = [] } = {}) {
+function fakePool({ events = [], users = [], voiceIntros = [], photos = [], giftOrders = [], giftAddressDrafts = [] } = {}) {
   const calls = [];
-  const data = { events, users, voiceIntros, photos, giftOrders };
+  const data = { events, users, voiceIntros, photos, giftOrders, giftAddressDrafts };
   return {
     calls,
     async connect() {
@@ -32,6 +32,7 @@ function fakePool({ events = [], users = [], voiceIntros = [], photos = [], gift
           if (sql.startsWith('SELECT id, user_id FROM profile_voice_intros')) return { rows: data.voiceIntros, rowCount: data.voiceIntros.length };
           if (sql.startsWith('SELECT id, user_id FROM photo_assets')) return { rows: data.photos, rowCount: data.photos.length };
           if (sql.startsWith('SELECT id, recipient_id AS user_id FROM gift_delivery_orders')) return { rows: data.giftOrders, rowCount: data.giftOrders.length };
+          if (sql.startsWith('SELECT order_id AS id, recipient_user_id AS user_id FROM gift_address_drafts')) return { rows: data.giftAddressDrafts, rowCount: data.giftAddressDrafts.length };
           return { rows: [], rowCount: 0 };
         },
         release() { calls.push('RELEASE'); }
