@@ -885,6 +885,7 @@ function publicUser(row) {
 }
 
 async function requireSession(req, res, next) {
+  const accountDeletionRetry = req.method === 'DELETE' && req.path === '/api/account';
   if (!pool) return res.status(503).json({ error: 'database_not_configured' });
 
   const authorization = req.get('authorization');
@@ -893,7 +894,7 @@ async function requireSession(req, res, next) {
     if (!mobileToken) return res.status(401).json({ error: 'not_authenticated' });
     try {
       const mobileResult = await pool.query(
-        `SELECT u.id, u.email, u.status, u.role, u.email_verified_at,
+        `SELECT u.id, u.email, u.status, u.deletion_pending_at, u.role, u.email_verified_at,
                 'mobile'::text AS auth_source,
                 u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
                 u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status,
@@ -911,7 +912,7 @@ async function requireSession(req, res, next) {
         [hashMobileToken(mobileToken, 'access')]
       );
       const mobileUser = mobileResult.rows[0];
-      if (!mobileUser || mobileUser.status !== 'active') {
+      if (!mobileUser || mobileUser.status !== 'active' || (mobileUser.deletion_pending_at && !accountDeletionRetry)) {
         return res.status(401).json({ error: 'not_authenticated' });
       }
       if (emailVerificationRequired && !mobileUser.email_verified_at) {
@@ -931,7 +932,7 @@ async function requireSession(req, res, next) {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, 'web'::text AS auth_source, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status, pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan, u.phone_verified_at,
+      `SELECT u.id, u.email, u.status, u.deletion_pending_at, u.role, u.email_verified_at, 'web'::text AS auth_source, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status, pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan, u.phone_verified_at,
               p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
@@ -942,7 +943,7 @@ async function requireSession(req, res, next) {
       [hashSessionToken(token)]
     );
     const user = result.rows[0];
-    if (!user || user.status !== 'active') {
+    if (!user || user.status !== 'active' || (user.deletion_pending_at && !accountDeletionRetry)) {
       clearSessionCookie(res);
       return res.status(401).json({ error: 'not_authenticated' });
     }
@@ -1063,6 +1064,8 @@ function requirePaidFeatures(req, res, next) {
 }
 
 async function createSession(client, userId) {
+  const account = await client.query('SELECT deletion_pending_at FROM users WHERE id = $1 FOR SHARE', [userId]);
+  if (!account.rows[0] || account.rows[0].deletion_pending_at) throw new Error('account_deletion_pending');
   const token = createSessionToken();
   const tokenHash = hashSessionToken(token);
   await client.query(
@@ -1651,7 +1654,7 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.password_hash, u.status, u.email_verified_at, p.display_name, p.gender, p.country, p.city, p.relationship_intent
+      `SELECT u.id, u.email, u.password_hash, u.status, u.deletion_pending_at, u.email_verified_at, p.display_name, p.gender, p.country, p.city, p.relationship_intent
        FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.email = $1 LIMIT 1`,
       [email]
     );
@@ -1663,7 +1666,7 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
     if (!user || !passwordMatches) {
       return res.status(401).json({ error: 'email_or_password_incorrect' });
     }
-    if (user.status !== 'active') {
+    if (user.status !== 'active' || user.deletion_pending_at) {
       return res.status(403).json({ error: user.status === 'pending' ? 'email_verification_required' : 'account_unavailable' });
     }
     if (emailVerificationRequired && !user.email_verified_at) {
@@ -1678,10 +1681,10 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
       // credentials before deletion must not create a fresh session afterward.
       await acquireGiftSafetyUserLocks(client, user.id);
       const currentAccount = await client.query(
-        'SELECT status, email_verified_at, password_hash FROM users WHERE id = $1 FOR SHARE',
+        'SELECT status, deletion_pending_at, email_verified_at, password_hash FROM users WHERE id = $1 FOR SHARE',
         [user.id]
       );
-      if (currentAccount.rows[0]?.status !== 'active') {
+      if (currentAccount.rows[0]?.status !== 'active' || currentAccount.rows[0]?.deletion_pending_at) {
         await client.query('ROLLBACK');
         return res.status(403).json({ error: 'account_unavailable' });
       }
