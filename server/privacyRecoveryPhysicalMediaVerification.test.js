@@ -52,7 +52,7 @@ test('physical verifier rejects a retained object for each media class', async t
     await t.test(queue_name, async () => {
       const location = path.join(roots[rootKey], name);
       await writeFile(location, 'synthetic encrypted fixture', { mode: 0o600 });
-      const objectId = name.replace(/\\.(?:jpg|enc)$/i, '');
+      const objectId = name.slice(0, name.lastIndexOf('.'));
       const expectedDigest = queue_name === 'identity_l3_media' ? sha256(name) : sha256('opaque-path-digest');
       try {
         await assert.rejects(
@@ -87,7 +87,7 @@ test('physical verifier fails closed when the pending restore marker or a storag
   await assert.rejects(
     verifyPhysicalMediaAbsence({
       roots: { ...roots, photo: '' },
-      effects: [{ ledger_sequence: '1', resource_id: randomUUID() }],
+
       obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'c'.repeat(64), storage_object_id: randomUUID() }]
     }),
     /privacy_recovery_physical_photo_root_required/
@@ -109,7 +109,7 @@ test('physical verifier rejects storage roots outside the isolated restore tree'
   }
 });
 
-test('physical verifier rejects malformed obligation metadata and missing replay effects', async () => {
+test('physical verifier rejects malformed obligation metadata and missing object IDs', async () => {
   await assert.rejects(
     verifyPhysicalMediaAbsence({
       roots,
