@@ -59,7 +59,7 @@ WHERE status IN ('creating', 'reconciliation_required')
 ORDER BY created_at;
 ```
 
-Alert on any `creating` attempt older than 10 minutes, expired recovery leases, repeated `provider_page_limit_reached`, or growth in `reconciliation_required`. Do not include API keys, checkout URLs, email addresses, or raw provider payloads in logs.
+Recovery considers an attempt stale after two minutes. Alert when the oldest `creating` attempt exceeds five minutes (the worker's aggregate alert threshold), when a lease expires unexpectedly, when `provider_page_limit_reached` repeats, or when `reconciliation_required` grows. The read-only dry-run selector also excludes attempts with an unexpired lease, so it does not inspect work currently owned by a live worker. Do not include API keys, checkout URLs, email addresses, or raw provider payloads in logs.
 
 ## Stop / rollback
 

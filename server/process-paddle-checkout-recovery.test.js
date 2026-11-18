@@ -158,3 +158,26 @@ test('checkout recovery alerts expose only aggregate threshold markers', async (
     dueCount: 99
   }), []);
 });
+
+
+test('read-only dry-run skips attempts protected by an active recovery lease', async () => {
+  const { runPaddleCheckoutRecoveryOnce } = await import('./process-paddle-checkout-recovery.js');
+  let query;
+  const pool = {
+    async query(sql, params) {
+      query = { sql: String(sql), params };
+      return { rows: [] };
+    }
+  };
+  const result = await runPaddleCheckoutRecoveryOnce(pool, {
+    apiKey: 'sandbox_test_key',
+    environment: 'sandbox',
+    dryRun: true,
+    fetchImpl: async () => {
+      throw new Error('provider_must_not_be_called_without_an_unleased_candidate');
+    }
+  });
+  assert.deepEqual(result, { processed: false });
+  assert.match(query.sql, /recovery_lease_expires_at IS NULL OR recovery_lease_expires_at <= statement_timestamp\(\)/);
+  assert.deepEqual(query.params, [120_000, 5]);
+});

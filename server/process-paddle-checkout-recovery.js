@@ -279,6 +279,7 @@ export async function runPaddleCheckoutRecoveryOnce(pool, {
          FROM paddle_checkout_attempts
          WHERE status = 'creating' AND created_at <= statement_timestamp() - ($1::int * INTERVAL '1 millisecond')
            AND recovery_attempt_count < $2 AND recovery_next_attempt_at <= statement_timestamp()
+           AND (recovery_lease_expires_at IS NULL OR recovery_lease_expires_at <= statement_timestamp())
          ORDER BY created_at, user_id LIMIT 1`, [PADDLE_CHECKOUT_RECOVERY_STALE_MS, PADDLE_CHECKOUT_RECOVERY_MAX_ATTEMPTS])).rows[0]
     : await claimPaddleCheckoutRecovery(pool);
   if (!attempt) return { processed: false };
