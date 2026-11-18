@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { createSessionToken, hashPassword, hashSessionToken } from './security.js';
 import { hashMobileToken } from './mobileTokens.js';
+import { startTestPrivacyRecoveryLedger } from './testPrivacyRecoveryLedger.js';
 
 const { Pool } = pg;
 
@@ -477,6 +478,7 @@ test('mobile account deletion validates the authenticated mobile session and rev
   timeout: 60_000
 }, async () => {
   const port = await findFreePort();
+  const ledger = await startTestPrivacyRecoveryLedger();
   const api = `http://127.0.0.1:${port}`;
   const db = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
   const userId = randomUUID();
@@ -494,6 +496,10 @@ test('mobile account deletion validates the authenticated mobile session and rev
       API_PORT: String(port),
       APP_ORIGIN: 'http://localhost:3000',
       NODE_ENV: 'test',
+      PRIVACY_RECOVERY_LEDGER_REQUIRED: 'true',
+      PRIVACY_RECOVERY_LEDGER_URL: ledger.url,
+      PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: 'test-ledger-hmac-secret-'.padEnd(40, 'x'),
+      PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: 'test-ledger-pseudonym-key-'.padEnd(40, 'y'),
       EMAIL_VERIFICATION_REQUIRED: 'false',
       AUTH_RATE_LIMIT: '1000',
       ACCOUNT_REUSE_HMAC_KEY: 'c'.repeat(64),
@@ -597,5 +603,6 @@ test('mobile account deletion validates the authenticated mobile session and rev
     ]);
     if (child.exitCode === null) child.kill('SIGKILL');
     await db.end();
+    await ledger.close().catch(() => {});
   }
 });
