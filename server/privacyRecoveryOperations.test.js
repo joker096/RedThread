@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runAckGatedPrivacyRecoveryOperation } from './privacyRecoveryOperations.js';
+import { derivePrivacyRecoveryOperationId, runAckGatedPrivacyRecoveryOperation } from './privacyRecoveryOperations.js';
 
 const env = {
   NODE_ENV: 'production',
@@ -124,4 +124,20 @@ test('reusing an operation ID with a different event payload is rejected', async
   await assert.rejects(runAckGatedPrivacyRecoveryOperation({
     pool, operationId, event: { ...event, eventType: 'ad_consent_revoked' }, env, fetchImpl, apply: async () => {}
   }), /privacy_recovery_operation_id_conflict/);
+});
+
+
+test('resource transition operation IDs are stable across retries and distinct across generations', () => {
+  const identity = { eventType: 'gift_order_consent_withdrawn', userId: 'user-1', resourceId: 'order-1', generation: 'withdrawal-v1' };
+  const first = derivePrivacyRecoveryOperationId(identity);
+  assert.equal(derivePrivacyRecoveryOperationId(identity), first);
+  assert.match(first, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.notEqual(derivePrivacyRecoveryOperationId({ ...identity, generation: 'withdrawal-v2' }), first);
+  assert.notEqual(derivePrivacyRecoveryOperationId({ ...identity, eventType: 'ad_consent_revoked' }), first);
+  assert.notEqual(derivePrivacyRecoveryOperationId({ ...identity, resourceId: 'order-2' }), first);
+});
+
+test('resource transition operation IDs reject missing or unbounded identity components', () => {
+  assert.throws(() => derivePrivacyRecoveryOperationId({ eventType: 'gift_order_consent_withdrawn', userId: 'user-1' }), /privacy_recovery_operation_identity_invalid/);
+  assert.throws(() => derivePrivacyRecoveryOperationId({ eventType: 'gift_order_consent_withdrawn', userId: 'user-1', resourceId: 'order-1', generation: 'x'.repeat(201) }), /privacy_recovery_operation_identity_invalid/);
 });
