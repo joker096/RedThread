@@ -200,22 +200,19 @@ export async function handleRequest(request, env) {
     if (!validSnapshotBarrierRequest(input)) return json({ error: "invalid_snapshot_barrier" }, 400);
     if (!env.LEDGER_PROOF_PRIVATE_KEY) return json({ error: "snapshot_barrier_proof_key_not_configured" }, 503);
     const createdAt = new Date().toISOString();
+    let inserted;
+    let row;
     try {
-      const inserted = await env.LEDGER_DB.prepare(
-        `INSERT INTO privacy_snapshot_barriers
-           (barrier_id, snapshot_id, status, ledger_sequence, created_at, released_at)
-         SELECT ?, ?, 'active', COALESCE((SELECT MAX(sequence) FROM privacy_events), 0), ?, NULL
-          WHERE NOT EXISTS (SELECT 1 FROM privacy_snapshot_barriers WHERE status = 'active')`
+      inserted = await env.LEDGER_DB.prepare(
+        "INSERT INTO privacy_snapshot_barriers " +
+        "(barrier_id, snapshot_id, status, ledger_sequence, created_at, released_at) " +
+        "SELECT ?, ?, 'active', COALESCE((SELECT MAX(sequence) FROM privacy_events), 0), ?, NULL " +
+        "WHERE NOT EXISTS (SELECT 1 FROM privacy_snapshot_barriers WHERE status = 'active')"
       ).bind(input.barrier_id, input.snapshot_id, createdAt).run();
-      const row = await env.LEDGER_DB.prepare(
-        "SELECT barrier_id, snapshot_id, status, ledger_sequence, created_at, released_at FROM privacy_snapshot_barriers WHERE snapshot_id = ?"
+      row = await env.LEDGER_DB.prepare(
+        "SELECT barrier_id, snapshot_id, status, ledger_sequence, created_at, released_at " +
+        "FROM privacy_snapshot_barriers WHERE snapshot_id = ?"
       ).bind(input.snapshot_id).first();
-      if (!row) return json({ error: "snapshot_barrier_conflict" }, 409);
-      if (row.barrier_id !== input.barrier_id || row.status !== "active") {
-        return json({ error: "snapshot_barrier_conflict" }, 409);
-      }
-      const proof = await signedBarrierProof(env, row);
-      return json({ accepted: true, duplicate: inserted?.meta?.changes !== 1, ...proof }, inserted?.meta?.changes === 1 ? 201 : 200);
     } catch {
       const existing = await env.LEDGER_DB.prepare(
         "SELECT barrier_id, status FROM privacy_snapshot_barriers WHERE snapshot_id = ?"
@@ -227,6 +224,14 @@ export async function handleRequest(request, env) {
       return active ? json({ error: "snapshot_barrier_already_active" }, 409)
         : json({ error: "snapshot_barrier_write_failed" }, 503);
     }
+    if (!row || row.barrier_id !== input.barrier_id || row.status !== "active") {
+      return json({ error: "snapshot_barrier_conflict" }, 409);
+    }
+    let proof;
+    try { proof = await signedBarrierProof(env, row); }
+    catch { return json({ error: "snapshot_barrier_proof_signing_failed" }, 503); }
+    return json({ accepted: true, duplicate: inserted?.meta?.changes !== 1, ...proof },
+      inserted?.meta?.changes === 1 ? 201 : 200);
   }
 
   const releaseMatch = url.pathname.match(/^\/v1\/snapshot-barriers\/([0-9a-f-]{36})\/release$/i);
