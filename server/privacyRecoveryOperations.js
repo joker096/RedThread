@@ -14,7 +14,7 @@ async function withClient(pool, callback) {
 }
 
 async function persistIntent(pool, operationId, payload) {
-  await withClient(pool, async client => {
+  return withClient(pool, async client => {
     await client.query('BEGIN');
     try {
       const inserted = await client.query(
