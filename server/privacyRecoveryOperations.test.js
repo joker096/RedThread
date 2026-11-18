@@ -371,3 +371,35 @@ test('a positive Ledger ACK followed by PostgreSQL ACK-persistence failure retri
   assert.equal(attempts[1].body, attempts[0].body,
     'retry must use the originally persisted payload and timestamp, not the later request timestamp');
 });
+
+
+test('a client with an unsuccessful rollback is destroyed instead of returned to the pool', async () => {
+  const pool = fakePool();
+  const originalConnect = pool.connect.bind(pool);
+  let releasedWith = null;
+  pool.connect = async () => {
+    const client = await originalConnect();
+    const originalQuery = client.query.bind(client);
+    client.query = async (sql, values = []) => {
+      if (String(sql) === 'ROLLBACK') throw new Error('rollback_connection_lost');
+      return originalQuery(sql, values);
+    };
+    client.release = error => { releasedWith = error || null; };
+    return client;
+  };
+
+  await assert.rejects(runAckGatedPrivacyRecoveryOperation({
+    pool, operationId, event, env,
+    fetchImpl: async (_url, options) => {
+      const payload = JSON.parse(options.body);
+      return new Response(JSON.stringify({
+        accepted: true, event_id: payload.event_id, sequence: 881
+      }), { status: 201 });
+    },
+    apply: async () => { throw new Error('domain_transaction_failed'); }
+  }), /domain_transaction_failed/);
+
+  assert.equal(pool.state.row.status, 'acknowledged');
+  assert.equal(releasedWith?.message, 'domain_transaction_failed',
+    'failed transaction clients must be released with an error so pg destroys them');
+});
