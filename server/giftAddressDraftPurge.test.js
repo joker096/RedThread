@@ -36,3 +36,23 @@ test('purge rolls back on failure', async () => {
   assert.match(calls[1], /^WITH due AS/);
   assert.equal(calls[2], 'ROLLBACK');
 });
+
+
+test('purge destroys a connection when PostgreSQL rollback fails', async () => {
+  const calls = [];
+  let releasedWith = null;
+  const client = {
+    async query(sql) {
+      calls.push(sql);
+      if (sql.includes('WITH due')) throw new Error('purge_statement_failed');
+      if (sql === 'ROLLBACK') throw new Error('rollback_connection_lost');
+      return {};
+    },
+    release(error) { releasedWith = error || null; }
+  };
+  const pool = { async connect() { return client; } };
+  await assert.rejects(() => purgeExpiredGiftAddressDrafts(pool), /purge_statement_failed/);
+  assert.deepEqual(calls, ['BEGIN', 'ROLLBACK']);
+  assert.equal(releasedWith?.message, 'rollback_connection_lost',
+    'a connection with uncertain transaction state must be destroyed');
+});
