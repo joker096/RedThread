@@ -27,10 +27,12 @@ function fakePool() {
           if (sql.includes('INSERT INTO privacy_recovery_operations')) {
             if (state.row) return { rowCount: 0, rows: [] };
             state.row = { operation_id: values[0], event_payload: JSON.parse(values[1]), status: 'pending', ledger_sequence: null };
-            return { rowCount: 1, rows: [{ operation_id: values[0] }] };
+            return { rowCount: 1, rows: [{ operation_id: values[0], status: 'pending', ledger_sequence: null }] };
           }
           if (sql.includes('SELECT 1 FROM privacy_recovery_operations')) {
-            return { rowCount: state.row && JSON.stringify(state.row.event_payload) === JSON.stringify(JSON.parse(values[1])) ? 1 : 0, rows: [{}] };
+            return state.row && JSON.stringify(state.row.event_payload) === JSON.stringify(JSON.parse(values[1]))
+              ? { rowCount: 1, rows: [{ status: state.row.status, ledger_sequence: state.row.ledger_sequence }] }
+              : { rowCount: 0, rows: [] };
           }
           if (sql.includes('SELECT status, ledger_sequence')) {
             return state.row ? { rowCount: 1, rows: [{ status: state.row.status, ledger_sequence: state.row.ledger_sequence }] } : { rowCount: 0, rows: [] };
@@ -88,8 +90,7 @@ test('a failed domain transaction can resume from a separately persisted ledger 
   assert.equal(resumed.sequence, 77);
   assert.equal(applied, 1);
   assert.equal(pool.state.row.status, 'applied');
-  assert.equal(bodies.length, 2);
-  assert.equal(bodies[0], bodies[1], 'retry must deliver the exact same event ID and payload');
+  assert.equal(bodies.length, 1, 'a persisted ACK allows resume without another Ledger request');
 });
 
 test('repeated completed operation is idempotent and does not repeat domain side effects', async () => {
