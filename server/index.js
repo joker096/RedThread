@@ -7249,7 +7249,7 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
 
     if (wasActive) {
       if (typeof expectedConsent.granted_at !== 'string' ||
-          !Number.isFinite(new Date(expectedConsent.granted_at).getTime()) ||
+          expectedConsent.granted_at.length === 0 || expectedConsent.granted_at.length > 64 ||
           !Number.isSafeInteger(Number(expectedConsent.consent_version))) {
         throw new Error('identity_l3_consent_lifecycle_invalid');
       }
