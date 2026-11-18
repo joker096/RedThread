@@ -22,19 +22,24 @@ async function persistIntent(pool, operationId, payload) {
            (operation_id, event_id, event_payload, status)
          VALUES ($1, $1, $2::jsonb, 'pending')
          ON CONFLICT (operation_id) DO NOTHING
-         RETURNING operation_id`,
+         RETURNING operation_id, status, ledger_sequence`,
         [operationId, JSON.stringify(payload)]
       );
-      if (inserted.rowCount !== 1) {
+      let intent;
+      if (inserted.rowCount === 1) {
+        intent = inserted.rows[0];
+      } else {
         const existing = await client.query(
-          `SELECT 1 FROM privacy_recovery_operations
+          `SELECT status, ledger_sequence FROM privacy_recovery_operations
             WHERE operation_id = $1 AND event_payload = $2::jsonb
             FOR SHARE`,
           [operationId, JSON.stringify(payload)]
         );
         if (existing.rowCount !== 1) throw new Error('privacy_recovery_operation_id_conflict');
+        intent = existing.rows[0];
       }
       await client.query('COMMIT');
+      return intent;
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       throw error;
@@ -67,21 +72,26 @@ export async function runAckGatedPrivacyRecoveryOperation({
   }, { env });
   if (payload.skipped) throw new Error('privacy_recovery_ledger_ack_required');
 
-  await persistIntent(pool, operationId, payload);
+  const intent = await persistIntent(pool, operationId, payload);
+  let ledgerSequence = Number(intent.ledger_sequence);
 
-  // A timeout after remote acceptance is safe: retry sends the same immutable
-  // event ID and payload, and the ledger must return its original ACK.
-  const acknowledgement = await deliverPrivacyRecoveryLedgerPayload(payload, { env, fetchImpl, now });
-  if (acknowledgement?.acknowledged !== true ||
-      acknowledgement.eventId !== operationId ||
-      !Number.isSafeInteger(acknowledgement.sequence) || acknowledgement.sequence < 1) {
-    throw new Error('privacy_recovery_ledger_ack_required');
-  }
+  // Only pending intents need a network call. Once an ACK is durably recorded,
+  // recovery can resume even while the independent Ledger is temporarily down.
+  if (intent.status === 'pending') {
+    // A timeout after remote acceptance is safe: retry sends the same immutable
+    // event ID and payload, and the ledger must return its original ACK.
+    const acknowledgement = await deliverPrivacyRecoveryLedgerPayload(payload, { env, fetchImpl, now });
+    if (acknowledgement?.acknowledged !== true ||
+        acknowledgement.eventId !== operationId ||
+        !Number.isSafeInteger(acknowledgement.sequence) || acknowledgement.sequence < 1) {
+      throw new Error('privacy_recovery_ledger_ack_required');
+    }
+    ledgerSequence = acknowledgement.sequence;
 
-  // Persist the ACK in its own transaction. If the subsequent domain
-  // transaction fails, a resumer can continue from acknowledged without
-  // depending on the remote service being available again.
-  await withClient(pool, async client => {
+    // Persist the ACK in its own transaction. If the subsequent domain
+    // transaction fails, a resumer can continue from acknowledged without
+    // depending on the remote service being available again.
+    await withClient(pool, async client => {
     await client.query('BEGIN');
     try {
       const locked = await client.query(
@@ -102,7 +112,7 @@ export async function runAckGatedPrivacyRecoveryOperation({
           [operationId, acknowledgement.sequence]
         );
         if (updated.rowCount !== 1) throw new Error('privacy_recovery_operation_ack_state_conflict');
-      } else if (Number(operation.ledger_sequence) !== acknowledgement.sequence) {
+      } else if (Number(operation.ledger_sequence) !== ledgerSequence) {
         throw new Error('privacy_recovery_operation_ack_sequence_conflict');
       }
       await client.query('COMMIT');
@@ -110,7 +120,10 @@ export async function runAckGatedPrivacyRecoveryOperation({
       await client.query('ROLLBACK').catch(() => {});
       throw error;
     }
-  });
+    });
+  } else if (!Number.isSafeInteger(ledgerSequence) || ledgerSequence < 1) {
+    throw new Error('privacy_recovery_operation_ack_sequence_missing');
+  }
 
   return withClient(pool, async client => {
     await client.query('BEGIN');
@@ -144,7 +157,7 @@ export async function runAckGatedPrivacyRecoveryOperation({
       );
       if (applied.rowCount !== 1) throw new Error('privacy_recovery_operation_apply_state_conflict');
       await client.query('COMMIT');
-      return { operationId, applied: true, duplicate: false, sequence: acknowledgement.sequence, result };
+      return { operationId, applied: true, duplicate: false, sequence: ledgerSequence, result };
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       throw error;
