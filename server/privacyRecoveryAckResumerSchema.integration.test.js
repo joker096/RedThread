@@ -196,3 +196,43 @@ test('concurrent PostgreSQL ACK workers cannot claim the same live operation lea
     await db.end();
   }
 });
+
+test('PostgreSQL ACK saga accepts address-draft withdrawal only with its pseudonymized order reference', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 15_000
+}, async () => {
+  const db = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+  const operationId = randomUUID();
+  const missingResourceId = randomUUID();
+  const payload = {
+    event_id: operationId,
+    schema_version: 1,
+    event_type: 'gift_address_draft_consent_withdrawn',
+    subject_ref: 'a'.repeat(64),
+    resource_ref: 'b'.repeat(64),
+    occurred_at: '2026-11-18T08:00:00.000Z'
+  };
+  try {
+    await db.query('BEGIN');
+    await db.query(
+      `INSERT INTO privacy_recovery_operations (operation_id, event_id, event_payload)
+       VALUES ($1, $1, $2::jsonb)`,
+      [operationId, JSON.stringify(payload)]
+    );
+    await db.query('SAVEPOINT missing_resource');
+    await assert.rejects(
+      db.query(
+        `INSERT INTO privacy_recovery_operations (operation_id, event_id, event_payload)
+         VALUES ($1, $1, $2::jsonb)`,
+        [missingResourceId, JSON.stringify({
+          ...payload, event_id: missingResourceId, resource_ref: undefined
+        })]
+      ),
+      error => error.code === '23514'
+    );
+    await db.query('ROLLBACK TO SAVEPOINT missing_resource');
+    await db.query('ROLLBACK');
+  } finally {
+    await db.end();
+  }
+});
