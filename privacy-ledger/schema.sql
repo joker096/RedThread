@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS privacy_events (
   resource_ref TEXT CHECK (resource_ref IS NULL OR length(resource_ref) = 64),
   occurred_at TEXT NOT NULL,
   received_at TEXT NOT NULL,
-  payload_sha256 TEXT NOT NULL CHECK (length(payload_sha256) = 64)
+  payload_sha256 TEXT NOT NULL CHECK (length(payload_sha256) = 64),
+  CHECK (event_type <> 'gift_address_draft_consent_withdrawn' OR resource_ref IS NOT NULL)
 );
 
 CREATE INDEX IF NOT EXISTS privacy_events_subject_sequence_idx
