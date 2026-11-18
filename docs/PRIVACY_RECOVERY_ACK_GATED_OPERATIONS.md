@@ -95,3 +95,12 @@ and media cleanup without emitting a duplicate Ledger event. The route has
 structural regression coverage for ACK ordering, lifecycle revalidation, token
 revocation, audit insertion, and purge handling. PostgreSQL-backed concurrent
 route tests and the full CI/E2E runs remain outstanding.
+
+
+### Migration ordering correction
+
+The ACK-gated operations schema is installed by
+`244_privacy_recovery_ack_gated_operations.sql`. The earlier draft filename
+used sequence number 241, which already exists in the base branch for the L3
+replay migration; it was replaced so the new migration follows existing
+migrations 241–243 without a duplicate sequence number.
