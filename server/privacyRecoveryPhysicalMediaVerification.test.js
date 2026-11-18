@@ -80,7 +80,6 @@ test('physical verifier fails closed when the pending restore marker or a storag
   await assert.rejects(
     verifyPhysicalMediaAbsence({
       roots: { ...roots, voice: path.join(root, 'missing') },
-      effects: [{ ledger_sequence: '1', resource_id: randomUUID() }],
       obligations: [{ ledger_sequence: '1', queue_name: 'private_voice_intro', storage_path_sha256: 'b'.repeat(64), storage_object_id: randomUUID() }]
     }),
     /privacy_recovery_physical_voice_storage_unavailable/
@@ -101,7 +100,6 @@ test('physical verifier rejects storage roots outside the isolated restore tree'
     await assert.rejects(
       verifyPhysicalMediaAbsence({
         roots: { ...roots, photo: outside },
-        effects: [{ ledger_sequence: '1', resource_id: randomUUID() }],
         obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'd'.repeat(64), storage_object_id: randomUUID() }]
       }),
       /privacy_recovery_physical_photo_root_outside_restore/
@@ -122,9 +120,8 @@ test('physical verifier rejects malformed obligation metadata and missing replay
   await assert.rejects(
     verifyPhysicalMediaAbsence({
       roots,
-      effects: [],
       obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'e'.repeat(64) }]
     }),
-    /privacy_recovery_physical_effect_missing/
+    /privacy_recovery_physical_object_id_missing/
   );
 });
