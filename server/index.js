@@ -19,6 +19,7 @@ import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLo
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, hasAdConsentRevocation, getAdConsentLifecycleGeneration, isSameAdConsentLifecycle, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { derivePrivacyRecoveryOperationId, runAckGatedPrivacyRecoveryOperation, runAckGatedPrivacyRecoveryBatch } from './privacyRecoveryOperations.js';
+import { resumePendingPrivacyRecoveryLedgerAcks } from './privacyRecoveryAckResumer.js';
 import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION, IdentityL3UploadTokenError, issueIdentityL3UploadCapability } from './identityL3UploadTokens.js';
 import { assertIdentityL3StorageReady, assertIdentityL3TemporaryStorageReady, clearIdentityL3TemporaryFiles, deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -1135,6 +1136,29 @@ app.get('/api/auth/google/config', (_req, res) => {
 // Google challenge rows contain only nonce hashes; abandoned registration tickets
 // also contain verified email/display-name data. Expire both continuously rather
 // than relying only on the next user opening the Google sign-in flow.
+// The ACK repair worker is opt-in. It repairs only Ledger delivery state;
+// route-specific domain mutations remain gated by their authenticated retry or
+// reconciliation path. It never holds PostgreSQL locks during Ledger HTTP calls.
+let privacyRecoveryAckResumerRunning = false;
+const privacyRecoveryAckResumerEnabled =
+  process.env.PRIVACY_RECOVERY_ACK_RESUMER_ENABLED === 'true' &&
+  process.env.PRIVACY_RECOVERY_LEDGER_REQUIRED === 'true';
+const privacyRecoveryAckResumerInterval = privacyRecoveryAckResumerEnabled
+  ? setInterval(async () => {
+      if (!pool || privacyRecoveryAckResumerRunning) return;
+      privacyRecoveryAckResumerRunning = true;
+      try {
+        const summary = await resumePendingPrivacyRecoveryLedgerAcks({ pool, limit: 25 });
+        if (summary.claimed > 0) console.info('Privacy recovery Ledger ACK repair:', summary);
+      } catch (error) {
+        console.error('Privacy recovery Ledger ACK repair failed:', error?.message || 'unknown error');
+      } finally {
+        privacyRecoveryAckResumerRunning = false;
+      }
+    }, 15_000)
+  : null;
+privacyRecoveryAckResumerInterval?.unref?.();
+
 const googleAuthArtifactCleanupInterval = setInterval(() => {
   if (!pool) return;
   Promise.all([
