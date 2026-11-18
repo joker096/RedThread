@@ -44,7 +44,7 @@ after(async () => {
 
 const isolatedEnv = { NODE_ENV: 'test', PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true', PRIVACY_RECOVERY_RESTORE_DATABASE_NAME: 'vow_restore_test', PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner', PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY' };
 
-function verify(args) { return verify({ ...args, storageRoots }); }
+function verify(args) { return verifyPrivateMediaPrivacyRecovery({ ...args, storageRoots }); }
 
 function makePool({ receiptRows = [event], obligations = [{
   ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest
