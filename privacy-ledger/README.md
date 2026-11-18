@@ -12,7 +12,7 @@ node --test test/worker.test.js
 
 1. Create a Cloudflare account and a D1 database named `vow-privacy-ledger`.
 2. Replace the placeholder `database_id` in `wrangler.toml`.
-3. Apply `schema.sql` using Wrangler's D1 execute command against the intended environment.
+3. For a new D1 database, apply `schema.sql`. For an existing Ledger, apply `migrations/0002_gift_address_draft_consent_event.sql` exactly once before deploying the updated Worker; it rebuilds the append-only table while preserving all existing rows and sequence numbers.
 4. Set `LEDGER_HMAC_SECRET` as a Worker secret (at least 32 random bytes encoded as a high-entropy string). Keep the Vow API's matching secret in its secret manager; never commit it.
 5. Deploy the Worker and verify signed append, duplicate append, conflicting duplicate, authenticated pagination, and append-only trigger behaviour using synthetic events.
 6. Configure a separately escrowed `PRIVACY_LEDGER_PSEUDONYM_KEY` in the Vow API. This is not the request-authentication key.
