@@ -100,7 +100,8 @@ test('coordinated backup bundle restores PostgreSQL and private media from one s
       BACKUP_AGE_RECIPIENT: recipient,
       BACKUP_DIR: backupRoot,
       BACKUP_SNAPSHOT_ID: snapshotId,
-      BACKUP_RETENTION_DAYS: '30'
+      BACKUP_RETENTION_DAYS: '30',
+      BACKUP_CONFIRM_QUIESCED: 'I_UNDERSTAND_MEDIA_AND_DATABASE_WRITES_ARE_QUIESCED'
     });
     const bundleDir = path.join(backupRoot, snapshotId);
     const manifest = await readFile(path.join(bundleDir, 'manifest.txt'), 'utf8');
@@ -195,6 +196,31 @@ test('coordinated restore rejects a tampered encrypted artifact before opening s
     assert.notEqual(result.status, 0, 'restore must fail closed for a modified archive');
     assert.match(result.stderr, /artifact checksum does not match its manifest/);
     await assert.rejects(readFile(path.join(destination, '.vow-restore-pending')));
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+
+test('coordinated backup bundle refuses to start without explicit database and media quiescence confirmation', async () => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-backup-quiescence-'));
+  const backupRoot = path.join(temporaryRoot, 'bundles');
+  try {
+    const result = spawnSync('bash', [backupBundleScript], {
+      encoding: 'utf8',
+      timeout: 15_000,
+      env: {
+        ...process.env,
+        DATABASE_URL: 'postgres://backup.invalid/vow_app',
+        PRIVATE_MEDIA_DIR: path.join(temporaryRoot, 'private-media'),
+        BACKUP_AGE_RECIPIENT: 'age1syntheticrecipient',
+        BACKUP_DIR: backupRoot,
+        BACKUP_SNAPSHOT_ID: 'must_not_start'
+      }
+    });
+    assert.notEqual(result.status, 0, 'bundle must fail closed without quiescence acknowledgement');
+    assert.match(result.stderr, /explicit database\/media quiescence confirmation is required/);
+    await assert.rejects(readdir(backupRoot));
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
