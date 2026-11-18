@@ -142,7 +142,7 @@ export async function runAckGatedPrivacyRecoveryOperation({
         const updated = await client.query(
           `UPDATE privacy_recovery_operations
               SET status = 'acknowledged', ledger_sequence = $2,
-                  acknowledged_at = statement_timestamp(), updated_at = statement_timestamp()
+                  acknowledged_at = statement_timestamp(),\n                  ack_lease_token = NULL, ack_lease_expires_at = NULL,\n                  ack_next_attempt_at = statement_timestamp(), ack_last_error_code = NULL,\n                  updated_at = statement_timestamp()
             WHERE operation_id = $1 AND status = 'pending'`,
           [operationId, acknowledgement.sequence]
         );
@@ -258,7 +258,7 @@ export async function runAckGatedPrivacyRecoveryBatch({
             const updated = await client.query(
               `UPDATE privacy_recovery_operations
                   SET status = 'acknowledged', ledger_sequence = $2,
-                      acknowledged_at = statement_timestamp(), updated_at = statement_timestamp()
+                      acknowledged_at = statement_timestamp(),\n                  ack_lease_token = NULL, ack_lease_expires_at = NULL,\n                  ack_next_attempt_at = statement_timestamp(), ack_last_error_code = NULL,\n                  updated_at = statement_timestamp()
                 WHERE operation_id = $1 AND status = 'pending'`,
               [item.operationId, acknowledgement.sequence]
             );
