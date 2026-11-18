@@ -1902,16 +1902,36 @@ test('auth API supports registration, session lookup, logout and login', {
       categoryConsents: {}
     }, 'a separate account must not read another account\'s consent preferences');
 
+    const revocationPayload = {
+      adsConsent: false,
+      dateOffersConsent: true,
+      weddingOffersConsent: true,
+      marriagePlanningOptIn: true,
+      categoryConsents: { travel: true, fashion: true }
+    };
+    ledger.failNext();
+    const rejectedAdRevocation = await request('/api/ads/consent', {
+      method: 'PUT',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify(revocationPayload)
+    });
+    assert.equal(rejectedAdRevocation.status, 503,
+      'advertising consent must remain unchanged when the independent Ledger rejects the revocation');
+    const consentBeforeRetry = await db.query(
+      'SELECT ads_consent, date_offers_consent, wedding_offers_consent, marriage_planning_opt_in FROM ad_consent_preferences WHERE user_id = $1',
+      [registered.user.id]
+    );
+    assert.deepEqual(consentBeforeRetry.rows[0], {
+      ads_consent: true,
+      date_offers_consent: true,
+      wedding_offers_consent: true,
+      marriage_planning_opt_in: true
+    });
+
     const revokeAdConsent = await request('/api/ads/consent', {
       method: 'PUT',
       headers: { Cookie: secondCookie },
-      body: JSON.stringify({
-        adsConsent: false,
-        dateOffersConsent: true,
-        weddingOffersConsent: true,
-        marriagePlanningOptIn: true,
-        categoryConsents: { travel: true, fashion: true }
-      })
+      body: JSON.stringify(revocationPayload)
     });
     assert.equal(revokeAdConsent.status, 200);
     assert.deepEqual((await revokeAdConsent.json()).preferences, {
