@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main, "audit/**", "fix/**", "feat/**", "integration/**"]
+    branches: [main, "audit/**", "fix/**", "feat/**", "integration/**", "perf/**"]
   # Keep implementation/fix branches under the same verification gate.
   pull_request:
-    branches: [main]
+    branches: [main, "fix/**"]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
