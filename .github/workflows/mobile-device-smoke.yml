@@ -2,7 +2,7 @@ name: Virtual device smoke tests
 
 on:
   push:
-    branches: ["feat/**"]
+    branches: ["feat/**", "test/**"]
     paths:
       - "src/**"
       - "capacitor.config.ts"
@@ -20,7 +20,7 @@ on:
       - ".github/workflows/mobile-device-smoke.yml"
       - ".github/workflows/mobile-build.yml"
   pull_request:
-    branches: [main, feat/compatibility-explanations]
+    branches: [main, feat/compatibility-explanations, feat/privacy-recovery-ad-gift-consent-replay-v2]
     paths:
       - "src/**"
       - "capacitor.config.ts"
@@ -210,10 +210,15 @@ jobs:
           xcrun simctl privacy "$DEVICE_ID" grant microphone com.vow.app
           xcrun simctl launch "$DEVICE_ID" com.vow.app
           sleep 8
-          xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -F com.vow.app
           xcrun simctl terminate "$DEVICE_ID" com.vow.app
           xcrun simctl launch "$DEVICE_ID" com.vow.app
-          xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -F com.vow.app
+          # Exercise the registered non-secret custom-scheme return on a cold start.
+          xcrun simctl terminate "$DEVICE_ID" com.vow.app
+          xcrun simctl openurl "$DEVICE_ID" 'vow://identity/return'
+          sleep 5
+          # simctl launch returns the launched process identifier; avoid parsing
+          # launchctl's transient service listing during SpringBoard startup.
+          xcrun simctl launch "$DEVICE_ID" com.vow.app
       - name: Verify privacy manifest in simulator bundle
         run: |
           manifest="ios/build/Build/Products/Debug-iphonesimulator/App.app/PrivacyInfo.xcprivacy"

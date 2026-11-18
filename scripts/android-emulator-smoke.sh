@@ -133,6 +133,57 @@ if [[ "$activity_ready" -ne 1 ]]; then
   exit 1
 fi
 
+wait_for_vow_foreground() {
+  local label="$1"
+  local ready=0
+  for attempt in $(seq 1 30); do
+    local state
+    state="$(adb shell dumpsys activity activities 2>&1 || true)"
+    if grep -E 'ResumedActivity|topResumedActivity|mResumedActivity' <<< "$state" | grep -Fq com.vow.app; then
+      echo "Vow foreground verified: $label"
+      ready=1
+      break
+    fi
+    sleep 2
+  done
+  if [[ "$ready" -ne 1 ]]; then
+    echo "Vow failed to return to foreground: $label" >&2
+    adb shell dumpsys activity activities >&2 || true
+    return 1
+  fi
+}
+
+echo "Verifying process relaunch"
+adb_call shell am force-stop com.vow.app
+adb_call shell am start -n "$launcher_activity"
+wait_for_vow_foreground "process relaunch"
+
+echo "Verifying non-secret vow:// identity return app link"
+deep_link_resolution="$(adb_call shell cmd package resolve-activity --brief -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d vow://identity/return com.vow.app | tr -d '\\r')"
+if ! grep -Fq 'com.vow.app/' <<< "$deep_link_resolution"; then
+  echo "Vow identity return deep link did not resolve to the Vow app: $deep_link_resolution" >&2
+  exit 1
+fi
+adb_call shell am force-stop com.vow.app
+deep_link_launch="$(adb_call shell am start -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d vow://identity/return -n "$launcher_activity")"
+printf '%s\\n' "$deep_link_launch"
+grep -q "Starting:" <<< "$deep_link_launch"
+wait_for_vow_foreground "vow://identity/return cold start"
+
+echo "Verifying app relaunch while network interfaces are disabled"
+adb_call shell svc wifi disable
+adb_call shell svc data disable
+offline_relaunch_status=0
+adb_call shell am force-stop com.vow.app
+adb_call shell am start -n "$launcher_activity" || offline_relaunch_status=$?
+if [[ "$offline_relaunch_status" -ne 0 ]]; then
+  echo "Vow could not be launched while offline" >&2
+  exit "$offline_relaunch_status"
+fi
+wait_for_vow_foreground "offline relaunch"
+adb_call shell svc wifi enable
+adb_call shell svc data enable
+
 capture_logcat
 if grep -A 8 -E 'FATAL EXCEPTION|Fatal signal' "$LOG_FILE" | grep -F com.vow.app; then
   echo "Vow crashed on Android Emulator" >&2
