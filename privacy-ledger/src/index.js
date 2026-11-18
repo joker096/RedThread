@@ -204,6 +204,10 @@ export async function handleRequest(request, env) {
       const proof = await signedBarrierProof(env, row);
       return json({ accepted: true, duplicate: inserted?.meta?.changes !== 1, ...proof }, inserted?.meta?.changes === 1 ? 201 : 200);
     } catch {
+      const existing = await env.LEDGER_DB.prepare(
+        "SELECT barrier_id, status FROM privacy_snapshot_barriers WHERE snapshot_id = ?"
+      ).bind(input.snapshot_id).first();
+      if (existing) return json({ error: "snapshot_barrier_snapshot_id_reused" }, 409);
       const active = await env.LEDGER_DB.prepare(
         "SELECT barrier_id FROM privacy_snapshot_barriers WHERE status = 'active' LIMIT 1"
       ).first();
@@ -225,6 +229,7 @@ export async function handleRequest(request, env) {
       return json({ error: "invalid_snapshot_barrier_release" }, 400);
     }
     const barrierId = releaseMatch[1];
+    if (!SNAPSHOT_BARRIER_ID_PATTERN.test(barrierId)) return json({ error: "invalid_snapshot_barrier_id" }, 400);
     const current = await env.LEDGER_DB.prepare(
       "SELECT barrier_id, snapshot_id, status, ledger_sequence, created_at, released_at FROM privacy_snapshot_barriers WHERE barrier_id = ?"
     ).bind(barrierId).first();
