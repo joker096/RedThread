@@ -75,12 +75,11 @@ export async function runPrivacyRecoveryInventory({ pool, env = process.env } = 
         throw new Error('privacy_recovery_inventory_staged_sequence_gap');
       }
     }
-    const [users, voiceIntros, photos, giftOrders, giftAddressDrafts] = await Promise.all([
+    const [users, voiceIntros, photos, giftOrders] = await Promise.all([
       client.query('SELECT id FROM users'),
       client.query('SELECT id, user_id FROM profile_voice_intros'),
       client.query('SELECT id, user_id FROM photo_assets'),
-      client.query('SELECT id, recipient_id AS user_id FROM gift_delivery_orders'),
-      client.query('SELECT order_id AS id, recipient_user_id AS user_id FROM gift_address_drafts')
+      client.query('SELECT id, recipient_id AS user_id FROM gift_delivery_orders')
     ]);
     const mappings = resolvePrivacyRecoveryMappings({
       events,
@@ -88,8 +87,7 @@ export async function runPrivacyRecoveryInventory({ pool, env = process.env } = 
       users: users.rows || [],
       voiceIntros: voiceIntros.rows || [],
       photos: photos.rows || [],
-      giftOrders: giftOrders.rows || [],
-      giftAddressDrafts: giftAddressDrafts.rows || []
+      giftOrders: giftOrders.rows || []
     });
     const summary = summarizeMappings(mappings);
     await client.query('COMMIT');
@@ -102,8 +100,7 @@ export async function runPrivacyRecoveryInventory({ pool, env = process.env } = 
         users: users.rowCount,
         voiceIntros: voiceIntros.rowCount,
         photos: photos.rowCount,
-        giftOrders: giftOrders.rowCount,
-        giftAddressDrafts: giftAddressDrafts.rowCount
+        giftOrders: giftOrders.rowCount
       },
       ...summary
     };
