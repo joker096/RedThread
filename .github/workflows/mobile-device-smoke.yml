@@ -2,7 +2,7 @@ name: Virtual device smoke tests
 
 on:
   push:
-    branches: ["feat/**"]
+    branches: ["feat/**", "test/**"]
     paths:
       - "src/**"
       - "capacitor.config.ts"
@@ -20,7 +20,7 @@ on:
       - ".github/workflows/mobile-device-smoke.yml"
       - ".github/workflows/mobile-build.yml"
   pull_request:
-    branches: [main, feat/compatibility-explanations]
+    branches: [main, feat/compatibility-explanations, feat/privacy-recovery-ad-gift-consent-replay-v2]
     paths:
       - "src/**"
       - "capacitor.config.ts"
