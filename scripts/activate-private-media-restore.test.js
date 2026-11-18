@@ -144,6 +144,37 @@ test('activation refuses a snapshot barrier proof whose digest differs from the 
   }
 });
 
+test('activation refuses staging without a retained bundle manifest', async () => {
+  const f = await fixture();
+  try {
+    await rm(path.join(f.restore, '.vow-backup-manifest'));
+    const result = run(f);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /activation requires an atomic v3 backup manifest/);
+    assert.equal(await readFile(f.log, 'utf8'), '');
+    await lstat(path.join(f.restore, '.vow-restore-pending'));
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('activation refuses a v3 manifest without a valid Ledger watermark', async () => {
+  const f = await fixture();
+  try {
+    const manifest = (await readFile(path.join(f.restore, '.vow-backup-manifest'), 'utf8'))
+      .replace('snapshot_ledger_sequence=17', 'snapshot_ledger_sequence=unknown');
+    await writeFile(path.join(f.restore, '.vow-backup-manifest'), manifest);
+    const digest = createHash('sha256').update(manifest).digest('hex');
+    await writeFile(path.join(f.restore, '.vow-backup-manifest.sha256'), digest + '  .vow-backup-manifest\\n');
+    const result = run(f);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /atomic backup manifest identity, watermark or artifact mapping is invalid/);
+    assert.equal(await readFile(f.log, 'utf8'), '');
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
 test('activation refuses a staging directory without its pending marker', async () => {
   const f = await fixture();
   try {
