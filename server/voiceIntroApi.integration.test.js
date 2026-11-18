@@ -228,6 +228,7 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
   const { join } = await import('node:path');
   const { spawnSync } = await import('node:child_process');
   const port = await findFreePort();
+  const ledger = await startTestPrivacyRecoveryLedger();
   const origin = 'http://localhost:3000';
   const api = 'http://127.0.0.1:' + port;
   const storageDir = await mkdtemp(join(tmpdir(), 'vow-voice-intro-api-'));
@@ -240,6 +241,10 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       API_PORT: String(port),
       APP_ORIGIN: origin,
       NODE_ENV: 'test',
+      PRIVACY_RECOVERY_LEDGER_REQUIRED: 'true',
+      PRIVACY_RECOVERY_LEDGER_URL: ledger.url,
+      PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: 'test-ledger-hmac-secret-'.padEnd(40, 'x'),
+      PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: 'test-ledger-pseudonym-key-'.padEnd(40, 'y'),
       GOOGLE_CLIENT_ID: '   ',
       AUTH_RATE_LIMIT: '1000',
       DATABASE_URL: serverDatabaseUrl.toString(),
@@ -511,6 +516,7 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       await db.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
     }
     await db.end().catch(() => {});
+    await ledger.close().catch(() => {});
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
       let exitTimer;
