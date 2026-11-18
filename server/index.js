@@ -7221,22 +7221,6 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
       throw new Error('identity_l3_consent_state_changed_retry');
     }
 
-    if (expectedActive) {
-      const withdrawn = await transactionClient.query(
-        `UPDATE identity_l3_consents
-            SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp()
-          WHERE user_id = $1 AND withdrawn_at IS NULL`,
-        [userId]
-      );
-      if (withdrawn.rowCount !== 1) throw new Error('identity_l3_consent_state_changed_retry');
-      await transactionClient.query(
-        `INSERT INTO identity_l3_consent_events
-           (user_id, actor_user_id, event_type, consent_version, occurred_at)
-         VALUES ($1, $1, 'withdrawn', $2, statement_timestamp())`,
-        [userId, current.consent_version]
-      );
-    }
-
     // Revoke every outstanding upload capability before changing submissions.
     await transactionClient.query(
       `UPDATE identity_l3_upload_tokens
@@ -7296,6 +7280,26 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
         );
         queuedPurgeJobs += requeued.rowCount;
       }
+    }
+
+    // The consent trigger requires every active submission to be terminal
+    // before withdrawal is recorded. Keep the transition and audit event in
+    // this same transaction, after token revocation and submission updates.
+    if (expectedActive) {
+      const withdrawn = await transactionClient.query(
+        `UPDATE identity_l3_consents
+            SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp()
+          WHERE user_id = $1 AND withdrawn_at IS NULL
+          RETURNING consent_version, withdrawn_at`,
+        [userId]
+      );
+      if (withdrawn.rowCount !== 1) throw new Error('identity_l3_consent_state_changed_retry');
+      await transactionClient.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         VALUES ($1, $1, 'withdrawn', $2, $3)`,
+        [userId, withdrawn.rows[0].consent_version, withdrawn.rows[0].withdrawn_at]
+      );
     }
 
     const purgeCounts = await transactionClient.query(
