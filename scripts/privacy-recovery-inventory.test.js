@@ -17,9 +17,9 @@ const env = {
   PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY'
 };
 
-function fakePool({ events = [], users = [], voiceIntros = [], photos = [], giftOrders = [], giftAddressDrafts = [] } = {}) {
+function fakePool({ events = [], users = [], voiceIntros = [], photos = [], giftOrders = [] } = {}) {
   const calls = [];
-  const data = { events, users, voiceIntros, photos, giftOrders, giftAddressDrafts };
+  const data = { events, users, voiceIntros, photos, giftOrders };
   return {
     calls,
     async connect() {
@@ -32,7 +32,6 @@ function fakePool({ events = [], users = [], voiceIntros = [], photos = [], gift
           if (sql.startsWith('SELECT id, user_id FROM profile_voice_intros')) return { rows: data.voiceIntros, rowCount: data.voiceIntros.length };
           if (sql.startsWith('SELECT id, user_id FROM photo_assets')) return { rows: data.photos, rowCount: data.photos.length };
           if (sql.startsWith('SELECT id, recipient_id AS user_id FROM gift_delivery_orders')) return { rows: data.giftOrders, rowCount: data.giftOrders.length };
-          if (sql.startsWith('SELECT order_id AS id, recipient_user_id AS user_id FROM gift_address_drafts')) return { rows: data.giftAddressDrafts, rowCount: data.giftAddressDrafts.length };
           return { rows: [], rowCount: 0 };
         },
         release() { calls.push('RELEASE'); }
@@ -145,12 +144,12 @@ test('maps address-draft withdrawal but keeps it outside the approved replay exe
       subject_ref: ref(userId), resource_ref: ref(orderId)
     }],
     users: [{ id: userId }],
-    giftAddressDrafts: [{ id: orderId, user_id: userId }]
+    giftOrders: [{ id: orderId, user_id: userId }]
   });
   const report = await runPrivacyRecoveryInventory({ pool, env });
   assert.equal(report.matchedCount, 1);
   assert.equal(report.byEventType.gift_address_draft_consent_withdrawn, 1);
   assert.equal(report.unsupportedEventCount, 1);
   assert.equal(report.readyForDomainReplay, false);
-  assert.equal(report.candidateCounts.giftAddressDrafts, 1);
+  assert.equal(report.candidateCounts.giftOrders, 1);
 });
