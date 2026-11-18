@@ -28,18 +28,20 @@ const sha256 = value => createHash('sha256').update(value, 'utf8').digest('hex')
 test('physical verifier accepts absent photo, voice and L3 objects under pending staging', async () => {
   const photoId = randomUUID();
   const voiceId = randomUUID();
+  const secondVoiceId = randomUUID();
   const l3 = randomUUID();
   const result = await verifyPhysicalMediaAbsence({
     roots,
     obligations: [
       { ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: sha256('photo-path'), storage_object_id: photoId },
       { ledger_sequence: '2', queue_name: 'private_voice_intro', storage_path_sha256: sha256('voice-path'), storage_object_id: voiceId },
+      { ledger_sequence: '2', queue_name: 'private_voice_intro', storage_path_sha256: sha256('second-voice-path'), storage_object_id: secondVoiceId },
       { ledger_sequence: '3', queue_name: 'identity_l3_media', storage_path_sha256: sha256(l3), storage_object_id: l3 }
     ]
   });
   assert.deepEqual(result, {
     verifiedPhotoObjectAbsenceCount: 1,
-    verifiedVoiceObjectAbsenceCount: 1,
+    verifiedVoiceObjectAbsenceCount: 2,
     verifiedIdentityL3ObjectAbsenceCount: 1
   });
 });
