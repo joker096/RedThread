@@ -1,4 +1,4 @@
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHmac, createPublicKey, randomUUID, verify as verifySignature } from 'node:crypto';
 
 export const PRIVACY_RECOVERY_EVENT_TYPES = Object.freeze([
   'account_erasure_requested',
@@ -150,7 +150,7 @@ function snapshotBarrierProofPayload(proof) {
   };
 }
 
-function verifySnapshotBarrierProof(proof, { snapshotId, barrierId, status, authSecret }) {
+function verifySnapshotBarrierProof(proof, { snapshotId, barrierId, status, proofPublicKey }) {
   if (!proof || typeof proof !== 'object' || Array.isArray(proof)) {
     throw new Error('privacy_recovery_snapshot_barrier_invalid_proof');
   }
@@ -165,9 +165,20 @@ function verifySnapshotBarrierProof(proof, { snapshotId, barrierId, status, auth
       !/^[a-f0-9]{64}$/i.test(proof.signature || '')) {
     throw new Error('privacy_recovery_snapshot_barrier_invalid_proof');
   }
-  const expected = Buffer.from(hmacHex(authSecret, JSON.stringify(payload)), 'hex');
-  const supplied = Buffer.from(proof.signature, 'hex');
-  if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
+  if (typeof proofPublicKey !== 'string' ||
+      !/^[A-Za-z0-9+/]+={0,2}$/.test(proofPublicKey)) {
+    throw new Error('privacy_recovery_snapshot_barrier_public_key_not_configured');
+  }
+  let publicKey;
+  try {
+    const der = Buffer.from(proofPublicKey, 'base64');
+    if (der.toString('base64') !== proofPublicKey) throw new Error('invalid base64');
+    publicKey = createPublicKey({ key: der, format: 'der', type: 'spki' });
+  } catch {
+    throw new Error('privacy_recovery_snapshot_barrier_public_key_invalid');
+  }
+  if (publicKey.asymmetricKeyType !== 'ed25519' ||
+      !verifySignature(null, Buffer.from(JSON.stringify(payload)), publicKey, Buffer.from(proof.signature, 'hex'))) {
     throw new Error('privacy_recovery_snapshot_barrier_signature_invalid');
   }
   return { ...payload, signature: proof.signature };
@@ -208,7 +219,7 @@ async function postSnapshotBarrier(path, body, {
     const code = typeof result?.error === 'string' ? result.error : 'rejected';
     throw new Error('privacy_recovery_snapshot_barrier_' + code);
   }
-  return { result, authSecret };
+  return { result, proofPublicKey: env.PRIVACY_RECOVERY_LEDGER_PROOF_PUBLIC_KEY };
 }
 
 export async function createPrivacyRecoverySnapshotBarrier({
@@ -224,7 +235,7 @@ export async function createPrivacyRecoverySnapshotBarrier({
   }
   return {
     ...verifySnapshotBarrierProof(result, {
-      snapshotId, barrierId, status: 'active', authSecret
+      snapshotId, barrierId, status: 'active', proofPublicKey
     }),
     duplicate: result.duplicate === true
   };
@@ -240,6 +251,6 @@ export async function releasePrivacyRecoverySnapshotBarrier({
     options
   );
   return verifySnapshotBarrierProof(result, {
-    snapshotId, barrierId, status: 'released', authSecret
+    snapshotId, barrierId, status: 'released', proofPublicKey
   });
 }
