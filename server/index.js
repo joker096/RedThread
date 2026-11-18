@@ -892,9 +892,16 @@ async function requireSession(req, res, next) {
   // may authenticate a fail-closed deletion retry.
   // req.path may be router-relative when this middleware is mounted below
   // /api; originalUrl preserves the full endpoint path used by the retry guard.
-  const requestPath = String(req.originalUrl || req.url || req.path || '').split('?')[0];
-  const accountDeletionRetry = req.method === 'DELETE' &&
-    (req.route?.path === '/api/account' || requestPath === '/api/account');
+  const originalRequestPath = String(req.originalUrl || req.url || '').split('?')[0];
+  // At the application router level req.path is the canonical pathname. Keep
+  // it as an independent exact-match fallback: adapters and mounted middleware
+  // can expose an absolute or rewritten originalUrl while preserving req.path.
+  const requestPath = String(req.path || '').split('?')[0];
+  const accountDeletionRetry = req.method === 'DELETE' && (
+    req.route?.path === '/api/account' ||
+    originalRequestPath === '/api/account' ||
+    requestPath === '/api/account'
+  );
   if (!pool) return res.status(503).json({ error: 'database_not_configured' });
 
   const authorization = req.get('authorization');
