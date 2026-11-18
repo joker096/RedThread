@@ -35,7 +35,7 @@ before(async () => {
   physicalRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-physical-purge-'));
   storageRoots.restoreRoot = physicalRoot;
   await writeFile(path.join(physicalRoot, '.vow-restore-pending'), 'pending', { mode: 0o600 });
-  for (const key of ['photo', 'voice', 'identityL3']) {
+  for (const key of ['photo', 'voice', 'identityL3', 'identityL3Temp']) {
     storageRoots[key] = path.join(physicalRoot, key);
     await mkdir(storageRoots[key], { mode: 0o700 });
   }
