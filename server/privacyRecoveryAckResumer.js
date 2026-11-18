@@ -28,7 +28,7 @@ export async function resumePendingPrivacyRecoveryLedgerAcks({
 }) {
   if (!pool || typeof pool.connect !== 'function' ||
       !Number.isSafeInteger(limit) || limit < 1 || limit > 100 ||
-      !Number.isSafeInteger(leaseMs) || leaseMs < 5_000 || leaseMs > 5 * 60_000 ||
+      !Number.isSafeInteger(leaseMs) || leaseMs < 10_000 || leaseMs > 5 * 60_000 ||
       !Number.isSafeInteger(baseBackoffMs) || baseBackoffMs < 100 ||
       !Number.isSafeInteger(maxBackoffMs) || maxBackoffMs < baseBackoffMs) {
     throw new TypeError('privacy_recovery_ack_resumer_options_invalid');
@@ -107,19 +107,23 @@ export async function resumePendingPrivacyRecoveryLedgerAcks({
         ? error.message
         : 'privacy_recovery_ledger_delivery_failed';
       try {
-        await withPooledTransaction(pool, client => client.query(
-          `UPDATE privacy_recovery_operations
-              SET ack_lease_token = NULL,
-                  ack_lease_expires_at = NULL,
-                  ack_next_attempt_at = statement_timestamp() + ($3::int * INTERVAL '1 millisecond'),
-                  ack_last_error_code = $4,
-                  updated_at = statement_timestamp()
-            WHERE operation_id = $1
-              AND status = 'pending'
-              AND ack_lease_token = $2`,
-          [row.operation_id, leaseToken, delay, code]
-        ));
-        summary.deferred += 1;
+        const deferred = await withPooledTransaction(pool, async client => {
+          const result = await client.query(
+            `UPDATE privacy_recovery_operations
+                SET ack_lease_token = NULL,
+                    ack_lease_expires_at = NULL,
+                    ack_next_attempt_at = statement_timestamp() + ($3::int * INTERVAL '1 millisecond'),
+                    ack_last_error_code = $4,
+                    updated_at = statement_timestamp()
+              WHERE operation_id = $1
+                AND status = 'pending'
+                AND ack_lease_token = $2`,
+            [row.operation_id, leaseToken, delay, code]
+          );
+          return result.rowCount === 1;
+        });
+        if (deferred) summary.deferred += 1;
+        else summary.leaseLost += 1;
       } catch {
         // Leave the lease to expire. A later worker can safely retry the same
         // immutable event ID and payload; the Ledger is idempotent by event ID.
