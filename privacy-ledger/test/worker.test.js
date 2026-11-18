@@ -291,6 +291,30 @@ test("snapshot barrier fails closed when the asymmetric proof key is not configu
   assert.equal(db.barriers.length, 0);
 });
 
+test("snapshot barrier signing failure leaves the barrier active and retryable", async () => {
+  const db = new FakeLedgerDb();
+  const input = {
+    snapshot_id: "snapshot-signing-retry",
+    barrier_id: "123e4567-e89b-42d3-a456-426614174033"
+  };
+  const body = JSON.stringify(input);
+  const failed = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/snapshot-barriers", body),
+    { ...env, LEDGER_PROOF_PRIVATE_KEY: "YWJj", LEDGER_DB: db }
+  );
+  assert.equal(failed.status, 503);
+  assert.equal((await failed.json()).error, "snapshot_barrier_proof_signing_failed");
+  assert.equal(db.barriers.length, 1);
+  assert.equal(db.barriers[0].status, "active");
+
+  const retry = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/snapshot-barriers", body),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(retry.status, 200);
+  assert.equal((await retry.json()).duplicate, true);
+});
+
 test("snapshot barrier pins the current Ledger watermark and blocks new appends", async () => {
   const db = new FakeLedgerDb();
   const firstBody = eventPayload();
