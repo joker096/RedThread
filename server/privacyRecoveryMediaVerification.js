@@ -81,7 +81,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
       if (!row.subject_user_id ||
           (['voice_consent', 'identity_l3_consent'].includes(expected[1]) ? row.resource_id !== null : !row.resource_id) ||
           !Number.isSafeInteger(Number(row.purge_count)) || Number(row.purge_count) < 0 ||
-          (expected[1] !== 'voice_consent' && Number(row.purge_count) !== 1)) {
+          (!['voice_consent', 'identity_l3_consent'].includes(expected[1]) && Number(row.purge_count) !== 1)) {
         throw new Error('privacy_recovery_verification_effect_missing');
       }
       effects.push(row);
