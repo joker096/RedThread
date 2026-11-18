@@ -6290,6 +6290,11 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
     );
     const candidate = preflight.rows[0];
     if (!candidate) return res.status(404).json({ error: 'gift_order_not_available' });
+    // A completed withdrawal is an idempotent success on client retry; do not
+    // reject it merely because the order is now cancelled and no longer eligible.
+    if (candidate.consentWithdrawnAt) {
+      return res.json({ order: { id: reference, status: 'cancelled', consentWithdrawn: true }, duplicate: true });
+    }
     if (!evaluateGiftConsentWithdrawalEligibility(candidate).eligible) {
       return res.status(409).json({ error: 'gift_order_not_withdrawable' });
     }
