@@ -212,7 +212,7 @@ export async function handleRequest(request, env) {
     }
   }
 
-  const releaseMatch = url.pathname.match(/^\\/v1\\/snapshot-barriers\\/([0-9a-f-]{36})\\/release$/i);
+  const releaseMatch = url.pathname.match(/^\/v1\/snapshot-barriers\/([0-9a-f-]{36})\/release$/i);
   if (request.method === "POST" && releaseMatch) {
     const rawBody = await readBoundedBody(request, MAX_BODY_BYTES);
     if (rawBody === null) return json({ error: "request_too_large" }, 413);
