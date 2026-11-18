@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   createIdentityL3UploadToken,
   hashIdentityL3UploadToken,
@@ -189,4 +190,28 @@ test('L3 consent notice is explicit and versioned', () => {
   assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /шесть месяцев/);
   assert.match(IDENTITY_L3_CONSENT_NOTICE.text, /30 дней/);
   assert.equal(Object.isFrozen(IDENTITY_L3_CONSENT_NOTICE), true);
+});
+
+
+test('L3 consent withdrawal requires durable ACK before touching consent or media access', () => {
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  const start = source.indexOf("app.delete('/api/identity/l3/consent'");
+  const end = source.indexOf("app.get('/api/ads/consent'", start);
+  assert.ok(start >= 0 && end > start, 'L3 withdrawal route boundaries must exist');
+  const route = source.slice(start, end);
+  const preflight = route.indexOf('const preflight = await pool.query');
+  const coordinator = route.indexOf('runAckGatedPrivacyRecoveryOperation({');
+  assert.ok(preflight >= 0 && coordinator > preflight, 'lock-free preflight must precede the Ledger coordinator');
+  assert.equal(route.includes('enqueuePrivacyRecoveryEvent'), false, 'L3 withdrawal must not use the legacy outbox');
+  assert.ok(route.includes("eventType: 'identity_l3_consent_withdrawn'"));
+  assert.ok(route.includes('granted_at::text AS granted_at'));
+  assert.ok(route.includes('withdrawn_at::text AS withdrawn_at'));
+  assert.ok(route.includes('apply: transactionClient => applyWithdrawal(transactionClient, expectedConsent, true)'));
+  assert.ok(route.includes('current.granted_at === expectedConsent.granted_at'));
+  assert.ok(route.includes('current.withdrawn_at === expectedConsent.withdrawn_at'));
+  assert.ok(route.includes('FOR UPDATE'), 'the exact consent lifecycle must be rechecked under lock');
+  assert.ok(route.includes('UPDATE identity_l3_upload_tokens'));
+  assert.ok(route.includes('UPDATE identity_l3_submissions'));
+  assert.ok(route.includes('identity_l3_media_purge_jobs'));
+  assert.ok(route.includes('INSERT INTO identity_l3_consent_events'));
 });
