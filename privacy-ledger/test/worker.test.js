@@ -1,9 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createPublicKey, generateKeyPairSync, verify as verifySignature } from "node:crypto";
 import { handleRequest } from "../src/index.js";
 
 const secret = "test-secret-that-is-at-least-thirty-two-bytes";
-const env = { LEDGER_HMAC_SECRET: secret, LEDGER_DB: {} };
+const proofKeys = generateKeyPairSync("ed25519");
+const proofPrivateKey = proofKeys.privateKey.export({ format: "der", type: "pkcs8" });
+const proofPublicKey = proofKeys.publicKey.export({ format: "der", type: "spki" });
+const env = {
+  LEDGER_HMAC_SECRET: secret,
+  LEDGER_PROOF_PRIVATE_KEY: proofPrivateKey.toString("base64"),
+  LEDGER_DB: {}
+};
 
 async function signedRequest(method, url, body = "") {
   const timestamp = String(Math.floor(Date.now() / 1000));
@@ -102,11 +110,8 @@ async function verifyBarrierProof(proof) {
     created_at: proof.created_at,
     released_at: proof.released_at ?? null
   };
-  const key = await crypto.subtle.importKey(
-    "raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
-  );
-  const supplied = Uint8Array.from(proof.signature.match(/.{2}/g), part => Number.parseInt(part, 16));
-  return crypto.subtle.verify("HMAC", key, supplied, new TextEncoder().encode(JSON.stringify(payload)));
+  const key = createPublicKey({ key: proofPublicKey, format: "der", type: "spki" });
+  return verifySignature(null, Buffer.from(JSON.stringify(payload)), key, Buffer.from(proof.signature, "hex"));
 }
 
 class FakeLedgerDb {
