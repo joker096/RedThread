@@ -153,7 +153,8 @@ export function isSameAdConsentLifecycle(previous, current) {
       previous.date_offers_consent === current.date_offers_consent &&
       previous.wedding_offers_consent === current.wedding_offers_consent &&
       previous.marriage_planning_opt_in === current.marriage_planning_opt_in &&
-      JSON.stringify(previous.category_consents ?? {}) === JSON.stringify(current.category_consents ?? {});
+      JSON.stringify(Object.entries(previous.category_consents ?? {}).sort(([a], [b]) => a.localeCompare(b))) ===
+        JSON.stringify(Object.entries(current.category_consents ?? {}).sort(([a], [b]) => a.localeCompare(b)));
   } catch {
     return false;
   }
