@@ -36,7 +36,7 @@ function barrierResponse({ snapshotId, barrierId, status, sequence, releasedAt =
       accepted: true,
       ...(status === 'active' ? { duplicate } : {}),
       ...proof,
-      signature: tamper ? '0'.repeat(64) : signature
+      signature: tamper ? '0'.repeat(128) : signature
     })
   };
 }
