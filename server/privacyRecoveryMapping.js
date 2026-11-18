@@ -4,7 +4,7 @@ const RESOURCE_COLLECTION_BY_EVENT = Object.freeze({
   voice_intro_erasure_requested: 'voiceIntros',
   private_photo_erasure_requested: 'photos',
   gift_order_consent_withdrawn: 'giftOrders',
-  gift_address_draft_consent_withdrawn: 'giftAddressDrafts'
+  gift_address_draft_consent_withdrawn: 'giftOrders'
 });
 
 const EVENT_TYPES = new Set([
