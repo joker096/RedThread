@@ -913,8 +913,10 @@ async function requireSession(req, res, next) {
       );
       const mobileUser = mobileResult.rows[0];
       const pendingDeletionRetry = accountDeletionRetry && mobileUser?.status === 'suspended' && Boolean(mobileUser.deletion_pending_at);
-      if (!mobileUser || (mobileUser.status !== 'active' && !pendingDeletionRetry) ||
-          (mobileUser.deletion_pending_at && !accountDeletionRetry)) {
+      if (mobileUser?.deletion_pending_at && !accountDeletionRetry) {
+        return res.status(409).json({ error: 'account_deletion_pending' });
+      }
+      if (!mobileUser || (!(mobileUser.status === 'active' && !mobileUser.deletion_pending_at) && !pendingDeletionRetry)) {
         return res.status(401).json({ error: 'not_authenticated' });
       }
       if (emailVerificationRequired && !mobileUser.email_verified_at) {
@@ -946,8 +948,10 @@ async function requireSession(req, res, next) {
     );
     const user = result.rows[0];
     const pendingDeletionRetry = accountDeletionRetry && user?.status === 'suspended' && Boolean(user.deletion_pending_at);
-    if (!user || (user.status !== 'active' && !pendingDeletionRetry) ||
-        (user.deletion_pending_at && !accountDeletionRetry)) {
+    if (user?.deletion_pending_at && !accountDeletionRetry) {
+      return res.status(409).json({ error: 'account_deletion_pending' });
+    }
+    if (!user || (!(user.status === 'active' && !user.deletion_pending_at) && !pendingDeletionRetry)) {
       clearSessionCookie(res);
       return res.status(401).json({ error: 'not_authenticated' });
     }
@@ -2041,7 +2045,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
 
     // Stop recurring Paddle billing before deleting the account. A local account
     // deletion must never leave an active external subscription renewing silently.
-    if (typeof subscriptionId === 'string') {
+    if (typeof subscriptionId === 'string' && !['canceled', 'completed'].includes(subscriptionStatus)) {
       if (typeof customerId !== 'string' || !/^ctm_[A-Za-z0-9]+$/.test(customerId)) {
         return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
       }
