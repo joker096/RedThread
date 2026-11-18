@@ -78,5 +78,5 @@ ARCHIVE_FILE="$POSTGRES_FILE" AGE_IDENTITY_FILE="$AGE_IDENTITY_FILE" \
 ARCHIVE_FILE="$MEDIA_FILE" AGE_IDENTITY_FILE="$AGE_IDENTITY_FILE" \
   RESTORE_DESTINATION="$RESTORE_DESTINATION" \
   bash "$SCRIPT_DIR/restore-private-media.sh"
-printf 'Restored coordinated backup snapshot %s into isolated staging targets.\n' "$SNAPSHOT_ID"
-printf 'Keep the database and media isolated until privacy-ledger reconciliation and verification are complete.\n'
+printf 'Restored backup artifact pair %s (consistency: %s) into isolated staging targets.\n' "$SNAPSHOT_ID" "$SNAPSHOT_CONSISTENCY"
+printf 'Database/media atomicity is not established. Keep both targets isolated until Ledger replay and media verification are complete.\n'
