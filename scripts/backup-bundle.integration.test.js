@@ -215,7 +215,8 @@ test('coordinated backup bundle refuses to start without explicit database and m
         PRIVATE_MEDIA_DIR: path.join(temporaryRoot, 'private-media'),
         BACKUP_AGE_RECIPIENT: 'age1syntheticrecipient',
         BACKUP_DIR: backupRoot,
-        BACKUP_SNAPSHOT_ID: 'must_not_start'
+        BACKUP_SNAPSHOT_ID: 'must_not_start',
+        BACKUP_CONFIRM_QUIESCED: ''
       }
     });
     assert.notEqual(result.status, 0, 'bundle must fail closed without quiescence acknowledgement');
