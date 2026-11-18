@@ -171,7 +171,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
     }
 
     const obligationsResult = await client.query(
-      `SELECT ledger_sequence, queue_name, storage_path_sha256
+      `SELECT ledger_sequence, queue_name, storage_path_sha256, storage_object_id
          FROM privacy_recovery_replay_purge_obligations
         WHERE ledger_sequence > $1 AND ledger_sequence <= $2`,
       [snapshotLedgerSequence, throughSequence]
@@ -226,7 +226,6 @@ export async function verifyPrivateMediaPrivacyRecovery({
     // actual isolated storage roots before allowing restore activation.
     const physicalAbsence = await verifyPhysicalMediaAbsence({
       obligations: obligationRows,
-      effects,
       roots: storageRoots
     });
 
