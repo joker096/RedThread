@@ -73,7 +73,7 @@ test('a failed domain transaction can resume from a separately persisted ledger 
   const bodies = [];
   const fetchImpl = async (_url, options) => {
     bodies.push(options.body);
-    return new Response(JSON.stringify({ accepted: true, sequence: 77 }), { status: 201 });
+    return new Response(JSON.stringify({ accepted: true, event_id: operationId, sequence: 77 }), { status: 201 });
   };
   await assert.rejects(runAckGatedPrivacyRecoveryOperation({
     pool, operationId, event, env, fetchImpl,
@@ -95,7 +95,7 @@ test('a failed domain transaction can resume from a separately persisted ledger 
 
 test('repeated completed operation is idempotent and does not repeat domain side effects', async () => {
   const pool = fakePool();
-  const fetchImpl = async () => new Response(JSON.stringify({ accepted: true, sequence: 78 }), { status: 201 });
+  const fetchImpl = async () => new Response(JSON.stringify({ accepted: true, event_id: operationId, sequence: 78 }), { status: 201 });
   let applied = 0;
   await runAckGatedPrivacyRecoveryOperation({
     pool, operationId, event, env, fetchImpl, apply: async () => { applied += 1; }
@@ -109,7 +109,7 @@ test('repeated completed operation is idempotent and does not repeat domain side
 
 test('reusing an operation ID with a different event payload is rejected', async () => {
   const pool = fakePool();
-  const fetchImpl = async () => new Response(JSON.stringify({ accepted: true, sequence: 79 }), { status: 201 });
+  const fetchImpl = async () => new Response(JSON.stringify({ accepted: true, event_id: operationId, sequence: 79 }), { status: 201 });
   await runAckGatedPrivacyRecoveryOperation({ pool, operationId, event, env, fetchImpl, apply: async () => {} });
   await assert.rejects(runAckGatedPrivacyRecoveryOperation({
     pool, operationId, event: { ...event, eventType: 'ad_consent_revoked' }, env, fetchImpl, apply: async () => {}
