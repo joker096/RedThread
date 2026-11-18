@@ -67,6 +67,22 @@ A restored database and all restored private media remain isolated. Fetch every 
 
 Fail closed if the manifest, ledger, keys, media snapshot IDs, event pagination, or replay verification is missing or inconsistent. Record the final ledger sequence and a signed restore attestation. Only then may an operator explicitly release the restored environment.
 
+
+## Independent physical-media purge verification
+
+`server/privacyRecoveryMediaVerification.js` now requires a second, read-only filesystem check for every recorded purge obligation before it returns `complete: true`. An immutable PostgreSQL completion receipt is evidence that a purge worker committed its success path; it is not, by itself, evidence that the object is still absent from the restored storage volume.
+
+The verifier scans only the direct children of the configured isolated storage roots and hashes candidate names in memory:
+- photo and voice obligations are matched using SHA-256 of the absolute storage path (`PHOTO_STORAGE_DIR` and `VOICE_INTRO_STORAGE_DIR` must resolve to the same restored paths represented by the stored obligations);
+- L3 obligations are matched using SHA-256 of the server-generated object key in `IDENTITY_L3_STORAGE_DIR`.
+
+The verifier does not emit paths or object keys, does not unlink files, and does not follow a symlinked storage root. Missing roots, symlinked/non-directory roots, permission errors, and directory-read failures prevent verification. If a matching directory entry remains (including a symlink or non-regular entry), verification fails closed. Empty obligation sets do not require a storage root for that media class.
+
+This check assumes restored media is quiescent: serving, uploads, purge workers, and other writers must remain disabled throughout replay and verification. The scan is a point-in-time check, not a lock against concurrent writers. The isolated restore gate must keep those services stopped until verification and the operator-controlled release step.
+
+Acceptance coverage includes absent objects for all three media classes, a retained object for each class, missing/invalid storage roots, malformed obligation digests, and a photo object that remains even though its PostgreSQL completion receipt exists. This is still a filesystem-level verification for the current local-volume storage adapters; it is not proof of deletion from snapshots, replicas, filesystem journals, SSD remapping, or provider backups.
+
+
 ## Required implementation and acceptance tests
 
 - Deployable Worker source, D1 schema/migrations, local deterministic tests and a documented deployment command.
