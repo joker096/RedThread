@@ -189,10 +189,10 @@ export async function handleRequest(request, env) {
     const createdAt = new Date().toISOString();
     try {
       const inserted = await env.LEDGER_DB.prepare(
-        \`INSERT INTO privacy_snapshot_barriers
+        `INSERT INTO privacy_snapshot_barriers
            (barrier_id, snapshot_id, status, ledger_sequence, created_at, released_at)
          SELECT ?, ?, 'active', COALESCE((SELECT MAX(sequence) FROM privacy_events), 0), ?, NULL
-          WHERE NOT EXISTS (SELECT 1 FROM privacy_snapshot_barriers WHERE status = 'active')\`
+          WHERE NOT EXISTS (SELECT 1 FROM privacy_snapshot_barriers WHERE status = 'active')`
       ).bind(input.barrier_id, input.snapshot_id, createdAt).run();
       const row = await env.LEDGER_DB.prepare(
         "SELECT barrier_id, snapshot_id, status, ledger_sequence, created_at, released_at FROM privacy_snapshot_barriers WHERE snapshot_id = ?"
