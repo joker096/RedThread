@@ -135,11 +135,13 @@ export function hasAdConsentRevocation(previous, next) {
 /** Stable generation for the exact stored consent row, not the HTTP attempt. */
 export function getAdConsentLifecycleGeneration(previous) {
   if (!previous || !previous.updated_at) throw new TypeError('ad_consent_lifecycle_generation_invalid');
-  const updatedAt = new Date(previous.updated_at);
-  if (!Number.isFinite(updatedAt.getTime())) throw new TypeError('ad_consent_lifecycle_generation_invalid');
+  const updatedAt = String(previous.updated_at);
+  if (!Number.isFinite(new Date(updatedAt).getTime())) throw new TypeError('ad_consent_lifecycle_generation_invalid');
   const version = Number(previous.consent_version);
   if (!Number.isSafeInteger(version) || version < 1) throw new TypeError('ad_consent_lifecycle_generation_invalid');
-  return `${version}:${updatedAt.toISOString()}`;
+  // Preserve PostgreSQL timestamp precision; converting through JS Date would
+  // truncate microseconds and could collapse two distinct consent generations.
+  return `${version}:${updatedAt}`;
 }
 
 /** Compare the consent lifecycle snapshot captured before the remote Ledger call. */
