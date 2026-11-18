@@ -226,7 +226,7 @@ export async function createPrivacyRecoverySnapshotBarrier({
   snapshotId, barrierId = randomUUID()
 }, options = {}) {
   validateSnapshotBarrierInput(snapshotId, barrierId);
-  const { result, authSecret } = await postSnapshotBarrier('/v1/snapshot-barriers', {
+  const { result, proofPublicKey } = await postSnapshotBarrier('/v1/snapshot-barriers', {
     snapshot_id: snapshotId,
     barrier_id: barrierId
   }, options);
