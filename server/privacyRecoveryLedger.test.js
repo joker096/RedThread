@@ -39,7 +39,7 @@ test('event is pseudonymized, signed and only acknowledged after remote durable 
     now: () => 1_800_000_000_000,
     fetchImpl: async (url, options) => {
       captured = { url, options, event: JSON.parse(options.body) };
-      return new Response(JSON.stringify({ accepted: true, duplicate: false, sequence: 17 }), {
+      return new Response(JSON.stringify({ accepted: true, duplicate: false, event_id: captured.event.event_id, sequence: 17 }), {
         status: 201, headers: { 'content-type': 'application/json' }
       });
     }
@@ -47,6 +47,7 @@ test('event is pseudonymized, signed and only acknowledged after remote durable 
 
   assert.equal(result.acknowledged, true);
   assert.equal(result.sequence, 17);
+  assert.equal(result.eventId, captured.event.event_id);
   assert.equal(captured.url, 'https://ledger.example/v1/events');
   assert.equal(captured.options.redirect, 'error', 'signed privacy events must never follow redirects to another host');
   assert.equal(captured.event.event_type, 'voice_intro_consent_withdrawn');
@@ -84,7 +85,7 @@ test('invalid event types and non-HTTPS endpoints are rejected', async () => {
 test('malformed or non-success acknowledgement is rejected', async () => {
   await assert.rejects(
     appendPrivacyRecoveryEvent({ eventType: 'account_erasure_requested', userId: 'u-1' }, {
-      env: baseEnv, fetchImpl: async () => new Response('{}', { status: 200 })
+      env: baseEnv, fetchImpl: async () => new Response(JSON.stringify({ accepted: true, sequence: 18 }), { status: 200 })
     }),
     /invalid_acknowledgement/
   );
