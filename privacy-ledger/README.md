@@ -14,7 +14,7 @@ node --test test/worker.test.js
 2. Replace the placeholder `database_id` in `wrangler.toml`.
 3. For a new D1 database, apply `schema.sql`. For an existing Ledger, apply `migrations/0002_gift_address_draft_consent_event.sql` and then `migrations/0003_snapshot_barrier.sql` exactly once before deploying the updated Worker; migration 0002 rebuilds the append-only event table while preserving all existing rows and sequence numbers.
 4. Set `LEDGER_HMAC_SECRET` as a Worker secret (at least 32 random bytes encoded as a high-entropy string). Keep the Vow API's matching secret in its secret manager; never commit it.
-5. Deploy the Worker and verify signed append, duplicate append, conflicting duplicate, authenticated pagination, and append-only trigger behaviour using synthetic events.
+5. Deploy the Worker and verify signed append, duplicate append, conflicting duplicate, authenticated pagination, snapshot barrier creation/release, append rejection while active, and append-only trigger behaviour using synthetic events.
 6. Configure a separately escrowed `PRIVACY_LEDGER_PSEUDONYM_KEY` in the Vow API. This is not the request-authentication key.
 7. Only after the Vow API integration and isolated restore drill pass may the ledger be marked as a release prerequisite satisfied.
 
