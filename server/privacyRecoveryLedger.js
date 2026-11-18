@@ -113,10 +113,11 @@ export async function deliverPrivacyRecoveryLedgerPayload(event, {
     throw new Error('privacy_recovery_ledger_invalid_acknowledgement');
   }
   if (acknowledgement?.accepted !== true ||
+      acknowledgement.event_id !== event.event_id ||
       !Number.isSafeInteger(acknowledgement.sequence) || acknowledgement.sequence < 1) {
     throw new Error('privacy_recovery_ledger_invalid_acknowledgement');
   }
-  return { acknowledged: true, sequence: acknowledgement.sequence, eventId: event.event_id };
+  return { acknowledged: true, sequence: acknowledgement.sequence, eventId: acknowledgement.event_id };
 }
 
 export async function appendPrivacyRecoveryEvent(input, options = {}) {
