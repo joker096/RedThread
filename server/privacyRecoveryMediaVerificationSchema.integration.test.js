@@ -27,6 +27,17 @@ test('privacy recovery verification evidence is immutable and receipt-bound', {
       'privacy_recovery_replay_effects', 'privacy_recovery_replay_purge_obligations'
     ]));
 
+    const purgeColumns = await client.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'privacy_recovery_replay_purge_obligations'`
+    );
+    assert.equal(
+      purgeColumns.rows.some(row => row.column_name === 'storage_object_id'),
+      true,
+      'migration 248 must persist generated object UUIDs for physical absence checks'
+    );
+
     await client.query('BEGIN');
     try {
       await client.query(
