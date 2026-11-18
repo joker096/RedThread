@@ -147,7 +147,7 @@ test("ledger appends a valid event and returns a durable sequence", async () => 
   const request = await signedRequest("POST", "https://ledger.test/v1/events", body);
   const response = await handleRequest(request, { ...env, LEDGER_DB: db });
   assert.equal(response.status, 201);
-  assert.deepEqual(await response.json(), { accepted: true, duplicate: false, sequence: 1 });
+  assert.deepEqual(await response.json(), { accepted: true, duplicate: false, event_id: "123e4567-e89b-42d3-a456-426614174000", sequence: 1 });
   assert.equal(db.rows.length, 1);
 });
 
