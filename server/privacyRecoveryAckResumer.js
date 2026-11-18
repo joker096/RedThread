@@ -27,6 +27,10 @@ export async function resumePendingPrivacyRecoveryLedgerAcks({
   now = Date.now
 }) {
   if (!pool || typeof pool.connect !== 'function' ||
+      !env.PRIVACY_RECOVERY_LEDGER_URL ||
+      typeof env.PRIVACY_RECOVERY_LEDGER_HMAC_SECRET !== 'string' ||
+      env.PRIVACY_RECOVERY_LEDGER_HMAC_SECRET.length < 32 ||
+      (env.PRIVACY_RECOVERY_LEDGER_REQUIRED !== 'true' && env.NODE_ENV !== 'production') ||
       !Number.isSafeInteger(limit) || limit < 1 || limit > 100 ||
       !Number.isSafeInteger(leaseMs) || leaseMs < 10_000 || leaseMs > 5 * 60_000 ||
       !Number.isSafeInteger(baseBackoffMs) || baseBackoffMs < 100 ||
