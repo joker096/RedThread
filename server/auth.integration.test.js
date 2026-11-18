@@ -1000,9 +1000,12 @@ test('auth API supports registration, session lookup, logout and login', {
         ]);
         assert.deepEqual(
           concurrentResponses.map(response => response.status).sort((a, b) => a - b),
-          [200, 409],
-          'exactly one concurrent withdrawal may win; the other must see the terminal state'
+          [200, 200],
+          'concurrent retries of the same withdrawal lifecycle must both resolve successfully'
         );
+        const concurrentBodies = await Promise.all(concurrentResponses.map(response => response.json()));
+        assert.equal(concurrentBodies.filter(body => body.duplicate === true).length, 1,
+          'exactly one concurrent retry must observe the already-applied operation');
         const concurrentState = await giftTestDb.query(
           `SELECT status, consent_withdrawn_at, address_vault_ref, address_verified_at
            FROM gift_delivery_orders WHERE id = $1`,
