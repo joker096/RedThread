@@ -116,6 +116,15 @@ function validSnapshotBarrierRequest(value) {
 }
 
 async function signedBarrierProof(env, row) {
+  if (typeof env.LEDGER_PROOF_PRIVATE_KEY !== "string" ||
+      !/^[A-Za-z0-9+/]+={0,2}$/.test(env.LEDGER_PROOF_PRIVATE_KEY)) {
+    throw new Error("snapshot_barrier_proof_key_not_configured");
+  }
+  const binary = atob(env.LEDGER_PROOF_PRIVATE_KEY);
+  const privateKeyBytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  const privateKey = await crypto.subtle.importKey(
+    "pkcs8", privateKeyBytes, { name: "Ed25519" }, false, ["sign"]
+  );
   const proof = {
     barrier_id: row.barrier_id,
     snapshot_id: row.snapshot_id,
@@ -124,7 +133,10 @@ async function signedBarrierProof(env, row) {
     created_at: row.created_at,
     released_at: row.released_at ?? null
   };
-  return { ...proof, signature: hex(await signature(env.LEDGER_HMAC_SECRET, JSON.stringify(proof))) };
+  const signed = await crypto.subtle.sign(
+    "Ed25519", privateKey, new TextEncoder().encode(JSON.stringify(proof))
+  );
+  return { ...proof, signature: hex(signed) };
 }
 
 export async function handleRequest(request, env) {
@@ -186,6 +198,7 @@ export async function handleRequest(request, env) {
     let input;
     try { input = JSON.parse(rawBody); } catch { return json({ error: "invalid_json" }, 400); }
     if (!validSnapshotBarrierRequest(input)) return json({ error: "invalid_snapshot_barrier" }, 400);
+    if (!env.LEDGER_PROOF_PRIVATE_KEY) return json({ error: "snapshot_barrier_proof_key_not_configured" }, 503);
     const createdAt = new Date().toISOString();
     try {
       const inserted = await env.LEDGER_DB.prepare(
@@ -228,6 +241,7 @@ export async function handleRequest(request, env) {
         !SNAPSHOT_ID_PATTERN.test(input.snapshot_id)) {
       return json({ error: "invalid_snapshot_barrier_release" }, 400);
     }
+    if (!env.LEDGER_PROOF_PRIVATE_KEY) return json({ error: "snapshot_barrier_proof_key_not_configured" }, 503);
     const barrierId = releaseMatch[1];
     if (!SNAPSHOT_BARRIER_ID_PATTERN.test(barrierId)) return json({ error: "invalid_snapshot_barrier_id" }, 400);
     const current = await env.LEDGER_DB.prepare(
