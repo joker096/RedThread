@@ -1969,6 +1969,21 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(duplicatePhotoReferences.status, 400, 'the same private photo cannot be attached more than once');
 
+    ledger.failNext();
+    const rejectedPhotoRemoval = await request('/api/profiles/me', {
+      method: 'PATCH',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({ photoUrls: [] })
+    });
+    assert.equal(rejectedPhotoRemoval.status, 503,
+      'photo metadata and assets must remain unchanged until every erasure event is ACKed');
+    const photoBeforeRetry = await db.query(
+      'SELECT p.photo_urls, COUNT(a.id)::int AS asset_count FROM profiles p LEFT JOIN photo_assets a ON a.user_id = p.user_id WHERE p.user_id = $1 GROUP BY p.photo_urls',
+      [registered.user.id]
+    );
+    assert.deepEqual(photoBeforeRetry.rows[0].photo_urls, [uploadedPhoto.photoUrl]);
+    assert.equal(photoBeforeRetry.rows[0].asset_count, 1);
+
     const removePhoto = await request('/api/profiles/me', {
       method: 'PATCH',
       headers: { Cookie: secondCookie },
