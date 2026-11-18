@@ -270,3 +270,22 @@ test('voice intro erasure uses one ACK-gated batch for clip deletion and consent
   assert.ok(route.includes('DELETE FROM profile_voice_intros'));
   assert.ok(route.includes('voice_intro_state_changed_retry'));
 });
+
+
+test('profile photo erasure is ACK-gated and revalidates the immutable asset set after ACK', () => {
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  const start = source.indexOf("app.patch('/api/profiles/me'");
+  const end = source.indexOf("app.post('/api/passes/undo'", start);
+  assert.ok(start >= 0 && end > start, 'profile update route boundaries must exist');
+  const route = source.slice(start, end);
+  assert.ok(route.includes('const preflight = await pool.query') === false,
+    'profile route must use its explicit photo preflight query rather than a stale transaction lock');
+  assert.ok(route.includes('expectedRemovedAssets = preflight.rows'));
+  assert.ok(route.includes('derivePrivacyRecoveryOperationId({'));
+  assert.ok(route.includes('runAckGatedPrivacyRecoveryBatch({'));
+  assert.equal(route.includes('enqueuePrivacyRecoveryEvent'), false);
+  assert.ok(route.includes('created_at::text AS created_at'));
+  assert.ok(route.includes('private_photo_erasure_set_changed_retry'));
+  assert.ok(route.includes('queuePrivatePhotoPurges(transactionClient'));
+  assert.ok(route.includes('DELETE FROM photo_assets'));
+});
