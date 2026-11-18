@@ -8,6 +8,7 @@ import pg from 'pg';
 import { pathToFileURL } from 'node:url';
 import { readAndDeleteNativeRecordingFile } from '../src/utils/nativeRecordingFile.ts';
 import { validateVoiceIntroRecording } from '../src/utils/nativeVoiceRecording.ts';
+import { startTestPrivacyRecoveryLedger } from './testPrivacyRecoveryLedger.js';
 
 const { Pool } = pg;
 
@@ -29,6 +30,7 @@ test('voice intro HTTP API enforces consent, authentication and withdrawal histo
   timeout: 45_000
 }, async () => {
   const port = await findFreePort();
+  const ledger = await startTestPrivacyRecoveryLedger();
   const origin = 'http://localhost:3000';
   const api = 'http://127.0.0.1:' + port;
   const serverDatabaseUrl = new URL(process.env.DATABASE_URL);
@@ -40,6 +42,10 @@ test('voice intro HTTP API enforces consent, authentication and withdrawal histo
       API_PORT: String(port),
       APP_ORIGIN: origin,
       NODE_ENV: 'test',
+      PRIVACY_RECOVERY_LEDGER_REQUIRED: 'true',
+      PRIVACY_RECOVERY_LEDGER_URL: ledger.url,
+      PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: 'test-ledger-hmac-secret-'.padEnd(40, 'x'),
+      PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: 'test-ledger-pseudonym-key-'.padEnd(40, 'y'),
       GOOGLE_CLIENT_ID: '   ',
       AUTH_RATE_LIMIT: '1000',
       USER_DATA_EXPORT_RATE_LIMIT: '100',
@@ -195,6 +201,7 @@ test('voice intro HTTP API enforces consent, authentication and withdrawal histo
       await db.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
     }
     await db.end().catch(() => {});
+    await ledger.close().catch(() => {});
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
       let exitTimer;
