@@ -42,8 +42,9 @@ done
 POSTGRES_SHA256="$(sha256sum "$POSTGRES_FILE" | awk '{ print $1 }')"
 MEDIA_SHA256="$(sha256sum "$MEDIA_FILE" | awk '{ print $1 }')"
 cat > "$BUNDLE_DIR/manifest.txt" <<MANIFEST
-format=vow-backup-bundle-v1
+format=vow-backup-bundle-v2
 snapshot_id=$SNAPSHOT_ID
+snapshot_consistency=best_effort_non_atomic
 postgres_archive=postgres/$POSTGRES_NAME
 postgres_sha256=$POSTGRES_SHA256
 private_media_archive=private-media/$MEDIA_NAME
