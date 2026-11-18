@@ -21,7 +21,7 @@ node --test test/worker.test.js
    openssl pkey -in ledger-proof-private.pem -pubout -outform DER | base64 -w0 > ledger-proof-public.spki.b64
    ```
 
-5. Set `LEDGER_HMAC_SECRET` and the base64 PKCS#8 DER private key as Worker secrets (`LEDGER_PROOF_PRIVATE_KEY`). Store only the base64 SubjectPublicKeyInfo DER public key as `PRIVACY_RECOVERY_LEDGER_PROOF_PUBLIC_KEY` in the trusted backup runner. Keep the private key and authentication secret in their respective secret managers; never commit them.
+5. Set `LEDGER_HMAC_SECRET` and the base64 PKCS#8 DER private key as Worker secrets (`LEDGER_PROOF_PRIVATE_KEY`). Store only the base64 SubjectPublicKeyInfo DER public key as `PRIVACY_RECOVERY_LEDGER_PROOF_PUBLIC_KEY` in the trusted Vow API/backup runner. Keep the private key and authentication secret in their respective secret managers; never commit them.
 6. Deploy the Worker and verify signed append, duplicate append, conflicting duplicate, authenticated pagination, snapshot barrier creation/release, append rejection while active, and append-only trigger behaviour using synthetic events.
 7. Configure a separately escrowed `PRIVACY_LEDGER_PSEUDONYM_KEY` in the Vow API. This is not the request-authentication key.
 8. Only after the Vow API integration and isolated restore drill pass may the ledger be marked as a release prerequisite satisfied.
