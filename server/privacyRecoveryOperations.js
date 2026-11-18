@@ -149,5 +149,5 @@ export async function runAckGatedPrivacyRecoveryOperation({
       await client.query('ROLLBACK').catch(() => {});
       throw error;
     }
-  });;
+  });
 }
