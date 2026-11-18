@@ -117,10 +117,10 @@ test('activation refuses a best-effort v2 bundle even when the external gate wou
       'postgres_sha256=' + 'a'.repeat(64),
       'private_media_archive=private-media/vow-private-media-test-snapshot.tar.age',
       'private_media_sha256=' + 'b'.repeat(64)
-    ].join('\\n') + '\\n';
+    ].join('\n') + '\n';
     await writeFile(path.join(f.restore, '.vow-backup-manifest'), manifest);
     const digest = createHash('sha256').update(manifest).digest('hex');
-    await writeFile(path.join(f.restore, '.vow-backup-manifest.sha256'), digest + '  .vow-backup-manifest\\n');
+    await writeFile(path.join(f.restore, '.vow-backup-manifest.sha256'), digest + '  .vow-backup-manifest\n');
     const result = run(f);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /only explicitly atomic v3 backup bundles can be activated/);
@@ -134,7 +134,7 @@ test('activation refuses a best-effort v2 bundle even when the external gate wou
 test('activation refuses a snapshot barrier proof whose digest differs from the manifest', async () => {
   const f = await fixture();
   try {
-    await writeFile(path.join(f.restore, '.vow-snapshot-barrier-proof.json'), '{"tampered":true}\\n');
+    await writeFile(path.join(f.restore, '.vow-snapshot-barrier-proof.json'), '{"tampered":true}\n');
     const result = run(f);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /snapshot barrier proof checksum does not match/);
@@ -165,7 +165,7 @@ test('activation refuses a v3 manifest without a valid Ledger watermark', async 
       .replace('snapshot_ledger_sequence=17', 'snapshot_ledger_sequence=unknown');
     await writeFile(path.join(f.restore, '.vow-backup-manifest'), manifest);
     const digest = createHash('sha256').update(manifest).digest('hex');
-    await writeFile(path.join(f.restore, '.vow-backup-manifest.sha256'), digest + '  .vow-backup-manifest\\n');
+    await writeFile(path.join(f.restore, '.vow-backup-manifest.sha256'), digest + '  .vow-backup-manifest\n');
     const result = run(f);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /atomic backup manifest identity, watermark or artifact mapping is invalid/);
