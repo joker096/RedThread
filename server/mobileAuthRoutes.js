@@ -528,7 +528,7 @@ export function createMobileAuthRouter({
     let client;
     try {
       const found = await pool.query(
-        `SELECT u.id, u.email, u.password_hash, u.status, u.email_verified_at,
+        `SELECT u.id, u.email, u.password_hash, u.status, u.deletion_pending_at, u.email_verified_at,
                 p.display_name, p.gender, p.country, p.city, p.relationship_intent
          FROM users u JOIN profiles p ON p.user_id = u.id
          WHERE u.email = $1 LIMIT 1`,
@@ -541,7 +541,7 @@ export function createMobileAuthRouter({
       if (!user || !passwordMatches) {
         return res.status(401).json({ error: 'email_or_password_incorrect' });
       }
-      if (user.status !== 'active') {
+      if (user.status !== 'active' || user.deletion_pending_at) {
         return res.status(403).json({ error: user.status === 'pending' ? 'email_verification_required' : 'account_unavailable' });
       }
       if (emailVerificationRequired && !user.email_verified_at) {
@@ -552,10 +552,10 @@ export function createMobileAuthRouter({
       await client.query('BEGIN');
       await acquireGiftSafetyUserLocks(client, user.id);
       const current = await client.query(
-        'SELECT status, email_verified_at, password_hash FROM users WHERE id = $1 FOR SHARE',
+        'SELECT status, deletion_pending_at, email_verified_at, password_hash FROM users WHERE id = $1 FOR SHARE',
         [user.id]
       );
-      if (current.rows[0]?.status !== 'active') {
+      if (current.rows[0]?.status !== 'active' || current.rows[0]?.deletion_pending_at) {
         await client.query('ROLLBACK');
         return res.status(403).json({ error: 'account_unavailable' });
       }
@@ -638,7 +638,7 @@ export function createMobileAuthRouter({
 
       const current = await client.query(
         `SELECT s.id AS session_id, s.user_id, s.device_id, s.platform, s.refresh_expires_at,
-                s.revoked_at, u.id, u.status, u.email_verified_at,
+                s.revoked_at, u.id, u.status, u.deletion_pending_at, u.email_verified_at,
                 p.display_name, u.email, p.gender, p.country, p.city, p.relationship_intent
          FROM mobile_sessions s
          JOIN users u ON u.id = s.user_id
@@ -679,7 +679,7 @@ export function createMobileAuthRouter({
         await client.query('ROLLBACK');
         return res.status(401).json({ error: 'mobile_device_mismatch' });
       }
-      if (session.status !== 'active') {
+      if (session.status !== 'active' || session.deletion_pending_at) {
         await client.query(
           `UPDATE mobile_sessions SET revoked_at = NOW(), revoked_reason = 'account_unavailable'
            WHERE user_id = $1 AND revoked_at IS NULL`,
