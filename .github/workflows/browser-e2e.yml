@@ -2,9 +2,9 @@ name: Browser E2E
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, "fix/**"]
   push:
-    branches: [main, "fix/**", "feat/**", "integration/**"]
+    branches: [main, "fix/**", "feat/**", "integration/**", "perf/**"]
   # Browser coverage is required for implementation/fix branches before review.
 
 permissions:
