@@ -31,6 +31,7 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
   const ledgerSecret = 'gift-draft-ledger-test-secret-at-least-32-bytes';
   const ledgerEvents = new Map();
   let ledgerSequence = 0;
+  let rejectLedgerWrites = false;
   const ledgerServer = createHttpServer((request, response) => {
     const chunks = [];
     request.on('data', chunk => chunks.push(chunk));
@@ -43,6 +44,11 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
           typeof timestamp !== 'string' || signature !== expected) {
         response.writeHead(401, { 'content-type': 'application/json' });
         response.end(JSON.stringify({ error: 'unauthorized' }));
+        return;
+      }
+      if (rejectLedgerWrites) {
+        response.writeHead(503, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ error: 'ledger_write_failed' }));
         return;
       }
       const event = JSON.parse(body);
@@ -215,6 +221,19 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
     assert.deepEqual(readBody.draft.address, address);
     assert.equal(readBody.addressVerified, false);
     assert.equal(readBody.fulfilmentAuthorized, false);
+
+    rejectLedgerWrites = true;
+    const blockedWithdrawal = await request(endpoint, { method: 'DELETE', headers: { Cookie: recipient.cookie } });
+    assert.equal(blockedWithdrawal.status, 503, 'Ledger rejection must block consent withdrawal');
+    const unchangedAfterLedgerFailure = await db.query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM gift_address_drafts WHERE order_id = $1) AS draft_count,
+         (SELECT action FROM gift_address_draft_consent_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1) AS latest_action`,
+      [orderId]
+    );
+    assert.deepEqual(unchangedAfterLedgerFailure.rows[0], { draft_count: 1, latest_action: 'granted' });
+    assert.equal(ledgerEvents.size, 0, 'a rejected Ledger write must not be recorded as accepted');
+    rejectLedgerWrites = false;
 
     const deleted = await request(endpoint, { method: 'DELETE', headers: { Cookie: recipient.cookie } });
     assert.equal(deleted.status, 204);
