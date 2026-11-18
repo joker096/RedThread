@@ -580,6 +580,14 @@ test('mobile account deletion validates the authenticated mobile session and rev
     assert.equal(pendingAccount.rows[0]?.status, 'suspended');
     assert.ok(pendingAccount.rows[0]?.deletion_pending_at,
       'the account remains fail-closed after a Ledger outage');
+    const pendingSessions = await db.query(
+      'SELECT revoked_at, access_expires_at FROM mobile_sessions WHERE user_id = $1 ORDER BY created_at',
+      [userId]
+    );
+    assert.equal(pendingSessions.rowCount, 2,
+      'Ledger failure must not delete or revoke either mobile session needed for retry');
+    assert.ok(pendingSessions.rows.every(row => row.revoked_at === null && row.access_expires_at > new Date()),
+      'both mobile access sessions must remain valid while account deletion is pending');
     const blockedBillingRead = await fetch(`${api}/api/billing/status`, {
       headers: { Authorization: `Bearer ${session.accessToken}` }
     });
