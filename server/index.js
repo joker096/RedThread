@@ -17,7 +17,7 @@ import { projectGiftOrderStatus } from './giftOrderStatusProjection.js';
 import { normalizeGiftRequestInput } from './giftRequestInput.js';
 import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, enqueueExpiredGiftPaymentReconciliation, notifyGiftRequestUpdate, hasPendingRecipientDecline } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
-import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
+import { normalizeAdConsentPreferences, serializeAdConsentPreferences, hasAdConsentRevocation, getAdConsentLifecycleGeneration, isSameAdConsentLifecycle, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { enqueuePrivacyRecoveryEvent } from './privacyRecoveryOutbox.js';
 import { derivePrivacyRecoveryOperationId, runAckGatedPrivacyRecoveryOperation } from './privacyRecoveryOperations.js';
 import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION, IdentityL3UploadTokenError, issueIdentityL3UploadCapability } from './identityL3UploadTokens.js';
@@ -7265,58 +7265,11 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
   }
 
   const preferences = validation.value;
+  const userId = req.authUser.id;
   let client;
-  try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    // Serialize preference writes against account deletion. If this request wins,
-    // deletion waits and purges the newly written history afterwards; if deletion
-    // wins, this lock observes the deleted status and refuses to recreate history.
-    const activeAccount = await client.query(
-      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
-      [req.authUser.id]
-    );
-    if (activeAccount.rowCount !== 1) {
-      await client.query('ROLLBACK');
-      return res.status(401).json({ error: 'account_not_active' });
-    }
-    // The upsert takes a row-level write lock. Ad-event requests hold FOR SHARE
-    // on the same preference row until their transaction finishes, so a concurrent
-    // revocation and event are serialized: either the event finishes before the
-    // revocation commits, or it observes the revoked/stale consent and is rejected.
-    const previousConsent = await client.query(
-      `SELECT ads_consent, date_offers_consent, wedding_offers_consent,
-              marriage_planning_opt_in, category_consents
-       FROM ad_consent_preferences WHERE user_id = $1 FOR UPDATE`,
-      [req.authUser.id]
-    );
-    const previous = previousConsent.rows[0];
-    const previousCategories = previous?.category_consents && typeof previous.category_consents === 'object'
-      ? previous.category_consents : {};
-    const categoryRevoked = Object.entries(previousCategories).some(([key, enabled]) =>
-      enabled === true && preferences.categoryConsents[key] !== true
-    );
-    const consentRevoked = Boolean(previous && (
-      (previous.ads_consent && !preferences.adsConsent) ||
-      (previous.date_offers_consent && !preferences.dateOffersConsent) ||
-      (previous.wedding_offers_consent && !preferences.weddingOffersConsent) ||
-      (previous.marriage_planning_opt_in && !preferences.marriagePlanningOptIn) ||
-      categoryRevoked
-    ));
-    if (consentRevoked) {
-      try {
-        await enqueuePrivacyRecoveryEvent(client, {
-          eventType: 'ad_consent_revoked',
-          userId: req.authUser.id
-        });
-      } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Privacy recovery ledger rejected ad consent revocation:', error?.message || 'unknown error');
-        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
-      }
-    }
 
-    const result = await client.query(
+  const persistPreferencesAndHistory = async transactionClient => {
+    const result = await transactionClient.query(
       `INSERT INTO ad_consent_preferences
          (user_id, ads_consent, date_offers_consent, wedding_offers_consent,
           marriage_planning_opt_in, category_consents, consent_version, updated_at)
@@ -7332,7 +7285,7 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
        RETURNING ads_consent, date_offers_consent, wedding_offers_consent,
                  marriage_planning_opt_in, category_consents, consent_version`,
       [
-        req.authUser.id,
+        userId,
         preferences.adsConsent,
         preferences.dateOffersConsent,
         preferences.weddingOffersConsent,
@@ -7342,17 +7295,109 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
       ]
     );
     const savedPreferences = serializeAdConsentPreferences(result.rows[0]);
-    await client.query(
+    await transactionClient.query(
       'INSERT INTO ad_consent_history (user_id, consent_version, preferences) VALUES ($1, $2, $3::jsonb)',
-      [req.authUser.id, AD_CONSENT_VERSION, JSON.stringify(savedPreferences)]
+      [userId, AD_CONSENT_VERSION, JSON.stringify(savedPreferences)]
     );
+    return savedPreferences;
+  };
+
+  try {
+    // This read is deliberately lock-free: no PostgreSQL lock may be held while
+    // waiting for the independent Privacy Ledger acknowledgement.
+    const preflight = await pool.query(
+      `SELECT u.id AS active_user_id, p.user_id, p.ads_consent, p.date_offers_consent,
+              p.wedding_offers_consent, p.marriage_planning_opt_in,
+              p.category_consents, p.consent_version, p.updated_at
+         FROM users u
+         LEFT JOIN ad_consent_preferences p ON p.user_id = u.id
+        WHERE u.id = $1 AND u.status = 'active'`,
+      [userId]
+    );
+    if (!preflight.rows[0]) return res.status(401).json({ error: 'account_not_active' });
+    const previous = preflight.rows[0].user_id ? preflight.rows[0] : null;
+    const consentRevoked = hasAdConsentRevocation(previous, preferences);
+
+    if (consentRevoked) {
+      const generation = getAdConsentLifecycleGeneration(previous);
+      const operationId = derivePrivacyRecoveryOperationId({
+        eventType: 'ad_consent_revoked',
+        userId,
+        resourceId: 'ad-consent',
+        generation
+      });
+      const operation = await runAckGatedPrivacyRecoveryOperation({
+        pool,
+        operationId,
+        event: { eventType: 'ad_consent_revoked', userId },
+        apply: async transactionClient => {
+          // Reacquire locks only after the ACK. A re-consent or any other update
+          // during the network round-trip makes this operation non-applicable.
+          const activeAccount = await transactionClient.query(
+            "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE',
+            [userId]
+          );
+          if (activeAccount.rowCount !== 1) throw new Error('account_not_active');
+          const currentResult = await transactionClient.query(
+            `SELECT user_id, ads_consent, date_offers_consent, wedding_offers_consent,
+                    marriage_planning_opt_in, category_consents, consent_version, updated_at
+               FROM ad_consent_preferences WHERE user_id = $1 FOR UPDATE`,
+            [userId]
+          );
+          const current = currentResult.rows[0] || null;
+          if (!isSameAdConsentLifecycle(previous, current)) {
+            throw new Error('ad_consent_state_changed_retry');
+          }
+          return persistPreferencesAndHistory(transactionClient);
+        }
+      });
+      return res.json({
+        version: AD_CONSENT_VERSION,
+        preferences: operation.result,
+        privacyRecovery: { acknowledged: true, duplicate: operation.duplicate === true }
+      });
+    }
+
+    // Non-revoking writes retain the normal transaction. Re-check under lock:
+    // if a concurrent grant made this request a revocation, fail closed and let
+    // the client retry through the ACK-gated path instead of bypassing the Ledger.
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const activeAccount = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [userId]
+    );
+    if (activeAccount.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const currentResult = await client.query(
+      `SELECT user_id, ads_consent, date_offers_consent, wedding_offers_consent,
+              marriage_planning_opt_in, category_consents, consent_version, updated_at
+         FROM ad_consent_preferences WHERE user_id = $1 FOR UPDATE`,
+      [userId]
+    );
+    const current = currentResult.rows[0] || null;
+    if (hasAdConsentRevocation(current, preferences)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'ad_consent_state_changed_retry' });
+    }
+    const savedPreferences = await persistPreferencesAndHistory(client);
     await client.query('COMMIT');
-    return res.json({
-      version: AD_CONSENT_VERSION,
-      preferences: savedPreferences
-    });
+    return res.json({ version: AD_CONSENT_VERSION, preferences: savedPreferences });
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.message === 'ad_consent_state_changed_retry') {
+      return res.status(409).json({ error: 'ad_consent_state_changed_retry' });
+    }
+    if (error?.message === 'account_not_active') {
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (String(error?.message || '').startsWith('privacy_recovery_ledger_') ||
+        String(error?.message || '').startsWith('privacy_recovery_operation_')) {
+      console.error('Privacy recovery ledger rejected ad consent revocation:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
     console.error('Ad consent preferences update failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'ad_consent_preferences_unavailable' });
   } finally {
