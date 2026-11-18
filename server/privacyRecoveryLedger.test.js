@@ -1,18 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHmac, generateKeyPairSync, randomUUID, sign as signSignature } from 'node:crypto';
 import {
   appendPrivacyRecoveryEvent,
   createPrivacyRecoverySnapshotBarrier,
   releasePrivacyRecoverySnapshotBarrier
 } from './privacyRecoveryLedger.js';
 
+const proofKeys = generateKeyPairSync('ed25519');
+const proofPublicKey = proofKeys.publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
 const baseEnv = {
   NODE_ENV: 'test',
   PRIVACY_RECOVERY_LEDGER_REQUIRED: 'true',
   PRIVACY_RECOVERY_LEDGER_URL: 'https://ledger.example',
   PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: 'auth-secret-at-least-32-characters-long',
-  PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: 'pseudonym-secret-at-least-32-characters'
+  PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: 'pseudonym-secret-at-least-32-characters',
+  PRIVACY_RECOVERY_LEDGER_PROOF_PUBLIC_KEY: proofPublicKey
 };
 
 
@@ -25,8 +28,7 @@ function barrierResponse({ snapshotId, barrierId, status, sequence, releasedAt =
     created_at: '2026-11-19T08:00:00.000Z',
     released_at: releasedAt
   };
-  const signature = createHmac('sha256', baseEnv.PRIVACY_RECOVERY_LEDGER_HMAC_SECRET)
-    .update(JSON.stringify(proof), 'utf8').digest('hex');
+  const signature = signSignature(null, Buffer.from(JSON.stringify(proof)), proofKeys.privateKey).toString('hex');
   return {
     ok: true,
     status: status === 'active' ? 201 : 200,
