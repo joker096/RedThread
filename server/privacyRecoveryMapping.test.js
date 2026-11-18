@@ -155,7 +155,7 @@ test('maps address-draft consent withdrawal to the recipient-owned draft lifecyc
   const result = resolvePrivacyRecoveryMappings({
     pseudonymKey: key,
     users: [{ id: recipientId }],
-    giftAddressDrafts: [{ id: orderId, user_id: recipientId }],
+    giftOrders: [{ id: orderId, user_id: recipientId }],
     events: [event('gift_address_draft_consent_withdrawn', recipientId, orderId)]
   });
   assert.equal(result[0].status, 'matched');
