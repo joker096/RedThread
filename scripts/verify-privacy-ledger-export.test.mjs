@@ -122,3 +122,13 @@ test('accepts address-draft consent withdrawal in encrypted ledger archives', as
   assert.equal(result.eventCount, 1);
   assert.equal(result.lastSequence, 1);
 });
+
+test('archive verifier rejects address-draft withdrawal without an order reference', async () => {
+  await assert.rejects(
+    verifyLedgerExportStream(streamOf(
+      manifest(1),
+      event(1, { event_type: 'gift_address_draft_consent_withdrawn', resource_ref: null })
+    )),
+    /event_invalid/
+  );
+});
