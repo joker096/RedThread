@@ -2019,8 +2019,8 @@ test('auth API supports registration, session lookup, logout and login', {
     try {
       const [removeRace, staleAttachRace] = await Promise.all([removeRacePromise, staleAttachRacePromise]);
       assert.equal(removeRace.status, 200);
-      assert.equal(staleAttachRace.status, 400,
-        'a photo attach whose asset was removed while waiting for the lock must be rejected');
+      assert.equal(staleAttachRace.status, 409,
+        'a photo attach whose asset set changed while waiting for the Ledger ACK must be rejected as a conflict');
       const photoRaceProfile = await request('/api/profiles/me', { headers: { Cookie: secondCookie } });
       assert.deepEqual((await photoRaceProfile.json()).profile.photoUrls, []);
       const photoRaceAssetCount = await photoRaceDb.query(
