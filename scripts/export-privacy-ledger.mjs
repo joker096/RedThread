@@ -26,6 +26,7 @@ const EVENT_TYPES = new Set([
     EVENT_TYPES.has(event.event_type) &&
     /^[a-f0-9]{64}$/i.test(event.subject_ref) &&
     (event.resource_ref === null || event.resource_ref === undefined || /^[a-f0-9]{64}$/i.test(event.resource_ref)) &&
+    (event.event_type !== 'gift_address_draft_consent_withdrawn' || typeof event.resource_ref === 'string') &&
     typeof event.occurred_at === 'string' && Number.isFinite(Date.parse(event.occurred_at)) &&
     typeof event.received_at === 'string' && Number.isFinite(Date.parse(event.received_at));
 }
