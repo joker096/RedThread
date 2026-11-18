@@ -886,7 +886,7 @@ function publicUser(row) {
 
 async function requireSession(req, res, next) {
   const accountDeletionRetry = req.method === 'DELETE' &&
-    String(req.originalUrl || req.url || req.path || '').split('?')[0].replace(/\\/+$/, '') === '/api/account';
+    String(req.originalUrl || req.url || req.path || '').split('?')[0] === '/api/account';
   if (!pool) return res.status(503).json({ error: 'database_not_configured' });
 
   const authorization = req.get('authorization');
