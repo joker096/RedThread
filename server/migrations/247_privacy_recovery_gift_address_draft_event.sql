@@ -64,7 +64,8 @@ ALTER TABLE privacy_recovery_operations
   CHECK (
     event_payload->>'event_type' <> 'gift_address_draft_consent_withdrawn'
     OR (
-      jsonb_typeof(event_payload->'resource_ref') = 'string'
+      event_payload ? 'resource_ref'
+      AND jsonb_typeof(event_payload->'resource_ref') = 'string'
       AND length(event_payload->>'resource_ref') = 64
     )
   );
