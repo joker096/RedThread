@@ -60,9 +60,8 @@ async function listRealDirectory(root, restoreRoot, code) {
  * L3 filenames are matched against the object-key digest in the obligation.
  * It is read-only, scoped to the pending restore tree, and fails closed.
  */
-export async function verifyPhysicalMediaAbsence({ obligations, effects, roots }) {
-  if (!Array.isArray(obligations) || !Array.isArray(effects) ||
-      !roots || typeof roots !== 'object') {
+export async function verifyPhysicalMediaAbsence({ obligations, roots }) {
+  if (!Array.isArray(obligations) || !roots || typeof roots !== 'object') {
     throw new TypeError('privacy_recovery_physical_verification_input_invalid');
   }
   if (!obligations.length) {
@@ -74,7 +73,6 @@ export async function verifyPhysicalMediaAbsence({ obligations, effects, roots }
   }
 
   const restoreRoot = await assertRestoreRoot(roots.restoreRoot);
-  const effectsBySequence = new Map(effects.map(effect => [String(effect.ledger_sequence), effect]));
   const grouped = new Map();
   for (const row of obligations) {
     const queue = row?.queue_name;
@@ -83,15 +81,13 @@ export async function verifyPhysicalMediaAbsence({ obligations, effects, roots }
         !/^[a-f0-9]{64}$/.test(expectedDigest)) {
       throw new Error('privacy_recovery_physical_obligation_invalid');
     }
-    const effect = effectsBySequence.get(String(row.ledger_sequence));
-    if (!effect) throw new Error('privacy_recovery_physical_effect_missing');
-    if (queue !== 'identity_l3_media' &&
-        (typeof effect.resource_id !== 'string' ||
-         !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(effect.resource_id))) {
-      throw new Error('privacy_recovery_physical_resource_id_missing');
+    const objectId = row?.storage_object_id;
+    if (typeof objectId !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(objectId)) {
+      throw new Error('privacy_recovery_physical_object_id_missing');
     }
     if (!grouped.has(queue)) grouped.set(queue, []);
-    grouped.get(queue).push({ expectedDigest, resourceId: effect.resource_id });
+    grouped.get(queue).push({ expectedDigest, objectId: objectId.toLowerCase() });
   }
 
   const verified = { private_photo: 0, private_voice_intro: 0, identity_l3_media: 0 };
@@ -106,10 +102,10 @@ export async function verifyPhysicalMediaAbsence({ obligations, effects, roots }
     for (const obligation of queueObligations) {
       let remains = false;
       if (queue === 'private_photo') {
-        remains = names.has(obligation.resourceId.toLowerCase() + '.jpg') ||
-          names.has(obligation.resourceId.toLowerCase() + '.png');
+        remains = names.has(obligation.objectId + '.jpg') ||
+          names.has(obligation.objectId + '.png');
       } else if (queue === 'private_voice_intro') {
-        remains = names.has(obligation.resourceId.toLowerCase() + '.enc');
+        remains = names.has(obligation.objectId + '.enc');
       } else {
         remains = entries.some(name => digest(name) === obligation.expectedDigest);
       }
