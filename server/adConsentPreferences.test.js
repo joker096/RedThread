@@ -262,6 +262,7 @@ test('ad-consent lifecycle generation is stable and changes on re-consent', () =
     category_consents: { travel: true }
   };
   assert.equal(getAdConsentLifecycleGeneration(first), '1:2026-11-18T08:00:00.000Z');
+  assert.notEqual(getAdConsentLifecycleGeneration({ ...first, updated_at: '2026-11-18 08:00:00.000123+00' }), getAdConsentLifecycleGeneration({ ...first, updated_at: '2026-11-18 08:00:00.000456+00' }));
   assert.equal(isSameAdConsentLifecycle(first, { ...first, updated_at: new Date(first.updated_at) }), true);
   assert.equal(isSameAdConsentLifecycle(first, { ...first, updated_at: '2026-11-18T08:01:00.000Z' }), false);
   assert.equal(isSameAdConsentLifecycle(first, { ...first, category_consents: {} }), false);
