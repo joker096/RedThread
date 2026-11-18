@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { derivePrivacyRecoveryOperationId, runAckGatedPrivacyRecoveryOperation, runAckGatedPrivacyRecoveryBatch } from './privacyRecoveryOperations.js';
 
 const env = {
@@ -249,4 +250,23 @@ test('multi-resource privacy batch waits for every Ledger ACK before any domain 
   });
   assert.equal(duplicate.duplicate, true);
   assert.equal(applied, 1, 'completed batch never repeats the domain mutation');
+});
+
+
+test('voice intro erasure uses one ACK-gated batch for clip deletion and consent withdrawal', () => {
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  const start = source.indexOf("app.delete('/api/profiles/me/voice-intro'");
+  const end = source.indexOf("app.get('/api/profiles/:userId/voice-intro'", start);
+  assert.ok(start >= 0 && end > start, 'voice intro delete route boundaries must exist');
+  const route = source.slice(start, end);
+  assert.ok(route.includes('const preflight = await pool.query'));
+  assert.ok(route.includes('runAckGatedPrivacyRecoveryBatch({'));
+  assert.equal(route.includes('enqueuePrivacyRecoveryEvent'), false);
+  assert.ok(route.includes("eventType: 'voice_intro_erasure_requested'"));
+  assert.ok(route.includes("eventType: 'voice_intro_consent_withdrawn'"));
+  assert.ok(route.includes('currentConsent.granted_at === expectedConsent.granted_at'));
+  assert.ok(route.includes('currentClip.created_at === expectedClip.created_at'));
+  assert.ok(route.includes('queuePrivateVoiceIntroPurges(transactionClient'));
+  assert.ok(route.includes('DELETE FROM profile_voice_intros'));
+  assert.ok(route.includes('voice_intro_state_changed_retry'));
 });
