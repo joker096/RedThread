@@ -7,7 +7,7 @@ Status: foundation implemented on an isolated Draft branch; domain routes are no
 1. The caller supplies a stable idempotency UUID and stable UTC `occurredAt`.
 2. `runAckGatedPrivacyRecoveryOperation` commits an immutable, pseudonymized intent row in `privacy_recovery_operations`.
 3. The same event UUID and exact payload are sent to the independent Ledger.
-4. A validated ACK containing the matching event ID and a positive sequence is required.
+4. The Ledger response echoes `event_id`; the client validates that exact ID plus a positive sequence. Both first-write and duplicate ACKs return the same event ID.
 5. Only then does a second PostgreSQL transaction lock the operation row, revalidate current domain conditions through the route callback, apply the domain mutation, and mark the operation applied atomically.
 
 Ledger outage, rejection, malformed ACK, or timeout prevents the domain callback from running. If the Ledger accepted an event but the response timed out, retrying the same operation UUID resubmits the same event identity. If PostgreSQL fails after ACK, the durable intent remains and the same operation can be resumed.
