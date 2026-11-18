@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
+import { createHmac } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
@@ -26,6 +28,43 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
   timeout: 60_000
 }, async () => {
   const port = await findFreePort();
+  const ledgerSecret = 'gift-draft-ledger-test-secret-at-least-32-bytes';
+  const ledgerEvents = new Map();
+  let ledgerSequence = 0;
+  const ledgerServer = createHttpServer((request, response) => {
+    const chunks = [];
+    request.on('data', chunk => chunks.push(chunk));
+    request.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8');
+      const timestamp = request.headers['x-ledger-timestamp'];
+      const signature = request.headers['x-ledger-signature'];
+      const expected = createHmac('sha256', ledgerSecret).update(String(timestamp) + '.' + body).digest('hex');
+      if (request.method !== 'POST' || request.url !== '/v1/events' ||
+          typeof timestamp !== 'string' || signature !== expected) {
+        response.writeHead(401, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ error: 'unauthorized' }));
+        return;
+      }
+      const event = JSON.parse(body);
+      const existing = ledgerEvents.get(event.event_id);
+      if (existing && existing.body !== body) {
+        response.writeHead(409, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ error: 'event_id_conflict' }));
+        return;
+      }
+      if (!existing) ledgerEvents.set(event.event_id, { body, sequence: ++ledgerSequence });
+      const stored = ledgerEvents.get(event.event_id);
+      response.writeHead(existing ? 200 : 201, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ accepted: true, duplicate: Boolean(existing), event_id: event.event_id, sequence: stored.sequence }));
+    });
+  });
+  await new Promise((resolve, reject) => {
+    ledgerServer.once('error', reject);
+    ledgerServer.listen(0, '127.0.0.1', resolve);
+  });
+  const ledgerAddress = ledgerServer.address();
+  if (!ledgerAddress || typeof ledgerAddress === 'string') throw new Error('could not allocate Ledger port');
+  const ledgerUrl = 'http://127.0.0.1:' + ledgerAddress.port;
   const origin = 'http://localhost:3000';
   const api = 'http://127.0.0.1:' + port;
   const serverDatabaseUrl = new URL(process.env.DATABASE_URL);
@@ -47,7 +86,11 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
       ACCOUNT_REUSE_HMAC_KEY: 'e'.repeat(64),
       GIFT_ADDRESS_DRAFT_KEYRING: JSON.stringify({ 'draft-test-v1': key }),
       GIFT_ADDRESS_DRAFT_ACTIVE_KEY_VERSION: 'draft-test-v1',
-      PG_STATEMENT_TIMEOUT_MS: '8000'
+      PG_STATEMENT_TIMEOUT_MS: '8000',
+      PRIVACY_RECOVERY_LEDGER_REQUIRED: 'true',
+      PRIVACY_RECOVERY_LEDGER_URL: ledgerUrl,
+      PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: ledgerSecret,
+      PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: 'gift-draft-pseudonym-test-key-at-least-32-bytes'
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -205,6 +248,7 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
     await testLock.query('SELECT pg_advisory_unlock(434236)').catch(() => {});
     testLock.release();
     await db.end().catch(() => {});
+    await new Promise(resolve => ledgerServer.close(resolve));
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
       let timer;
