@@ -19,7 +19,7 @@ import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLo
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, hasAdConsentRevocation, getAdConsentLifecycleGeneration, isSameAdConsentLifecycle, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { enqueuePrivacyRecoveryEvent } from './privacyRecoveryOutbox.js';
-import { derivePrivacyRecoveryOperationId, runAckGatedPrivacyRecoveryOperation } from './privacyRecoveryOperations.js';
+import { derivePrivacyRecoveryOperationId, runAckGatedPrivacyRecoveryOperation, runAckGatedPrivacyRecoveryBatch } from './privacyRecoveryOperations.js';
 import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION, IdentityL3UploadTokenError, issueIdentityL3UploadCapability } from './identityL3UploadTokens.js';
 import { assertIdentityL3StorageReady, assertIdentityL3TemporaryStorageReady, clearIdentityL3TemporaryFiles, deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -2769,65 +2769,157 @@ app.get('/api/profiles/me/voice-intro', profileActionLimiter, requireSession, as
 });
 
 app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
-  let client;
+  const userId = req.authUser.id;
+
   try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    await acquireGiftSafetyUserLocks(client, req.authUser.id);
-    const consent = await client.query(
-      'SELECT consent_version, withdrawn_at FROM profile_voice_intro_consents WHERE user_id = $1 FOR UPDATE',
-      [req.authUser.id]
+    // Read the consent grant and the current clip without holding locks while
+    // one or more independent Ledger acknowledgements are requested.
+    const preflight = await pool.query(
+      `SELECT u.id AS active_user_id,
+              c.consent_version, c.granted_at::text AS consent_granted_at,
+              c.withdrawn_at::text AS consent_withdrawn_at,
+              a.id AS clip_id, a.storage_path, a.created_at::text AS clip_created_at
+         FROM users u
+         LEFT JOIN profile_voice_intro_consents c ON c.user_id = u.id
+         LEFT JOIN profile_voice_intros a ON a.user_id = u.id
+        WHERE u.id = $1 AND u.status = 'active'`,
+      [userId]
     );
-    const result = await client.query(
-      'SELECT id, storage_path FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE',
-      [req.authUser.id]
-    );
-    for (const clip of result.rows) {
-      try {
-        await enqueuePrivacyRecoveryEvent(client, {
+    if (!preflight.rows[0]) return res.status(401).json({ error: 'account_not_active' });
+    const snapshot = preflight.rows[0];
+    const expectedConsent = snapshot.consent_version == null ? null : {
+      consent_version: snapshot.consent_version,
+      granted_at: snapshot.consent_granted_at,
+      withdrawn_at: snapshot.consent_withdrawn_at
+    };
+    const expectedClip = snapshot.clip_id == null ? null : {
+      id: snapshot.clip_id,
+      storage_path: snapshot.storage_path,
+      created_at: snapshot.clip_created_at
+    };
+    const consentWasActive = Boolean(expectedConsent && !expectedConsent.withdrawn_at);
+    const operations = [];
+
+    if (expectedClip) {
+      operations.push({
+        operationId: derivePrivacyRecoveryOperationId({
           eventType: 'voice_intro_erasure_requested',
-          userId: req.authUser.id,
-          resourceId: clip.id
-        });
-      } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Privacy recovery ledger rejected voice intro erasure:', error?.message || 'unknown error');
-        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
-      }
+          userId,
+          resourceId: expectedClip.id,
+          generation: expectedClip.created_at
+        }),
+        event: {
+          eventType: 'voice_intro_erasure_requested',
+          userId,
+          resourceId: expectedClip.id
+        }
+      });
     }
-    if (consent.rows[0] && !consent.rows[0].withdrawn_at) {
-      try {
-        await enqueuePrivacyRecoveryEvent(client, {
+    if (consentWasActive) {
+      if (typeof expectedConsent.granted_at !== 'string' ||
+          expectedConsent.granted_at.length === 0 || expectedConsent.granted_at.length > 64 ||
+          !Number.isSafeInteger(Number(expectedConsent.consent_version))) {
+        throw new Error('voice_intro_consent_lifecycle_invalid');
+      }
+      operations.push({
+        operationId: derivePrivacyRecoveryOperationId({
           eventType: 'voice_intro_consent_withdrawn',
-          userId: req.authUser.id
-        });
-      } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Privacy recovery ledger rejected voice consent withdrawal:', error?.message || 'unknown error');
-        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
-      }
-      await client.query(
-        'UPDATE profile_voice_intro_consents SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp() WHERE user_id = $1',
-        [req.authUser.id]
-      );
-      await client.query(
-        `INSERT INTO profile_voice_intro_consent_events
-           (user_id, actor_user_id, event_type, consent_version, occurred_at)
-         SELECT user_id, user_id, 'withdrawn', consent_version, withdrawn_at
-         FROM profile_voice_intro_consents WHERE user_id = $1`,
-        [req.authUser.id]
-      );
+          userId,
+          resourceId: 'voice-intro-consent',
+          generation: `${expectedConsent.consent_version}:${expectedConsent.granted_at}`
+        }),
+        event: { eventType: 'voice_intro_consent_withdrawn', userId }
+      });
     }
-    await queuePrivateVoiceIntroPurges(client, result.rows.map(row => row.storage_path));
-    await client.query('DELETE FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
-    await client.query('COMMIT');
+
+    if (operations.length === 0) return res.status(204).end();
+
+    const applyErasure = async transactionClient => {
+      // Upload/grant uses this same user safety lock. Revalidate the complete
+      // clip + consent snapshot after every event has been acknowledged.
+      await acquireGiftSafetyUserLocks(transactionClient, userId);
+      const account = await transactionClient.query(
+        "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR UPDATE",
+        [userId]
+      );
+      if (!account.rowCount) throw new Error('account_not_active');
+
+      const currentConsentResult = await transactionClient.query(
+        `SELECT consent_version, granted_at::text AS granted_at,
+                withdrawn_at::text AS withdrawn_at
+           FROM profile_voice_intro_consents WHERE user_id = $1 FOR UPDATE`,
+        [userId]
+      );
+      const currentConsent = currentConsentResult.rows[0] || null;
+      const sameConsent = expectedConsent === null
+        ? currentConsent === null
+        : Boolean(currentConsent &&
+            currentConsent.consent_version === expectedConsent.consent_version &&
+            currentConsent.granted_at === expectedConsent.granted_at &&
+            currentConsent.withdrawn_at === expectedConsent.withdrawn_at);
+      if (!sameConsent) throw new Error('voice_intro_state_changed_retry');
+
+      const currentClipResult = await transactionClient.query(
+        `SELECT id, storage_path, created_at::text AS created_at
+           FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE`,
+        [userId]
+      );
+      const currentClip = currentClipResult.rows[0] || null;
+      const sameClip = expectedClip === null
+        ? currentClip === null
+        : Boolean(currentClip &&
+            currentClip.id === expectedClip.id &&
+            currentClip.storage_path === expectedClip.storage_path &&
+            currentClip.created_at === expectedClip.created_at);
+      if (!sameClip) throw new Error('voice_intro_state_changed_retry');
+
+      if (consentWasActive) {
+        const withdrawn = await transactionClient.query(
+          `UPDATE profile_voice_intro_consents
+              SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp()
+            WHERE user_id = $1 AND withdrawn_at IS NULL
+            RETURNING consent_version, withdrawn_at`,
+          [userId]
+        );
+        if (withdrawn.rowCount !== 1) throw new Error('voice_intro_state_changed_retry');
+        await transactionClient.query(
+          `INSERT INTO profile_voice_intro_consent_events
+             (user_id, actor_user_id, event_type, consent_version, occurred_at)
+           VALUES ($1, $1, 'withdrawn', $2, $3)`,
+          [userId, withdrawn.rows[0].consent_version, withdrawn.rows[0].withdrawn_at]
+        );
+      }
+
+      if (currentClip) {
+        await queuePrivateVoiceIntroPurges(transactionClient, [currentClip.storage_path]);
+        await transactionClient.query(
+          'DELETE FROM profile_voice_intros WHERE user_id = $1 AND id = $2',
+          [userId, currentClip.id]
+        );
+      }
+      return { erased: Boolean(currentClip), consentWithdrawn: consentWasActive };
+    };
+
+    await runAckGatedPrivacyRecoveryBatch({
+      pool,
+      operations,
+      apply: applyErasure
+    });
     return res.status(204).end();
   } catch (error) {
-    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.message === 'voice_intro_state_changed_retry') {
+      return res.status(409).json({ error: 'voice_intro_state_changed_retry' });
+    }
+    if (error?.message === 'account_not_active') {
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (String(error?.message || '').startsWith('privacy_recovery_ledger_') ||
+        String(error?.message || '').startsWith('privacy_recovery_operation_')) {
+      console.error('Privacy recovery ledger rejected voice intro erasure:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
     console.error('Voice intro delete failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'voice_intro_delete_failed' });
-  } finally {
-    client?.release();
   }
 });
 
