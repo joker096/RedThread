@@ -37,7 +37,7 @@ test('PostgreSQL ACK resumer claims due operations, delivers outside transaction
     );
 
     const result = await resumePendingPrivacyRecoveryLedgerAcks({
-      pool: db, env, now: () => Date.parse('2026-11-18T08:00:00.000Z')
+      pool: db, env, operationIds: [operationId], now: () => Date.parse('2026-11-18T08:00:00.000Z')
     });
     assert.deepEqual(result, { claimed: 1, acknowledged: 1, deferred: 0, leaseLost: 0 });
 
@@ -57,7 +57,7 @@ test('PostgreSQL ACK resumer claims due operations, delivers outside transaction
     });
     assert.equal(ledger.events.length, 1);
 
-    const second = await resumePendingPrivacyRecoveryLedgerAcks({ pool: db, env });
+    const second = await resumePendingPrivacyRecoveryLedgerAcks({ pool: db, env, operationIds: [operationId] });
     assert.deepEqual(second, { claimed: 0, acknowledged: 0, deferred: 0, leaseLost: 0 });
     assert.equal(ledger.events.length, 1, 'acknowledged operations must not be redelivered by the ACK repair worker');
   } finally {
@@ -103,7 +103,7 @@ test('PostgreSQL ACK resumer leaves live leases alone and recovers expired worke
       [operationId, JSON.stringify(payload), randomUUID()]
     );
 
-    const liveLease = await resumePendingPrivacyRecoveryLedgerAcks({ pool: db, env, fetchImpl });
+    const liveLease = await resumePendingPrivacyRecoveryLedgerAcks({ pool: db, env, operationIds: [operationId], fetchImpl });
     assert.deepEqual(liveLease, { claimed: 0, acknowledged: 0, deferred: 0, leaseLost: 0 },
       'a live lease owned by another worker must not be stolen');
 
@@ -176,7 +176,7 @@ test('concurrent PostgreSQL ACK workers cannot claim the same live operation lea
     const firstWorker = resumePendingPrivacyRecoveryLedgerAcks({ pool: db, env, fetchImpl });
     await fetchStarted;
     const secondWorker = await resumePendingPrivacyRecoveryLedgerAcks({
-      pool: db, env,
+      pool: db, env, operationIds: [operationId],
       fetchImpl: async () => { throw new Error('second worker must not contact Ledger'); }
     });
     assert.deepEqual(secondWorker, { claimed: 0, acknowledged: 0, deferred: 0, leaseLost: 0 },
