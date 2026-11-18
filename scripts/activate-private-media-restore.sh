@@ -9,6 +9,11 @@ umask 077
 command -v mount >/dev/null 2>&1 || { echo "mount is required" >&2; exit 1; }
 command -v mountpoint >/dev/null 2>&1 || { echo "mountpoint is required" >&2; exit 1; }
 
+if [[ ! -d "$RESTORE_DESTINATION" || -L "$RESTORE_DESTINATION" ]]; then
+  echo "restore destination must be a real staging directory" >&2
+  exit 1
+fi
+
 # Never activate a best-effort or legacy artifact pair. A future v3 bundle must
 # carry a barrier watermark and a proof whose digest is pinned in the manifest.
 manifest_file="$RESTORE_DESTINATION/.vow-backup-manifest"
@@ -64,10 +69,6 @@ if [[ ! "$PRIVACY_RECOVERY_GATE_EXECUTABLE" = /* ||
   exit 1
 fi
 
-if [[ ! -d "$RESTORE_DESTINATION" || -L "$RESTORE_DESTINATION" ]]; then
-  echo "restore destination must be a real staging directory" >&2
-  exit 1
-fi
 if [[ ! -f "$RESTORE_DESTINATION/.vow-restore-pending" ||
       -L "$RESTORE_DESTINATION/.vow-restore-pending" ||
       -e "$RESTORE_DESTINATION/.vow-privacy-reconciled" ]]; then
