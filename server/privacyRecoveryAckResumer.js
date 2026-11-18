@@ -44,8 +44,8 @@ export async function resumePendingPrivacyRecoveryLedgerAcks({
             AND ack_next_attempt_at <= statement_timestamp()
             AND (ack_lease_expires_at IS NULL OR ack_lease_expires_at <= statement_timestamp())
           ORDER BY ack_next_attempt_at, created_at, operation_id
-          FOR UPDATE SKIP LOCKED
           LIMIT $1
+          FOR UPDATE SKIP LOCKED
        )
        UPDATE privacy_recovery_operations AS operation
           SET ack_lease_token = $2,
