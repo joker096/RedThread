@@ -184,3 +184,29 @@ refresh fail closed while the marker exists. Only an authenticated DELETE
 can resume after a Ledger or PostgreSQL outage without reopening the account.
 The successful apply transaction tombstones the account; the marker remains
 as historical fail-closed state.
+
+
+## Pending Ledger ACK resumer
+
+Migration `246_privacy_recovery_ack_resumer_leases.sql` adds a lease token,
+lease expiry, bounded attempt counter, next-attempt time and sanitized last
+error code to each operation. `resumePendingPrivacyRecoveryLedgerAcks`
+claims due `pending` rows in a short PostgreSQL transaction using
+`FOR UPDATE SKIP LOCKED`, commits the lease, and only then sends the exact
+persisted event payload to the independent Ledger. The HTTP request is never
+made while a database transaction or row lock is held.
+
+A matching ACK transitions the row to `acknowledged` and clears the lease.
+Failures clear the lease and schedule bounded exponential backoff; if the
+worker crashes or cannot persist the result, the lease expires and another
+worker can safely resend the same immutable event ID. Concurrent route
+requests and workers are safe because Ledger delivery is idempotent by event
+ID and lease ownership is checked on every state update.
+
+Run manually with `npm run privacy:reconcile-ledger-acks` after configuring
+the database and Ledger environment. This command is not scheduled or enabled
+in Production by this PR. It repairs Ledger ACK delivery only; it does not
+execute route-specific domain callbacks. An `acknowledged` operation whose
+domain transaction previously failed still needs its originating route retry
+or a separately reviewed event-specific reconciler. No automatic destructive
+mutation is performed by this generic worker.
