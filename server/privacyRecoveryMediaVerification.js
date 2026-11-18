@@ -37,7 +37,8 @@ export async function verifyPrivateMediaPrivacyRecovery({
     restoreRoot: env.RESTORE_DESTINATION,
     photo: env.PHOTO_STORAGE_DIR,
     voice: env.VOICE_INTRO_STORAGE_DIR,
-    identityL3: env.IDENTITY_L3_STORAGE_DIR
+    identityL3: env.IDENTITY_L3_STORAGE_DIR,
+    identityL3Temp: env.IDENTITY_L3_TEMP_DIR
   }
 }) {
   assertIsolated(env);
