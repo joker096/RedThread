@@ -1,7 +1,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { verifyPrivateMediaPrivacyRecovery } from './privacyRecoveryMediaVerification.js';
@@ -135,6 +135,21 @@ test('verification rejects a missing receipt or changed event digest', async () 
     verify({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_receipt_mismatch/
   );
+});
+
+test('post-replay verification rejects a photo file that remains despite completion receipts', async () => {
+  await writeFile(storagePath, 'synthetic private photo', { mode: 0o600 });
+  const { pool, calls } = makePool();
+  try {
+    await assert.rejects(
+      verify({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+      /privacy_recovery_physical_media_still_exists/
+    );
+    assert.equal(calls.includes('ROLLBACK'), true);
+    assert.equal(calls.includes('COMMIT'), false);
+  } finally {
+    await rm(storagePath, { force: true });
+  }
 });
 
 test('verification rejects remaining photo metadata and stale profile visibility', async () => {
