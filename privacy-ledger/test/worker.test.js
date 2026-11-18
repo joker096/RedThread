@@ -211,6 +211,6 @@ test("ledger accepts address-draft consent withdrawal events", async () => {
   const body = eventPayload({ event_type: "gift_address_draft_consent_withdrawn", resource_ref: "b".repeat(64) });
   const response = await handleRequest(await signedRequest("POST", "https://ledger.test/v1/events", body), { ...env, LEDGER_DB: db });
   assert.equal(response.status, 201);
-  assert.equal((await response.json()).event_type, undefined);
+  assert.deepEqual(await response.json(), { accepted: true, duplicate: false, event_id: '123e4567-e89b-42d3-a456-426614174000', sequence: 1 });
   assert.equal(db.rows[0].event_type, "gift_address_draft_consent_withdrawn");
 });
