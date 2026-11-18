@@ -27,8 +27,8 @@ const event = {
   resource_id: '123e4567-e89b-42d3-a456-426614174002',
   purge_count: 1
 };
-const storagePath = '/private/photos/123e4567-e89b-42d3-a456-426614174002.jpg';
-const pathDigest = createHash('sha256').update(storagePath).digest('hex');
+let storagePath;
+let pathDigest;
 let physicalRoot;
 const storageRoots = {};
 before(async () => {
@@ -37,6 +37,8 @@ before(async () => {
     storageRoots[key] = path.join(physicalRoot, key);
     await mkdir(storageRoots[key], { mode: 0o700 });
   }
+  storagePath = path.join(storageRoots.photo, event.resource_id + '.jpg');
+  pathDigest = createHash('sha256').update(storagePath).digest('hex');
 });
 after(async () => {
   if (physicalRoot) await rm(physicalRoot, { recursive: true, force: true });
