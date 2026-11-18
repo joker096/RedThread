@@ -569,9 +569,10 @@ test('mobile account deletion validates the authenticated mobile session and rev
       body: JSON.stringify({ password }),
       signal: AbortSignal.timeout(15_000)
     });
+    const rejectedDeletionBody = await rejectedDeletion.json();
     assert.equal(rejectedDeletion.status, 503,
-      `Ledger rejection must prevent account tombstoning\n${await rejectedDeletion.text()}\n${logs}`);
-    assert.deepEqual(await rejectedDeletion.json(), { error: 'privacy_recovery_ledger_unavailable' });
+      `Ledger rejection must prevent account tombstoning\n${JSON.stringify(rejectedDeletionBody)}\n${logs}`);
+    assert.deepEqual(rejectedDeletionBody, { error: 'privacy_recovery_ledger_unavailable' });
     const pendingAccount = await db.query(
       'SELECT status, deletion_pending_at FROM users WHERE id = $1',
       [userId]
