@@ -3261,3 +3261,62 @@ test('manual Paddle reconciliation requires later refund-scope evidence only whe
   assert.match(indexSource, /refund_scope_requires_provider_verified_reconciliation/,
     'unknown refund scope must remain blocked until later verified provider evidence exists');
 });
+
+
+test('transaction.completed resolves owner despite earlier unowned transaction.paid evidence', async () => {
+  const { processPaddleEvent } = await import('./paddleBilling.js');
+  const originalLifetimePriceId = process.env.PADDLE_PRICE_ID_LIFETIME;
+  process.env.PADDLE_PRICE_ID_LIFETIME = 'pri_lifetime_paid_before_completed';
+  const userId = '00000000-0000-4000-8000-000000000091';
+  const attemptId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const transactionId = 'txn_paidbeforecompleted123';
+  const queries = [];
+  const client = {
+    async query(sql, params = []) {
+      const statement = String(sql);
+      queries.push({ statement, params });
+      if (statement.includes('INSERT INTO paddle_webhook_events')) {
+        return { rowCount: 1, rows: [{ event_id: params[0] }] };
+      }
+      if (statement.includes('COUNT(DISTINCT user_id) > 1')) {
+        return { rowCount: 1, rows: [{ ambiguous: false }] };
+      }
+      if (statement.includes('SELECT DISTINCT user_id') && statement.includes('paddle_checkout_attempt_history')) {
+        assert.match(statement, /AND user_id IS NOT NULL/,
+          'unowned intermediate paid evidence must not be counted as a second owner');
+        return { rowCount: 1, rows: [{ user_id: userId }] };
+      }
+      if (statement.includes("SET transaction_id = $1, status = 'completed'")) {
+        return { rowCount: 1, rows: [{ user_id: userId }] };
+      }
+      if (statement.includes('INSERT INTO paddle_lifetime_entitlements')) {
+        return { rowCount: 1, rows: [{ transaction_id: transactionId }] };
+      }
+      return { rowCount: 1, rows: [] };
+    },
+    release() {}
+  };
+
+  try {
+    const result = await processPaddleEvent({ async connect() { return client; } }, {
+      eventId: 'evt_paidbeforecompleted_final',
+      eventType: 'transaction.completed',
+      occurredAt: '2026-11-17T12:00:00Z',
+      data: {
+        id: transactionId,
+        customData: { userId, plan: 'lifetime', checkoutAttemptId: attemptId },
+        items: [{ price: { id: 'pri_lifetime_paid_before_completed' } }]
+      }
+    });
+    assert.equal(result.handled, true);
+    const ledger = queries.find(query => query.statement.includes('INSERT INTO paddle_transaction_events'));
+    assert.ok(ledger, 'completed transaction evidence must be recorded');
+    assert.equal(ledger.params[2], userId,
+      'a prior transaction.paid row with user_id NULL must not erase the owner established by the checkout attempt');
+    assert.ok(queries.some(query => query.statement.includes('premium_lifetime = TRUE')),
+      'the matching server-created lifetime checkout may be granted after completion');
+  } finally {
+    if (originalLifetimePriceId === undefined) delete process.env.PADDLE_PRICE_ID_LIFETIME;
+    else process.env.PADDLE_PRICE_ID_LIFETIME = originalLifetimePriceId;
+  }
+});
