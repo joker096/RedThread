@@ -41,7 +41,7 @@ async function assertRestoreRoot(root) {
 async function listRealDirectory(root, restoreRoot, code) {
   if (typeof root !== 'string' || !root.trim()) throw new Error(code + '_root_required');
   const absolute = path.resolve(root);
-  if (!isWithin(restoreRoot, absolute)) throw new Error(code + '_root_outside_restore');
+  if (restoreRoot && !isWithin(restoreRoot, absolute)) throw new Error(code + '_root_outside_restore');
   try {
     const info = await lstat(absolute);
     if (!info.isDirectory() || info.isSymbolicLink() || await realpath(absolute) !== absolute) {
@@ -107,10 +107,29 @@ export async function verifyPhysicalMediaAbsence({ obligations, roots }) {
       } else if (queue === 'private_voice_intro') {
         remains = names.has(obligation.objectId + '.enc');
       } else {
-        remains = entries.some(name => digest(name) === obligation.expectedDigest);
+        remains = entries.some(name =>
+          name === obligation.objectId || name === '.tmp-' + obligation.objectId ||
+          digest(name) === obligation.expectedDigest
+        );
       }
       if (remains) throw new Error('privacy_recovery_physical_media_still_exists');
       verified[queue] += 1;
+    }
+  }
+
+  if (grouped.has('identity_l3_media')) {
+    const { entries: scratchEntries } = await listRealDirectory(
+      roots.identityL3Temp,
+      null,
+      'privacy_recovery_physical_identityL3Temp'
+    );
+    if (scratchEntries.length) {
+      throw new Error('privacy_recovery_physical_identity_l3_temp_not_empty');
+    }
+    const encryptedRoot = path.resolve(roots.identityL3);
+    const scratchRoot = path.resolve(roots.identityL3Temp);
+    if (isWithin(encryptedRoot, scratchRoot) || isWithin(scratchRoot, encryptedRoot)) {
+      throw new Error('privacy_recovery_physical_l3_roots_not_disjoint');
     }
   }
 
