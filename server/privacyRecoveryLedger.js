@@ -177,7 +177,7 @@ function verifySnapshotBarrierProof(proof, { snapshotId, barrierId, status, proo
       (status === 'active' && payload.released_at !== null) ||
       (status === 'released' && (!Number.isFinite(Date.parse(payload.released_at)) ||
         new Date(payload.released_at).toISOString() !== payload.released_at)) ||
-      !/^[a-f0-9]{64}$/i.test(proof.signature || '')) {
+      !/^[a-f0-9]{128}$/i.test(proof.signature || '')) {
     throw new Error('privacy_recovery_snapshot_barrier_invalid_proof');
   }
   const publicKey = parseSnapshotProofPublicKey(proofPublicKey);
