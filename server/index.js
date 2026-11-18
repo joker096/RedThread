@@ -2878,7 +2878,7 @@ app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession
           `UPDATE profile_voice_intro_consents
               SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp()
             WHERE user_id = $1 AND withdrawn_at IS NULL
-            RETURNING consent_version, withdrawn_at`,
+            RETURNING consent_version, withdrawn_at::text AS withdrawn_at`,
           [userId]
         );
         if (withdrawn.rowCount !== 1) throw new Error('voice_intro_state_changed_retry');
@@ -7290,7 +7290,7 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
         `UPDATE identity_l3_consents
             SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp()
           WHERE user_id = $1 AND withdrawn_at IS NULL
-          RETURNING consent_version, withdrawn_at`,
+          RETURNING consent_version, withdrawn_at::text AS withdrawn_at`,
         [userId]
       );
       if (withdrawn.rowCount !== 1) throw new Error('identity_l3_consent_state_changed_retry');
