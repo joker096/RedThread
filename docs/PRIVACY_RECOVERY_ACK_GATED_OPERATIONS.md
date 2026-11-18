@@ -71,3 +71,27 @@ Unit coverage now exercises master/dependent/category withdrawal detection,
 stable lifecycle generation, and snapshot-change detection. A dedicated
 PostgreSQL-backed route/concurrency test is still required before this route
 can be considered fully integration-verified.
+
+
+## L3 consent withdrawal migration
+
+The `DELETE /api/identity/l3/consent` route now uses a lock-free preflight to
+capture the current grant generation (`consent_version` + exact PostgreSQL
+`granted_at` text). An active grant is withdrawn only after the matching
+deterministic operation receives a durable Ledger ACK. No account, consent,
+submission, or token lock is held during the network request.
+
+After ACK, the apply transaction reacquires the same user safety/account locks
+used by grant and upload flows, locks the current consent row, and verifies the
+exact grant and withdrawal timestamps. It then atomically records the
+withdrawal audit event, revokes outstanding upload tokens, transitions
+submissions, and preserves/requeues durable media-purge jobs. A grant or other
+lifecycle change during the Ledger round-trip returns
+`identity_l3_consent_state_changed_retry`; the acknowledged operation remains
+unapplied for reconciliation and cannot revoke a newer grant.
+
+When consent was already withdrawn, the route still performs idempotent token
+and media cleanup without emitting a duplicate Ledger event. The route has
+structural regression coverage for ACK ordering, lifecycle revalidation, token
+revocation, audit insertion, and purge handling. PostgreSQL-backed concurrent
+route tests and the full CI/E2E runs remain outstanding.
