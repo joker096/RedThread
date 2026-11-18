@@ -210,3 +210,17 @@ execute route-specific domain callbacks. An `acknowledged` operation whose
 domain transaction previously failed still needs its originating route retry
 or a separately reviewed event-specific reconciler. No automatic destructive
 mutation is performed by this generic worker.
+
+
+## ACK repair worker activation
+
+The pending-intent ACK repair worker is wired into the API process but remains
+disabled by default. It runs only when both
+`PRIVACY_RECOVERY_ACK_RESUMER_ENABLED=true` and
+`PRIVACY_RECOVERY_LEDGER_REQUIRED=true` are explicitly set. It claims at most
+25 due intents every 15 seconds, commits its lease before contacting the Ledger,
+and uses bounded retry metadata. It repairs the durable ACK state only; it does
+not perform route-specific account/photo/voice/L3 mutations. Those mutations
+remain gated by the original deterministic operation ID and must be resumed by
+the corresponding authenticated retry/reconciliation path. No environment
+flags are enabled and no Production deployment is performed by this PR.
