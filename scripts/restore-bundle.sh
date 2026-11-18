@@ -24,15 +24,30 @@ done
   exit 1
 }
 mapfile -t manifest_lines < "$BUNDLE_DIR/manifest.txt"
-if [[ "${#manifest_lines[@]}" -ne 6 || "${manifest_lines[0]}" != "format=vow-backup-bundle-v1" ]]; then
+if [[ "${#manifest_lines[@]}" -eq 7 && "${manifest_lines[0]}" == "format=vow-backup-bundle-v2" ]]; then
+  SNAPSHOT_ID="${manifest_lines[1]#snapshot_id=}"
+  SNAPSHOT_CONSISTENCY="${manifest_lines[2]#snapshot_consistency=}"
+  POSTGRES_ARCHIVE="${manifest_lines[3]#postgres_archive=}"
+  POSTGRES_SHA256="${manifest_lines[4]#postgres_sha256=}"
+  MEDIA_ARCHIVE="${manifest_lines[5]#private_media_archive=}"
+  MEDIA_SHA256="${manifest_lines[6]#private_media_sha256=}"
+  if [[ "${manifest_lines[2]}" != "snapshot_consistency=best_effort_non_atomic" ]]; then
+    echo "backup bundle consistency declaration is invalid" >&2
+    exit 1
+  fi
+elif [[ "${#manifest_lines[@]}" -eq 6 && "${manifest_lines[0]}" == "format=vow-backup-bundle-v1" ]]; then
+  # Legacy v1 bundles predate an explicit consistency declaration. Treat them
+  # as unverified pairs and keep the restore target isolated.
+  SNAPSHOT_ID="${manifest_lines[1]#snapshot_id=}"
+  SNAPSHOT_CONSISTENCY="legacy_unverified"
+  POSTGRES_ARCHIVE="${manifest_lines[2]#postgres_archive=}"
+  POSTGRES_SHA256="${manifest_lines[3]#postgres_sha256=}"
+  MEDIA_ARCHIVE="${manifest_lines[4]#private_media_archive=}"
+  MEDIA_SHA256="${manifest_lines[5]#private_media_sha256=}"
+else
   echo "backup bundle manifest format is invalid" >&2
   exit 1
 fi
-SNAPSHOT_ID="${manifest_lines[1]#snapshot_id=}"
-POSTGRES_ARCHIVE="${manifest_lines[2]#postgres_archive=}"
-POSTGRES_SHA256="${manifest_lines[3]#postgres_sha256=}"
-MEDIA_ARCHIVE="${manifest_lines[4]#private_media_archive=}"
-MEDIA_SHA256="${manifest_lines[5]#private_media_sha256=}"
 if [[ "${manifest_lines[1]}" != "snapshot_id=$SNAPSHOT_ID" ||
       ! "$SNAPSHOT_ID" =~ ^[A-Za-z0-9_-]{1,64}$ ||
       "$POSTGRES_ARCHIVE" != "postgres/vow-postgres-$SNAPSHOT_ID.dump.age" ||
