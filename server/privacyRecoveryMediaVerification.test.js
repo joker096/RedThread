@@ -1,6 +1,9 @@
-import test from 'node:test';
+import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { verifyPrivateMediaPrivacyRecovery } from './privacyRecoveryMediaVerification.js';
 
 const event = {
@@ -26,7 +29,22 @@ const event = {
 };
 const storagePath = '/private/photos/123e4567-e89b-42d3-a456-426614174002.jpg';
 const pathDigest = createHash('sha256').update(storagePath).digest('hex');
+let physicalRoot;
+const storageRoots = {};
+before(async () => {
+  physicalRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-physical-purge-'));
+  for (const key of ['photo', 'voice', 'identityL3']) {
+    storageRoots[key] = path.join(physicalRoot, key);
+    await mkdir(storageRoots[key], { mode: 0o700 });
+  }
+});
+after(async () => {
+  if (physicalRoot) await rm(physicalRoot, { recursive: true, force: true });
+});
+
 const isolatedEnv = { NODE_ENV: 'test', PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true', PRIVACY_RECOVERY_RESTORE_DATABASE_NAME: 'vow_restore_test', PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner', PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY' };
+
+function verify(args) { return verify({ ...args, storageRoots }); }
 
 function makePool({ receiptRows = [event], obligations = [{
   ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest
@@ -69,6 +87,9 @@ test('post-replay verification confirms receipt, deleted metadata, hidden photo 
     verifiedVoiceConsentWithdrawalCount: 0,
     verifiedPurgeObligationCount: 1,
     verifiedPurgeCompletionCount: 1,
+    verifiedPhotoObjectAbsenceCount: 1,
+    verifiedVoiceObjectAbsenceCount: 0,
+    verifiedIdentityL3ObjectAbsenceCount: 0,
     throughSequence: 7
   });
   assert.equal(calls.includes('COMMIT'), true);
@@ -163,6 +184,7 @@ test('L3 verification accepts zero retained media purge obligations', async () =
   assert.equal(result.verifiedEventCount, 1);
   assert.equal(result.verifiedPurgeObligationCount, 0);
   assert.equal(result.verifiedPurgeCompletionCount, 0);
+  assert.equal(result.verifiedIdentityL3ObjectAbsenceCount, 0);
   assert.equal(calls.includes('COMMIT'), true);
 });
 
@@ -185,6 +207,7 @@ test('L3 verification accepts multiple purge obligations and matching completion
   assert.equal(result.complete, true);
   assert.equal(result.verifiedPurgeObligationCount, 2);
   assert.equal(result.verifiedPurgeCompletionCount, 2);
+  assert.equal(result.verifiedIdentityL3ObjectAbsenceCount, 2);
   assert.equal(calls.includes('COMMIT'), true);
 });
 
