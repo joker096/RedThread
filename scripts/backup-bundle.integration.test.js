@@ -36,7 +36,7 @@ function commandAvailable(command) {
   return spawnSync('bash', ['-lc', 'command -v ' + command], { encoding: 'utf8' }).status === 0;
 }
 
-test('coordinated backup bundle restores PostgreSQL and private media from one snapshot identity', {
+test('backup artifact pair restores PostgreSQL and private media into isolated staging', {
   skip: !process.env.DATABASE_URL ? 'DATABASE_URL is not configured'
     : (!commandAvailable('age') || !commandAvailable('age-keygen') || !commandAvailable('tar')
       ? 'age, age-keygen and tar are required for the real coordinated restore drill'
@@ -198,6 +198,56 @@ test('coordinated restore rejects a tampered encrypted artifact before opening s
     assert.notEqual(result.status, 0, 'restore must fail closed for a modified archive');
     assert.match(result.stderr, /artifact checksum does not match its manifest/);
     await assert.rejects(readFile(path.join(destination, '.vow-restore-pending')));
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+
+test('restore rejects a false atomic-snapshot declaration before touching staging targets', async () => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-backup-consistency-'));
+  const bundleDir = path.join(temporaryRoot, 'bundle');
+  const identityFile = path.join(temporaryRoot, 'age-identity.txt');
+  const postgresDir = path.join(bundleDir, 'postgres');
+  const mediaDir = path.join(bundleDir, 'private-media');
+  const postgresName = 'vow-postgres-consistency_fixture.dump.age';
+  const mediaName = 'vow-private-media-consistency_fixture.tar.age';
+  const destination = path.join(temporaryRoot, 'restore-target');
+  try {
+    await mkdir(postgresDir, { recursive: true, mode: 0o700 });
+    await mkdir(mediaDir, { recursive: true, mode: 0o700 });
+    await writeFile(identityFile, 'synthetic-age-identity', { mode: 0o600 });
+    await writeFile(path.join(postgresDir, postgresName), 'synthetic-postgres-archive', { mode: 0o600 });
+    await writeFile(path.join(mediaDir, mediaName), 'synthetic-media-archive', { mode: 0o600 });
+    const manifest = [
+      'format=vow-backup-bundle-v2',
+      'snapshot_id=consistency_fixture',
+      'snapshot_consistency=atomic',
+      'postgres_archive=postgres/' + postgresName,
+      'postgres_sha256=' + '0'.repeat(64),
+      'private_media_archive=private-media/' + mediaName,
+      'private_media_sha256=' + '0'.repeat(64),
+      ''
+    ].join('\\n');
+    await writeFile(path.join(bundleDir, 'manifest.txt'), manifest, { mode: 0o600 });
+    const manifestDigest = createHash('sha256').update(manifest).digest('hex');
+    await writeFile(path.join(bundleDir, 'manifest.sha256'), manifestDigest + '  manifest.txt\\n', { mode: 0o600 });
+
+    const result = spawnSync('bash', [restoreBundleScript], {
+      encoding: 'utf8',
+      timeout: 15_000,
+      env: {
+        ...process.env,
+        BACKUP_BUNDLE_DIR: bundleDir,
+        AGE_IDENTITY_FILE: identityFile,
+        RESTORE_DATABASE_URL: 'postgres://invalid/staging',
+        RESTORE_CONFIRM_STAGING: stagingConfirmation,
+        RESTORE_DESTINATION: destination
+      }
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /consistency declaration is invalid/);
+    await assert.rejects(readFile(destination));
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
