@@ -2,7 +2,7 @@ import { createPrivacyRecoveryLedgerPayload, deliverPrivacyRecoveryLedgerPayload
 
 function assertUuid(value) {
   if (typeof value !== 'string' ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
     throw new TypeError('privacy_recovery_operation_id_invalid');
   }
 }
