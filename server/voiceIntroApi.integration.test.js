@@ -162,6 +162,19 @@ test('voice intro HTTP API enforces consent, authentication and withdrawal histo
       client.release();
     }
 
+    ledger.failNext();
+    const rejectedWithdrawal = await request('/api/profiles/me/voice-intro', {
+      method: 'DELETE',
+      headers: { Cookie: cookie }
+    });
+    assert.equal(rejectedWithdrawal.status, 503,
+      'voice clip and consent state must not change before the Ledger ACK');
+    const consentBeforeRetry = await db.query(
+      'SELECT withdrawn_at FROM profile_voice_intro_consents WHERE user_id = $1',
+      [userId]
+    );
+    assert.equal(consentBeforeRetry.rows[0]?.withdrawn_at, null);
+
     const withdrawn = await request('/api/profiles/me/voice-intro', {
       method: 'DELETE',
       headers: { Cookie: cookie }
