@@ -46,4 +46,4 @@ export async function purgeExpiredGiftAddressDrafts(pool, {
     );
     return { purged: Number(result.rows[0]?.purged || 0) };
   });
-
+}
