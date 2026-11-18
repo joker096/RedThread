@@ -1902,7 +1902,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     safetyLockAcquired = true;
 
     const account = await client.query(
-      `SELECT u.password_hash, u.email
+      `SELECT u.password_hash, u.email, u.created_at::text AS account_created_at
        FROM users u
        WHERE u.id = $1 AND u.status = 'active'
          AND (
@@ -2081,116 +2081,157 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
       }
     }
 
-    await client.query('BEGIN');
-    // Serialize deletion with registration for the same normalized email. This
-    // prevents a concurrent registration from slipping between the tombstone
-    // check and the account anonymization commit.
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${accountReuseDigest}`]);
-    // The session-level account-safety lock acquired before Paddle calls is
-    // still held by this connection, excluding concurrent account mutations.
-    const l3Media = await client.query(
-      'SELECT id FROM identity_l3_submissions WHERE user_id = $1 AND storage_object_key IS NOT NULL FOR UPDATE',
-      [req.authUser.id]
-    );
-    if (l3Media.rowCount) {
-      // Never discard the only object key while no private-media deletion
-      // worker is configured; otherwise account deletion would orphan video.
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'identity_l3_media_purge_unavailable' });
-    }
+    // The external Ledger ACK must not be awaited while either session-level
+    // advisory lock is held. Paddle reconciliation above is complete; release
+    // both locks, then reacquire transaction-scoped locks and revalidate every
+    // destructive precondition inside the ACK-gated apply transaction.
+    await client.query('SELECT pg_advisory_unlock(hashtext($1))', [safetyLockKey]);
+    safetyLockAcquired = false;
+    await client.query('SELECT pg_advisory_unlock(hashtext($1))', [checkoutLockKey]);
+    checkoutLockAcquired = false;
+    client.release();
+    client = null;
 
-    try {
-      await enqueuePrivacyRecoveryEvent(client, {
+    const accountOperationId = derivePrivacyRecoveryOperationId({
+      eventType: 'account_erasure_requested',
+      userId: req.authUser.id,
+      generation: account.rows[0].account_created_at
+    });
+    await runAckGatedPrivacyRecoveryOperation({
+      pool,
+      operationId: accountOperationId,
+      event: {
         eventType: 'account_erasure_requested',
         userId: req.authUser.id
-      });
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('Privacy recovery outbox rejected account erasure:', error?.message || 'unknown error');
-      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
-    }
+      },
+      apply: async transactionClient => {
+        await transactionClient.query('SELECT pg_advisory_xact_lock(hashtext($1))', [checkoutLockKey]);
+        await transactionClient.query('SELECT pg_advisory_xact_lock(hashtext($1))', [safetyLockKey]);
+        await transactionClient.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+          `account-reuse:${accountReuseDigest}`
+        ]);
 
-    await client.query('DELETE FROM identity_l3_submissions WHERE user_id = $1', [req.authUser.id]);
-    await suspendGiftOrdersForUser(client, req.authUser.id, { reason: 'account_deleted' });
-    const photoFiles = await client.query('SELECT storage_path FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
-    await queuePrivatePhotoPurges(client, photoFiles.rows.map(row => row.storage_path));
-    await client.query('DELETE FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
-    const voiceIntroFiles = await client.query('SELECT storage_path FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
-    await queuePrivateVoiceIntroPurges(client, voiceIntroFiles.rows.map(row => row.storage_path));
-    await client.query('DELETE FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM sessions WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM identity_verification_consents WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM identity_verification_session_reservations WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM identity_verification_events WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM identity_verifications WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM likes WHERE sender_id = $1 OR target_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM profile_passes WHERE passer_id = $1 OR passed_user_id = $1', [req.authUser.id]);
-    // Remove the deleted account's own discovery history. Keep same-day rows
-    // owned by other women: deleting a viewed profile must not refund their
-    // already-consumed daily slots. Those short-lived rows expire at UTC cleanup.
-    await client.query('DELETE FROM female_profile_exposures WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM profile_preferences WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM user_notifications WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM account_action_tokens WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM user_blocks WHERE blocker_id = $1 OR blocked_id = $1', [req.authUser.id]);
-    await client.query(
-      "UPDATE messages SET body = '[сообщение удалено]', deleted_at = COALESCE(deleted_at, statement_timestamp()) WHERE sender_id = $1",
-      [req.authUser.id]
-    );
-    await client.query(
-      `UPDATE profiles SET
-         display_name = 'Удалённый пользователь', birth_date = NULL,
-         country = '—', city = '—', bio = '',
-         photo_urls = '{}', occupation = '', education = '', languages = '{}',
-         is_visible = FALSE, has_children = NULL, children_disclosure_confirmed_at = NULL,
-         family_format = 'open_to_both', wants_children = 'discuss',
-         children_living_arrangement = 'not_applicable', updated_at = statement_timestamp()
-       WHERE user_id = $1`,
-      [req.authUser.id]
-    );
-    await client.query(
-      `UPDATE mobile_sessions
-       SET revoked_at = NOW(), revoked_reason = 'account_unavailable'
-       WHERE user_id = $1 AND revoked_at IS NULL`,
-      [req.authUser.id]
-    );
-    await client.query(
-      `UPDATE users SET status = 'deleted', email = $2, password_hash = NULL,
-         phone_e164 = NULL, phone_verified_at = NULL, female_trial_ends_at = NULL,
-         premium_until = NULL, premium_lifetime = FALSE, updated_at = statement_timestamp()
-       WHERE id = $1`,
-      [req.authUser.id, 'deleted+' + req.authUser.id + '@deleted.invalid']
-    );
-    // Voice consent history is append-only while the account is active and may
-    // be purged only after the account has been tombstoned as deleted.
-    await client.query('DELETE FROM profile_voice_intro_consent_events WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM profile_voice_intro_consents WHERE user_id = $1', [req.authUser.id]);
-    // Account deletion removes both the current consent state and its history.
-    // Migration 104 permits history purge only after the account is marked deleted.
-    await client.query('DELETE FROM identity_l3_consent_events WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM identity_l3_consents WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM ad_consent_preferences WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM ad_consent_history WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM gift_receiving_preferences WHERE user_id = $1', [req.authUser.id]);
-    // Engagement events are user-linked frequency signals, not billing records;
-    // remove any retained rows immediately when the account is deleted.
-    await client.query('DELETE FROM ad_events WHERE user_id = $1', [req.authUser.id]);
-    await client.query(
-      "UPDATE matches SET status = 'closed' WHERE user_a_id = $1 OR user_b_id = $1",
-      [req.authUser.id]
-    );
-    // Start the full 90-day period at the end of deletion, not before the
-    // potentially long cleanup work above. The per-email transaction lock has
-    // remained held since BEGIN, so registration cannot slip into this gap.
-    await client.query(
-      `INSERT INTO account_reuse_restrictions (email_hmac, expires_at)
-       VALUES ($1, clock_timestamp() + INTERVAL '90 days')
-       ON CONFLICT (email_hmac) DO UPDATE
-       SET expires_at = GREATEST(account_reuse_restrictions.expires_at, EXCLUDED.expires_at)`,
-      [accountReuseDigest]
-    );
-    await client.query('COMMIT');
+        const currentAccount = await transactionClient.query(
+          `SELECT email, status, created_at::text AS account_created_at,
+                  paddle_subscription_id, paddle_subscription_status, premium_until, premium_lifetime
+             FROM users
+            WHERE id = $1
+            FOR UPDATE`,
+          [req.authUser.id]
+        );
+        const current = currentAccount.rows[0];
+        const currentReuseDigest = current?.email
+          ? createAccountReuseDigest(current.email, process.env.ACCOUNT_REUSE_HMAC_KEY)
+          : null;
+        if (!current || current.status !== 'active' ||
+            current.account_created_at !== account.rows[0].account_created_at ||
+            currentReuseDigest !== accountReuseDigest) {
+          throw new Error('account_deletion_identity_changed_retry');
+        }
+
+        const unresolvedCheckout = await transactionClient.query(
+          `SELECT status FROM paddle_checkout_attempts
+            WHERE user_id = $1
+              AND status IN ('creating', 'pending', 'reconciliation_required', 'completed')
+            LIMIT 1`,
+          [req.authUser.id]
+        );
+        if (unresolvedCheckout.rowCount) {
+          throw new Error('account_deletion_billing_state_changed_retry');
+        }
+        const currentSubscriptionStatus = String(current.paddle_subscription_status || '').toLowerCase();
+        if (current.paddle_subscription_id ||
+            (currentSubscriptionStatus && !['canceled', 'completed'].includes(currentSubscriptionStatus)) ||
+            (current.premium_lifetime !== true && current.premium_until &&
+              new Date(current.premium_until).getTime() > Date.now())) {
+          throw new Error('account_deletion_billing_state_changed_retry');
+        }
+
+        const l3Media = await transactionClient.query(
+          'SELECT id FROM identity_l3_submissions WHERE user_id = $1 AND storage_object_key IS NOT NULL FOR UPDATE',
+          [req.authUser.id]
+        );
+        if (l3Media.rowCount) throw new Error('identity_l3_media_purge_unavailable');
+
+        await transactionClient.query('DELETE FROM identity_l3_submissions WHERE user_id = $1', [req.authUser.id]);
+        await suspendGiftOrdersForUser(transactionClient, req.authUser.id, { reason: 'account_deleted' });
+        const photoFiles = await transactionClient.query(
+          'SELECT storage_path FROM photo_assets WHERE user_id = $1 ORDER BY id FOR UPDATE',
+          [req.authUser.id]
+        );
+        await queuePrivatePhotoPurges(transactionClient, photoFiles.rows.map(row => row.storage_path));
+        await transactionClient.query('DELETE FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
+        const voiceIntroFiles = await transactionClient.query(
+          'SELECT storage_path FROM profile_voice_intros WHERE user_id = $1 ORDER BY id FOR UPDATE',
+          [req.authUser.id]
+        );
+        await queuePrivateVoiceIntroPurges(transactionClient, voiceIntroFiles.rows.map(row => row.storage_path));
+        await transactionClient.query('DELETE FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM sessions WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM identity_verification_consents WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM identity_verification_session_reservations WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM identity_verification_events WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM identity_verifications WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM likes WHERE sender_id = $1 OR target_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM profile_passes WHERE passer_id = $1 OR passed_user_id = $1', [req.authUser.id]);
+        // Preserve other users' already-consumed daily discovery slots.
+        await transactionClient.query('DELETE FROM female_profile_exposures WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM profile_preferences WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM user_notifications WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM account_action_tokens WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM user_blocks WHERE blocker_id = $1 OR blocked_id = $1', [req.authUser.id]);
+        await transactionClient.query(
+          "UPDATE messages SET body = '[сообщение удалено]', deleted_at = COALESCE(deleted_at, statement_timestamp()) WHERE sender_id = $1",
+          [req.authUser.id]
+        );
+        await transactionClient.query(
+          `UPDATE profiles SET
+             display_name = 'Удалённый пользователь', birth_date = NULL,
+             country = '—', city = '—', bio = '',
+             photo_urls = '{}', occupation = '', education = '', languages = '{}',
+             is_visible = FALSE, has_children = NULL, children_disclosure_confirmed_at = NULL,
+             family_format = 'open_to_both', wants_children = 'discuss',
+             children_living_arrangement = 'not_applicable', updated_at = statement_timestamp()
+           WHERE user_id = $1`,
+          [req.authUser.id]
+        );
+        await transactionClient.query(
+          `UPDATE mobile_sessions
+           SET revoked_at = NOW(), revoked_reason = 'account_unavailable'
+           WHERE user_id = $1 AND revoked_at IS NULL`,
+          [req.authUser.id]
+        );
+        await transactionClient.query(
+          `UPDATE users SET status = 'deleted', email = $2, password_hash = NULL,
+             phone_e164 = NULL, phone_verified_at = NULL, female_trial_ends_at = NULL,
+             premium_until = NULL, premium_lifetime = FALSE, updated_at = statement_timestamp()
+           WHERE id = $1`,
+          [req.authUser.id, 'deleted+' + req.authUser.id + '@deleted.invalid']
+        );
+        // Append-only consent evidence may be purged only after the account tombstone.
+        await transactionClient.query('DELETE FROM profile_voice_intro_consent_events WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM profile_voice_intro_consents WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM identity_l3_consent_events WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM identity_l3_consents WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM ad_consent_preferences WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM ad_consent_history WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM gift_receiving_preferences WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM ad_events WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query(
+          "UPDATE matches SET status = 'closed' WHERE user_a_id = $1 OR user_b_id = $1",
+          [req.authUser.id]
+        );
+        await transactionClient.query(
+          `INSERT INTO account_reuse_restrictions (email_hmac, expires_at)
+           VALUES ($1, clock_timestamp() + INTERVAL '90 days')
+           ON CONFLICT (email_hmac) DO UPDATE
+           SET expires_at = GREATEST(account_reuse_restrictions.expires_at, EXCLUDED.expires_at)`,
+          [accountReuseDigest]
+        );
+        return { deleted: true };
+      }
+    });
     clearSessionCookie(res);
     return res.status(204).end();
   } catch (error) {
