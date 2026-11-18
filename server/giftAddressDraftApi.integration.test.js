@@ -227,6 +227,11 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
       { action: 'granted', consent_version: 1 },
       { action: 'withdrawn', consent_version: 1 }
     ]);
+    assert.equal(ledgerEvents.size, 1);
+    const recordedEvent = JSON.parse([...ledgerEvents.values()][0].body);
+    assert.equal(recordedEvent.event_type, 'gift_address_draft_consent_withdrawn');
+    assert.equal(recordedEvent.resource_ref.length, 64);
+    assert.notEqual(recordedEvent.resource_ref, orderId);
   } finally {
     const cleanup = await db.connect().catch(() => null);
     if (cleanup) {
