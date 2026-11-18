@@ -1,4 +1,5 @@
 import { GIFT_ADDRESS_DRAFT_CONSENT_VERSION } from './giftAddressDraft.js';
+import { withPooledTransaction } from './withPooledTransaction.js';
 
 export const DEFAULT_GIFT_ADDRESS_DRAFT_PURGE_BATCH_SIZE = 100;
 export function normalizeGiftAddressDraftPurgeBatchSize(value = DEFAULT_GIFT_ADDRESS_DRAFT_PURGE_BATCH_SIZE) {
@@ -12,9 +13,7 @@ export async function purgeExpiredGiftAddressDrafts(pool, {
   batchSize = DEFAULT_GIFT_ADDRESS_DRAFT_PURGE_BATCH_SIZE
 } = {}) {
   const limit = normalizeGiftAddressDraftPurgeBatchSize(batchSize);
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  return withPooledTransaction(pool, async client => {
     const result = await client.query(
       `WITH due AS (
          SELECT order_id, recipient_user_id
@@ -45,13 +44,6 @@ export async function purgeExpiredGiftAddressDrafts(pool, {
        SELECT COUNT(*)::int AS purged FROM expired`,
       [limit, GIFT_ADDRESS_DRAFT_CONSENT_VERSION]
     );
-    await client.query('COMMIT');
     return { purged: Number(result.rows[0]?.purged || 0) };
-  } catch (error) {
-    try { await client.query('ROLLBACK'); } catch {}
-    throw error;
-  } finally {
-    client.release();
-  }
-}
+  });
 
