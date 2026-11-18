@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
+import { verifyPhysicalPurgeAbsence } from './privacyRecoveryPhysicalPurgeVerification.js';
 
 const OUTCOMES = Object.freeze({
   private_photo_erasure_requested: ['photo_erasure_queued', 'photos'],
@@ -31,7 +32,9 @@ export async function verifyPrivateMediaPrivacyRecovery({
   pool,
   env = process.env,
   snapshotLedgerSequence,
-  throughSequence
+  throughSequence,
+  storageRoots,
+  verifyPhysicalAbsence = verifyPhysicalPurgeAbsence
 }) {
   assertIsolated(env);
   assertPrivacyRecoveryRestoreTargetConfig(env);
@@ -193,6 +196,10 @@ export async function verifyPrivateMediaPrivacyRecovery({
     if (completionRows.length !== obligationRows.length) {
       throw new Error('privacy_recovery_verification_purge_completion_missing');
     }
+    if (typeof verifyPhysicalAbsence !== 'function') {
+      throw new TypeError('privacy_recovery_verification_physical_adapter_invalid');
+    }
+    await verifyPhysicalAbsence({ obligations: obligationRows, storageRoots });
     const photoQueue = await client.query('SELECT storage_path FROM private_photo_purge_queue');
     const voiceQueue = await client.query('SELECT storage_path FROM private_voice_intro_purge_queue');
     const l3Objects = await client.query('SELECT storage_object_key FROM identity_l3_submissions WHERE storage_object_key IS NOT NULL');
