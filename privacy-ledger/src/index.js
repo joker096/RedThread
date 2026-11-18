@@ -5,7 +5,8 @@ const EVENT_TYPES = new Set([
   "private_photo_erasure_requested",
   "identity_l3_consent_withdrawn",
   "ad_consent_revoked",
-  "gift_order_consent_withdrawn"
+  "gift_order_consent_withdrawn",
+  "gift_address_draft_consent_withdrawn"
 ]);
 const MAX_BODY_BYTES = 4096;
 const MAX_CLOCK_SKEW_SECONDS = 300;
