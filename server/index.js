@@ -2083,6 +2083,21 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
       }
     }
 
+    // Persist a fail-closed deletion guard before releasing the account
+    // locks. All ordinary authenticated routes reject this account while the
+    // ACK is pending; only DELETE /api/account may retry the same lifecycle.
+    const pendingDeletion = await client.query(
+      `UPDATE users
+          SET deletion_pending_at = COALESCE(deletion_pending_at, statement_timestamp()),
+              updated_at = statement_timestamp()
+        WHERE id = $1 AND status = 'active'
+        RETURNING id`,
+      [req.authUser.id]
+    );
+    if (pendingDeletion.rowCount !== 1) {
+      return res.status(409).json({ error: 'account_deletion_identity_changed_retry' });
+    }
+
     // The external Ledger ACK must not be awaited while either session-level
     // advisory lock is held. Paddle reconciliation above is complete; release
     // both locks, then reacquire transaction-scoped locks and revalidate every
@@ -2114,7 +2129,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
         ]);
 
         const currentAccount = await transactionClient.query(
-          `SELECT email, status, created_at::text AS account_created_at,
+          `SELECT email, status, deletion_pending_at, created_at::text AS account_created_at,
                   paddle_subscription_id, paddle_subscription_status, premium_until, premium_lifetime
              FROM users
             WHERE id = $1
@@ -2125,7 +2140,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
         const currentReuseDigest = current?.email
           ? createAccountReuseDigest(current.email, process.env.ACCOUNT_REUSE_HMAC_KEY)
           : null;
-        if (!current || current.status !== 'active' ||
+        if (!current || current.status !== 'active' || !current.deletion_pending_at ||
             current.account_created_at !== account.rows[0].account_created_at ||
             currentReuseDigest !== accountReuseDigest) {
           throw new Error('account_deletion_identity_changed_retry');
