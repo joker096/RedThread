@@ -1903,9 +1903,9 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
   try {
     client = await pool.connect();
     // Keep the same lock order as checkout creation: provider checkout first,
-    // then the account-safety lock. The session-level safety lock stays held
-    // across Paddle calls so a concurrent password reset cannot invalidate the
-    // session after confirmation but before the destructive delete transaction.
+    // then the account-safety lock. Hold both through Paddle reconciliation;
+    // a durable deletion-pending guard is written before releasing them for
+    // the remote privacy Ledger ACK.
     checkoutLockAcquired = true;
     await client.query('SELECT pg_advisory_lock(hashtext($1))', [checkoutLockKey]);
     await client.query('SELECT pg_advisory_lock(hashtext($1))', [safetyLockKey]);
