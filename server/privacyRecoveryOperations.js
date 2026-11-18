@@ -1,4 +1,28 @@
+import { createHash } from 'node:crypto';
 import { createPrivacyRecoveryLedgerPayload, deliverPrivacyRecoveryLedgerPayload } from './privacyRecoveryLedger.js';
+
+
+/**
+ * Derive a retry-stable UUID for a one-time resource transition. The generation
+ * must identify the consent grant / lifecycle instance, not the HTTP attempt.
+ * This is intentionally domain-separated and deterministic so clients do not
+ * need to invent or persist idempotency keys for server-owned transitions.
+ */
+export function derivePrivacyRecoveryOperationId({ eventType, userId, resourceId = null, generation }) {
+  if (typeof eventType !== 'string' || !/^[a-z][a-z0-9_]{2,80}$/.test(eventType) ||
+      typeof userId !== 'string' || !userId ||
+      (resourceId !== null && (typeof resourceId !== 'string' || !resourceId)) ||
+      (typeof generation !== 'string' && typeof generation !== 'number') ||
+      String(generation).length === 0 || String(generation).length > 200) {
+    throw new TypeError('privacy_recovery_operation_identity_invalid');
+  }
+  const identity = JSON.stringify(['vow-privacy-recovery-operation-v1', eventType, userId, resourceId, String(generation)]);
+  const bytes = createHash('sha256').update(identity, 'utf8').digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 function assertUuid(value) {
   if (typeof value !== 'string' ||
