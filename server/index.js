@@ -1951,7 +1951,11 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
              SELECT 1 FROM mobile_sessions ms
              WHERE ms.id = $2 AND ms.user_id = u.id
                AND ms.access_expires_at > statement_timestamp()
-               AND ms.revoked_at IS NULL
+               AND (
+                 ms.revoked_at IS NULL
+                 OR (u.status = 'suspended' AND u.deletion_pending_at IS NOT NULL
+                     AND ms.revoked_reason = 'account_unavailable')
+               )
            ))
            OR
            ( $3 = 'web' AND EXISTS (
