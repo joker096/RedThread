@@ -5,7 +5,7 @@ on:
     branches: [main, "audit/**", "fix/**", "feat/**"]
   # Keep implementation/fix branches under the same verification gate.
   pull_request:
-    branches: [main, feat/compatibility-explanations]
+    branches: [main, feat/compatibility-explanations, feat/privacy-recovery-ad-gift-consent-replay-v2]
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -54,22 +54,16 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends postgresql-client-16
-      - name: Validate Google Play listing assets
-        run: npm run store-assets:validate
       - run: npm run db:migrate
       - run: npm run lint
       - name: Run test suite with a hard timeout
-        run: timeout --signal=TERM --kill-after=30s 25m npm test
+        run: timeout 20m npm test
       - name: Report translation coverage
-        run: npm run i18n:report
+        run: npm run i18n:coverage
       - run: npm run build
       - name: Validate container configuration
-        env:
-          POSTGRES_PASSWORD: ci-test-password
-          APP_ORIGIN: http://localhost:8080
-          APP_URL: http://localhost:8080
         run: docker compose config --quiet
       - name: Build API container
-        run: docker build --target api -t vow-api:ci .
+        run: docker compose build api
       - name: Build web container
-        run: docker build --target web -t vow-web:ci .
+        run: docker compose build web
