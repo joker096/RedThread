@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac, randomUUID } from 'node:crypto';
-import { appendPrivacyRecoveryEvent } from './privacyRecoveryLedger.js';
+import {
+  appendPrivacyRecoveryEvent,
+  createPrivacyRecoverySnapshotBarrier,
+  releasePrivacyRecoverySnapshotBarrier
+} from './privacyRecoveryLedger.js';
 
 const baseEnv = {
   NODE_ENV: 'test',
@@ -10,6 +14,96 @@ const baseEnv = {
   PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: 'auth-secret-at-least-32-characters-long',
   PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: 'pseudonym-secret-at-least-32-characters'
 };
+
+
+function barrierResponse({ snapshotId, barrierId, status, sequence, releasedAt = null, tamper = false, duplicate = false }) {
+  const proof = {
+    barrier_id: barrierId,
+    snapshot_id: snapshotId,
+    ledger_sequence: sequence,
+    status,
+    created_at: '2026-11-19T08:00:00.000Z',
+    released_at: releasedAt
+  };
+  const signature = createHmac('sha256', baseEnv.PRIVACY_RECOVERY_LEDGER_HMAC_SECRET)
+    .update(JSON.stringify(proof), 'utf8').digest('hex');
+  return {
+    ok: true,
+    status: status === 'active' ? 201 : 200,
+    json: async () => ({
+      accepted: true,
+      ...(status === 'active' ? { duplicate } : {}),
+      ...proof,
+      signature: tamper ? '0'.repeat(64) : signature
+    })
+  };
+}
+
+test('snapshot barrier client signs create and verifies the returned watermark proof', async () => {
+  const snapshotId = 'backup-2026-11-19';
+  const barrierId = '123e4567-e89b-42d3-a456-426614174030';
+  let captured;
+  const proof = await createPrivacyRecoverySnapshotBarrier({ snapshotId, barrierId }, {
+    env: baseEnv,
+    now: () => Date.UTC(2026, 10, 19, 8, 0, 0),
+    fetchImpl: async (url, options) => {
+      captured = { url, options };
+      return barrierResponse({ snapshotId, barrierId, status: 'active', sequence: 27 });
+    }
+  });
+  assert.equal(captured.url, 'https://ledger.example/v1/snapshot-barriers');
+  assert.equal(captured.options.method, 'POST');
+  assert.deepEqual(JSON.parse(captured.options.body), { snapshot_id: snapshotId, barrier_id: barrierId });
+  assert.equal(captured.options.headers['x-ledger-timestamp'], '1795075200');
+  assert.equal(captured.options.headers['x-ledger-signature'],
+    createHmac('sha256', baseEnv.PRIVACY_RECOVERY_LEDGER_HMAC_SECRET)
+      .update('1795075200.' + captured.options.body, 'utf8').digest('hex'));
+  assert.equal(proof.ledger_sequence, 27);
+  assert.equal(proof.status, 'active');
+  assert.equal(proof.duplicate, false);
+});
+
+test('snapshot barrier client signs release and verifies the release receipt', async () => {
+  const snapshotId = 'backup-2026-11-19';
+  const barrierId = '123e4567-e89b-42d3-a456-426614174031';
+  let captured;
+  const proof = await releasePrivacyRecoverySnapshotBarrier({ snapshotId, barrierId }, {
+    env: baseEnv,
+    now: () => Date.UTC(2026, 10, 19, 8, 0, 0),
+    fetchImpl: async (url, options) => {
+      captured = { url, options };
+      return barrierResponse({
+        snapshotId, barrierId, status: 'released', sequence: 27,
+        releasedAt: '2026-11-19T08:05:00.000Z'
+      });
+    }
+  });
+  assert.equal(captured.url, 'https://ledger.example/v1/snapshot-barriers/' + barrierId + '/release');
+  assert.deepEqual(JSON.parse(captured.options.body), { snapshot_id: snapshotId });
+  assert.equal(proof.status, 'released');
+  assert.equal(proof.released_at, '2026-11-19T08:05:00.000Z');
+});
+
+test('snapshot barrier client rejects tampered proof and invalid identifiers', async () => {
+  const snapshotId = 'backup-2026-11-19';
+  const barrierId = '123e4567-e89b-42d3-a456-426614174032';
+  await assert.rejects(
+    createPrivacyRecoverySnapshotBarrier({ snapshotId, barrierId }, {
+      env: baseEnv,
+      fetchImpl: async () => barrierResponse({
+        snapshotId, barrierId, status: 'active', sequence: 27, tamper: true
+      })
+    }),
+    /signature_invalid/
+  );
+  await assert.rejects(
+    createPrivacyRecoverySnapshotBarrier({ snapshotId: '../bad', barrierId }, {
+      env: baseEnv,
+      fetchImpl: async () => { throw new Error('must not call'); }
+    }),
+    /invalid_privacy_recovery_snapshot_barrier/
+  );
+});
 
 test('required ledger fails closed when configuration is missing', async () => {
   await assert.rejects(
