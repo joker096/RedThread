@@ -81,19 +81,20 @@ test('ledger outage persists intent but never invokes the domain mutation', asyn
 test('a failed domain transaction can resume from a separately persisted ledger ACK', async () => {
   const pool = fakePool();
   const bodies = [];
+  const retryEvent = { eventType: event.eventType, userId: event.userId };
   const fetchImpl = async (_url, options) => {
     bodies.push(options.body);
     return new Response(JSON.stringify({ accepted: true, event_id: operationId, sequence: 77 }), { status: 201 });
   };
   await assert.rejects(runAckGatedPrivacyRecoveryOperation({
-    pool, operationId, event, env, fetchImpl,
+    pool, operationId, event: retryEvent, env, fetchImpl, now: () => Date.parse('2026-11-18T08:00:00.000Z'),
     apply: async () => { throw new Error('domain transaction rolled back'); }
   }), /domain transaction rolled back/);
   assert.equal(pool.state.row.status, 'acknowledged');
 
   let applied = 0;
   const resumed = await runAckGatedPrivacyRecoveryOperation({
-    pool, operationId, event, env, fetchImpl,
+    pool, operationId, event: retryEvent, env, fetchImpl, now: () => Date.parse('2026-11-18T09:00:00.000Z'),
     apply: async () => { applied += 1; return 'domain-change'; }
   });
   assert.equal(resumed.applied, true);
@@ -101,6 +102,7 @@ test('a failed domain transaction can resume from a separately persisted ledger 
   assert.equal(applied, 1);
   assert.equal(pool.state.row.status, 'applied');
   assert.equal(bodies.length, 1, 'a persisted ACK allows resume without another Ledger request');
+  assert.equal(JSON.parse(bodies[0]).occurred_at, '2026-11-18T08:00:00.000Z', 'the first committed event time remains authoritative on retries');
 });
 
 test('repeated completed operation is idempotent and does not repeat domain side effects', async () => {
