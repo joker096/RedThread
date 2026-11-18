@@ -6472,7 +6472,7 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
 
     return res.json({
       order: { id: reference, status: 'cancelled', consentWithdrawn: true },
-      duplicate: result.duplicate === true
+      ...(result.duplicate === true ? { duplicate: true } : {})
     });
   } catch (error) {
     if (error?.message === 'gift_order_not_withdrawable') {
