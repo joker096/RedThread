@@ -1,6 +1,6 @@
 # ACK-gated privacy recovery operations
 
-Status: foundation implemented on an isolated Draft branch; domain routes are not yet migrated.
+Status: foundation implemented on an isolated Draft branch; gift-order consent withdrawal and ad-consent revocation are migrated, with route-level PostgreSQL concurrency coverage still pending.
 
 ## Required ordering
 
