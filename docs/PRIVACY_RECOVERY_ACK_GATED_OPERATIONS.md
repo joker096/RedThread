@@ -14,7 +14,9 @@ Ledger outage, rejection, malformed ACK, or timeout prevents the domain callback
 
 ## Invariants and integration contract
 
-- Operation UUID is also the immutable Ledger event UUID.
+- Operation UUID is also the immutable Ledger event UUID and must be UUIDv4.
+- PostgreSQL enforces monotonic state transitions only: pending → acknowledged → applied. Pending cannot jump directly to applied; acknowledged/applied states cannot be downgraded; the persisted Ledger sequence and acknowledgement timestamp cannot be rewritten after ACK.
+- The database constraint and trigger are the final guardrail even if a future route or maintenance script bypasses the application helper.
 - Reusing an operation UUID with a different event payload is rejected.
 - The operation row is committed before contacting the Ledger.
 - Domain changes and the `applied` transition share one PostgreSQL transaction.
