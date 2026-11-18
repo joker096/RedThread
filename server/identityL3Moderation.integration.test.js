@@ -42,6 +42,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
   const applicantSession = createSessionToken();
   const moderatorSession = createSessionToken();
   let child;
+  let ledger;
 
   async function seedUser(userId, role, gender, label, token) {
     await pool.query(
@@ -150,7 +151,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     );
 
     const port = await findFreePort();
-    const ledger = await startTestPrivacyRecoveryLedger();
+    ledger = await startTestPrivacyRecoveryLedger();
     const origin = 'http://localhost:3000';
     const api = 'http://127.0.0.1:' + port;
     child = spawn(process.execPath, ['server/index.js'], {
@@ -532,7 +533,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
       [[applicantId, moderatorId]]
     );
     await pool.end();
-    await ledger.close().catch(() => {});
+    if (ledger) await ledger.close().catch(() => {});
     await Promise.all([
       rm(storageRoot, { recursive: true, force: true }),
       rm(tempRoot, { recursive: true, force: true })
