@@ -12,7 +12,7 @@ export function derivePrivacyRecoveryOperationId({ eventType, userId, resourceId
   if (typeof eventType !== 'string' || !/^[a-z][a-z0-9_]{2,80}$/.test(eventType) ||
       typeof userId !== 'string' || !userId ||
       (resourceId !== null && (typeof resourceId !== 'string' || !resourceId)) ||
-      (typeof generation !== 'string' && typeof generation !== 'number') ||
+      (typeof generation !== 'string' && !(typeof generation === 'number' && Number.isSafeInteger(generation))) ||
       String(generation).length === 0 || String(generation).length > 200) {
     throw new TypeError('privacy_recovery_operation_identity_invalid');
   }
