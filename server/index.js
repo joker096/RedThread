@@ -2130,9 +2130,16 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
         }
 
         const unresolvedCheckout = await transactionClient.query(
-          `SELECT status FROM paddle_checkout_attempts
+          `SELECT status, plan FROM paddle_checkout_attempts
             WHERE user_id = $1
-              AND status IN ('creating', 'pending', 'reconciliation_required', 'completed')
+              AND (
+                status IN ('creating', 'pending', 'reconciliation_required')
+                OR (status = 'completed' AND plan <> 'lifetime')
+                OR (status = 'linked' AND plan <> 'lifetime' AND NOT EXISTS (
+                  SELECT 1 FROM users u
+                   WHERE u.id = $1 AND u.paddle_subscription_id IS NOT NULL
+                ))
+              )
             LIMIT 1`,
           [req.authUser.id]
         );
@@ -2140,7 +2147,8 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
           throw new Error('account_deletion_billing_state_changed_retry');
         }
         const currentSubscriptionStatus = String(current.paddle_subscription_status || '').toLowerCase();
-        if (current.paddle_subscription_id ||
+        if ((current.paddle_subscription_id &&
+              !['canceled', 'completed'].includes(currentSubscriptionStatus)) ||
             (currentSubscriptionStatus && !['canceled', 'completed'].includes(currentSubscriptionStatus)) ||
             (current.premium_lifetime !== true && current.premium_until &&
               new Date(current.premium_until).getTime() > Date.now())) {
@@ -2236,6 +2244,17 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     return res.status(204).end();
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (['privacy_recovery_ledger_unavailable', 'privacy_recovery_ledger_ack_required'].includes(error?.message)) {
+      console.error('Privacy recovery Ledger rejected account erasure:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
+    if ([
+      'account_deletion_identity_changed_retry',
+      'account_deletion_billing_state_changed_retry',
+      'identity_l3_media_purge_unavailable'
+    ].includes(error?.message)) {
+      return res.status(409).json({ error: error.message });
+    }
     console.error('Account deletion failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'account_deletion_failed' });
   } finally {
