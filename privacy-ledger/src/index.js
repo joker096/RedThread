@@ -103,6 +103,30 @@ function validEvent(value) {
   return Number.isFinite(Date.parse(value.occurred_at));
 }
 
+
+const SNAPSHOT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const SNAPSHOT_BARRIER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function validSnapshotBarrierRequest(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) &&
+    Object.keys(value).length === 2 &&
+    Object.keys(value).every(key => ["snapshot_id", "barrier_id"].includes(key)) &&
+    typeof value.snapshot_id === "string" && SNAPSHOT_ID_PATTERN.test(value.snapshot_id) &&
+    typeof value.barrier_id === "string" && SNAPSHOT_BARRIER_ID_PATTERN.test(value.barrier_id));
+}
+
+async function signedBarrierProof(env, row) {
+  const proof = {
+    barrier_id: row.barrier_id,
+    snapshot_id: row.snapshot_id,
+    ledger_sequence: row.ledger_sequence,
+    status: row.status,
+    created_at: row.created_at,
+    released_at: row.released_at ?? null
+  };
+  return { ...proof, signature: hex(await signature(env.LEDGER_HMAC_SECRET, JSON.stringify(proof))) };
+}
+
 export async function handleRequest(request, env) {
   if (!env?.LEDGER_DB || !env?.LEDGER_HMAC_SECRET) return json({ error: "ledger_not_configured" }, 503);
   const url = new URL(request.url);
@@ -116,17 +140,32 @@ export async function handleRequest(request, env) {
     if (!validEvent(event)) return json({ error: "invalid_event" }, 400);
     const payloadHash = hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawBody)));
     try {
-      await env.LEDGER_DB.prepare(
+      const inserted = await env.LEDGER_DB.prepare(
         `INSERT INTO privacy_events
           (event_id, schema_version, event_type, subject_ref, resource_ref, occurred_at, received_at, payload_sha256)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?
+          WHERE NOT EXISTS (SELECT 1 FROM privacy_snapshot_barriers WHERE status = 'active')`
       ).bind(
         event.event_id, event.schema_version, event.event_type, event.subject_ref,
         event.resource_ref ?? null, event.occurred_at, new Date().toISOString(), payloadHash
       ).run();
-      const row = await env.LEDGER_DB.prepare("SELECT sequence FROM privacy_events WHERE event_id = ?")
-        .bind(event.event_id).first();
-      return json({ accepted: true, duplicate: false, event_id: event.event_id, sequence: row.sequence }, 201);
+      if (inserted?.meta?.changes === 1) {
+        const row = await env.LEDGER_DB.prepare("SELECT sequence FROM privacy_events WHERE event_id = ?")
+          .bind(event.event_id).first();
+        return json({ accepted: true, duplicate: false, event_id: event.event_id, sequence: row.sequence }, 201);
+      }
+      const existing = await env.LEDGER_DB.prepare(
+        "SELECT sequence, payload_sha256 FROM privacy_events WHERE event_id = ?"
+      ).bind(event.event_id).first();
+      if (existing) {
+        if (existing.payload_sha256 !== payloadHash) return json({ error: "event_id_conflict" }, 409);
+        return json({ accepted: true, duplicate: true, event_id: event.event_id, sequence: existing.sequence }, 200);
+      }
+      const activeBarrier = await env.LEDGER_DB.prepare(
+        "SELECT barrier_id FROM privacy_snapshot_barriers WHERE status = 'active' LIMIT 1"
+      ).first();
+      if (activeBarrier) return json({ error: "snapshot_barrier_active" }, 423);
+      return json({ error: "ledger_write_failed" }, 503);
     } catch (error) {
       const existing = await env.LEDGER_DB.prepare(
         "SELECT sequence, payload_sha256 FROM privacy_events WHERE event_id = ?"
@@ -137,6 +176,75 @@ export async function handleRequest(request, env) {
       }
       return json({ error: "ledger_write_failed" }, 503);
     }
+  }
+
+
+  if (request.method === "POST" && url.pathname === "/v1/snapshot-barriers") {
+    const rawBody = await readBoundedBody(request, MAX_BODY_BYTES);
+    if (rawBody === null) return json({ error: "request_too_large" }, 413);
+    if (!await authenticate(request, env, rawBody)) return json({ error: "unauthorized" }, 401);
+    let input;
+    try { input = JSON.parse(rawBody); } catch { return json({ error: "invalid_json" }, 400); }
+    if (!validSnapshotBarrierRequest(input)) return json({ error: "invalid_snapshot_barrier" }, 400);
+    const createdAt = new Date().toISOString();
+    try {
+      const inserted = await env.LEDGER_DB.prepare(
+        \`INSERT INTO privacy_snapshot_barriers
+           (barrier_id, snapshot_id, status, ledger_sequence, created_at, released_at)
+         SELECT ?, ?, 'active', COALESCE((SELECT MAX(sequence) FROM privacy_events), 0), ?, NULL
+          WHERE NOT EXISTS (SELECT 1 FROM privacy_snapshot_barriers WHERE status = 'active')\`
+      ).bind(input.barrier_id, input.snapshot_id, createdAt).run();
+      const row = await env.LEDGER_DB.prepare(
+        "SELECT barrier_id, snapshot_id, status, ledger_sequence, created_at, released_at FROM privacy_snapshot_barriers WHERE snapshot_id = ?"
+      ).bind(input.snapshot_id).first();
+      if (!row) return json({ error: "snapshot_barrier_conflict" }, 409);
+      if (row.barrier_id !== input.barrier_id || row.status !== "active") {
+        return json({ error: "snapshot_barrier_conflict" }, 409);
+      }
+      const proof = await signedBarrierProof(env, row);
+      return json({ accepted: true, duplicate: inserted?.meta?.changes !== 1, ...proof }, inserted?.meta?.changes === 1 ? 201 : 200);
+    } catch {
+      const active = await env.LEDGER_DB.prepare(
+        "SELECT barrier_id FROM privacy_snapshot_barriers WHERE status = 'active' LIMIT 1"
+      ).first();
+      return active ? json({ error: "snapshot_barrier_already_active" }, 409)
+        : json({ error: "snapshot_barrier_write_failed" }, 503);
+    }
+  }
+
+  const releaseMatch = url.pathname.match(/^\\/v1\\/snapshot-barriers\\/([0-9a-f-]{36})\\/release$/i);
+  if (request.method === "POST" && releaseMatch) {
+    const rawBody = await readBoundedBody(request, MAX_BODY_BYTES);
+    if (rawBody === null) return json({ error: "request_too_large" }, 413);
+    if (!await authenticate(request, env, rawBody)) return json({ error: "unauthorized" }, 401);
+    let input;
+    try { input = JSON.parse(rawBody); } catch { return json({ error: "invalid_json" }, 400); }
+    if (!input || typeof input !== "object" || Array.isArray(input) ||
+        Object.keys(input).length !== 1 || typeof input.snapshot_id !== "string" ||
+        !SNAPSHOT_ID_PATTERN.test(input.snapshot_id)) {
+      return json({ error: "invalid_snapshot_barrier_release" }, 400);
+    }
+    const barrierId = releaseMatch[1];
+    const current = await env.LEDGER_DB.prepare(
+      "SELECT barrier_id, snapshot_id, status, ledger_sequence, created_at, released_at FROM privacy_snapshot_barriers WHERE barrier_id = ?"
+    ).bind(barrierId).first();
+    if (!current) return json({ error: "snapshot_barrier_not_found" }, 404);
+    if (current.snapshot_id !== input.snapshot_id) return json({ error: "snapshot_barrier_identity_conflict" }, 409);
+    let row = current;
+    if (current.status === "active") {
+      const releasedAt = new Date().toISOString();
+      await env.LEDGER_DB.prepare(
+        "UPDATE privacy_snapshot_barriers SET status = 'released', released_at = ? WHERE barrier_id = ? AND snapshot_id = ? AND status = 'active'"
+      ).bind(releasedAt, barrierId, input.snapshot_id).run();
+      row = await env.LEDGER_DB.prepare(
+        "SELECT barrier_id, snapshot_id, status, ledger_sequence, created_at, released_at FROM privacy_snapshot_barriers WHERE barrier_id = ?"
+      ).bind(barrierId).first();
+    }
+    if (!row || row.status !== "released" || !row.released_at) {
+      return json({ error: "snapshot_barrier_release_conflict" }, 409);
+    }
+    const proof = await signedBarrierProof(env, row);
+    return json({ accepted: true, ...proof }, 200);
   }
 
   if (request.method === "GET" && url.pathname === "/v1/events") {
