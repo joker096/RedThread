@@ -19,6 +19,7 @@ import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLo
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
 import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
 import { enqueuePrivacyRecoveryEvent } from './privacyRecoveryOutbox.js';
+import { derivePrivacyRecoveryOperationId, runAckGatedPrivacyRecoveryOperation } from './privacyRecoveryOperations.js';
 import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION, IdentityL3UploadTokenError, issueIdentityL3UploadCapability } from './identityL3UploadTokens.js';
 import { assertIdentityL3StorageReady, assertIdentityL3TemporaryStorageReady, clearIdentityL3TemporaryFiles, deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -6275,109 +6276,117 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
     return res.status(400).json({ error: 'invalid_gift_reference' });
   }
 
-  let client;
   try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-
-    // Only the recipient may withdraw consent. Acquire the same pair lock as
-    // acceptance, blocking, and reporting before taking the order row lock.
-    const pair = await client.query(
-      `SELECT sender_id, recipient_id
+    // This read is deliberately lock-free: no domain locks may be held while
+    // the independent Ledger is contacted. All facts are revalidated in apply().
+    const preflight = await pool.query(
+      `SELECT id, sender_id, recipient_id, status,
+              payment_status AS "paymentStatus",
+              consent_withdrawn_at AS "consentWithdrawnAt",
+              dispatched_at AS "dispatchedAt"
        FROM gift_delivery_orders
        WHERE public_reference = $1 AND recipient_id = $2`,
       [reference, req.authUser.id]
     );
-    if (!pair.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'gift_order_not_available' });
-    }
-
-    // Match account deletion, moderation, and decision lock order so a stale
-    // session cannot mutate consent after either participant becomes inactive.
-    await acquireGiftSafetyUserLocks(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
-    await acquireGiftSafetyPairLock(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
-    const accountStates = await client.query(
-      'SELECT id, status FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR SHARE',
-      [[pair.rows[0].sender_id, pair.rows[0].recipient_id]]
-    );
-    if (accountStates.rowCount !== 2 || accountStates.rows.some(account => account.status !== 'active')) {
-      await client.query('ROLLBACK');
+    const candidate = preflight.rows[0];
+    if (!candidate) return res.status(404).json({ error: 'gift_order_not_available' });
+    if (!evaluateGiftConsentWithdrawalEligibility(candidate).eligible) {
       return res.status(409).json({ error: 'gift_order_not_withdrawable' });
     }
 
-    const selected = await client.query(
-      `SELECT id, status, payment_status AS "paymentStatus",
-              consent_withdrawn_at AS "consentWithdrawnAt", dispatched_at AS "dispatchedAt"
-       FROM gift_delivery_orders
-       WHERE public_reference = $1 AND recipient_id = $2
-       FOR UPDATE`,
-      [reference, req.authUser.id]
-    );
-    const order = selected.rows[0];
-    // Keep endpoint and unit-tested policy gates aligned. Payment transitions
-    // are intentionally not simulated by this endpoint.
-    const withdrawalEligibility = evaluateGiftConsentWithdrawalEligibility(order);
-    if (!withdrawalEligibility.eligible) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
-    }
-
-    try {
-      await enqueuePrivacyRecoveryEvent(client, {
+    const operationId = derivePrivacyRecoveryOperationId({
+      eventType: 'gift_order_consent_withdrawn',
+      userId: req.authUser.id,
+      resourceId: candidate.id,
+      generation: candidate.id
+    });
+    const result = await runAckGatedPrivacyRecoveryOperation({
+      pool,
+      operationId,
+      event: {
         eventType: 'gift_order_consent_withdrawn',
         userId: req.authUser.id,
-        resourceId: order.id
-      });
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('Privacy recovery ledger rejected gift consent withdrawal:', error?.message || 'unknown error');
-      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
-    }
+        resourceId: candidate.id
+      },
+      apply: async client => {
+        // Match account deletion, moderation, and decision lock order. The
+        // preflight participants are checked again after all locks are held.
+        await acquireGiftSafetyUserLocks(client, candidate.sender_id, candidate.recipient_id);
+        await acquireGiftSafetyPairLock(client, candidate.sender_id, candidate.recipient_id);
+        const accountStates = await client.query(
+          'SELECT id, status FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR SHARE',
+          [[candidate.sender_id, candidate.recipient_id]]
+        );
+        if (accountStates.rowCount !== 2 || accountStates.rows.some(account => account.status !== 'active')) {
+          throw new Error('gift_order_not_withdrawable');
+        }
 
-    const updated = await client.query(
-      `UPDATE gift_delivery_orders
-       SET status = 'cancelled',
-           consent_withdrawn_at = statement_timestamp(),
-           address_vault_ref = NULL,
-           address_verified_at = NULL,
-           updated_at = statement_timestamp()
-       WHERE id = $1
-         AND recipient_id = $2
-         AND status IN ('recipient_accepted', 'address_verified')
-         AND consent_withdrawn_at IS NULL
-       RETURNING public_reference`,
-      [order.id, req.authUser.id]
-    );
-    if (updated.rowCount !== 1) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
-    }
+        const selected = await client.query(
+          `SELECT id, sender_id, recipient_id, status,
+                  payment_status AS "paymentStatus",
+                  consent_withdrawn_at AS "consentWithdrawnAt",
+                  dispatched_at AS "dispatchedAt"
+           FROM gift_delivery_orders
+           WHERE public_reference = $1 AND recipient_id = $2
+           FOR UPDATE`,
+          [reference, req.authUser.id]
+        );
+        const order = selected.rows[0];
+        if (!order || order.id !== candidate.id ||
+            order.sender_id !== candidate.sender_id ||
+            order.recipient_id !== candidate.recipient_id ||
+            !evaluateGiftConsentWithdrawalEligibility(order).eligible) {
+          throw new Error('gift_order_not_withdrawable');
+        }
 
-    // Consent withdrawal revokes the encrypted address payload in the same
-    // transaction as the order pointer. Clearing only address_vault_ref would
-    // leave the ciphertext recoverable by a future privileged code path.
-    await revokeGiftAddressVaultEntry(client, {
-      orderId: order.id,
-      recipientUserId: req.authUser.id,
-      actorUserId: req.authUser.id
+        const updated = await client.query(
+          `UPDATE gift_delivery_orders
+           SET status = 'cancelled',
+               consent_withdrawn_at = statement_timestamp(),
+               address_vault_ref = NULL,
+               address_verified_at = NULL,
+               updated_at = statement_timestamp()
+           WHERE id = $1
+             AND recipient_id = $2
+             AND status IN ('recipient_accepted', 'address_verified')
+             AND consent_withdrawn_at IS NULL
+           RETURNING public_reference`,
+          [order.id, req.authUser.id]
+        );
+        if (updated.rowCount !== 1) throw new Error('gift_order_not_withdrawable');
+
+        // Revoke ciphertext in the same transaction as the order pointer.
+        await revokeGiftAddressVaultEntry(client, {
+          orderId: order.id,
+          recipientUserId: req.authUser.id,
+          actorUserId: req.authUser.id
+        });
+
+        await client.query(
+          `INSERT INTO gift_delivery_order_events
+             (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+           VALUES ($1, $2, 'recipient', 'consent_withdrawn', $3, 'cancelled')`,
+          [order.id, req.authUser.id, order.status]
+        );
+        await notifyGiftRequestUpdate(client, candidate.sender_id, updated.rows[0].public_reference, 'consent_withdrawn');
+        return updated.rows[0].public_reference;
+      }
     });
 
-    await client.query(
-      `INSERT INTO gift_delivery_order_events
-         (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
-       VALUES ($1, $2, 'recipient', 'consent_withdrawn', $3, 'cancelled')`,
-      [order.id, req.authUser.id, order.status]
-    );
-    await notifyGiftRequestUpdate(client, pair.rows[0].sender_id, updated.rows[0].public_reference, 'consent_withdrawn');
-    await client.query('COMMIT');
-    return res.json({ order: { id: updated.rows[0].public_reference, status: 'cancelled', consentWithdrawn: true } });
+    return res.json({
+      order: { id: reference, status: 'cancelled', consentWithdrawn: true },
+      duplicate: result.duplicate === true
+    });
   } catch (error) {
-    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.message === 'gift_order_not_withdrawable') {
+      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
+    }
+    if (String(error?.message || '').startsWith('privacy_recovery_ledger_')) {
+      console.error('Privacy recovery Ledger blocked gift consent withdrawal:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
     console.error('Gift consent withdrawal failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_consent_withdrawal_unavailable' });
-  } finally {
-    client?.release();
   }
 });
 
