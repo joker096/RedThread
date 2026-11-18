@@ -30,6 +30,7 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
   const port = await findFreePort();
   const ledgerSecret = 'gift-draft-ledger-test-secret-at-least-32-bytes';
   const ledgerEvents = new Map();
+  const attemptedLedgerEventIds = [];
   let ledgerSequence = 0;
   let rejectLedgerWrites = false;
   const ledgerServer = createHttpServer((request, response) => {
@@ -46,12 +47,13 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
         response.end(JSON.stringify({ error: 'unauthorized' }));
         return;
       }
+      const event = JSON.parse(body);
+      attemptedLedgerEventIds.push(event.event_id);
       if (rejectLedgerWrites) {
         response.writeHead(503, { 'content-type': 'application/json' });
         response.end(JSON.stringify({ error: 'ledger_write_failed' }));
         return;
       }
-      const event = JSON.parse(body);
       const existing = ledgerEvents.get(event.event_id);
       if (existing && existing.body !== body) {
         response.writeHead(409, { 'content-type': 'application/json' });
@@ -247,6 +249,8 @@ test('gift address draft HTTP API is recipient-only, separately consented and en
       { action: 'withdrawn', consent_version: 1 }
     ]);
     assert.equal(ledgerEvents.size, 1);
+    assert.equal(attemptedLedgerEventIds.length, 2);
+    assert.equal(attemptedLedgerEventIds[0], attemptedLedgerEventIds[1], 'Ledger retry must reuse the original event ID');
     const recordedEvent = JSON.parse([...ledgerEvents.values()][0].body);
     assert.equal(recordedEvent.event_type, 'gift_address_draft_consent_withdrawn');
     assert.equal(recordedEvent.resource_ref.length, 64);
