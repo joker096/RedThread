@@ -199,3 +199,137 @@ export async function runAckGatedPrivacyRecoveryOperation({
     }
   });
 }
+
+
+/**
+ * ACK every event in a multi-resource privacy transition before applying any
+ * domain mutation. All domain changes and all applied-state transitions commit
+ * together, so a partial Ledger outage cannot partially erase a resource set.
+ */
+export async function runAckGatedPrivacyRecoveryBatch({
+  pool, operations, apply, env = process.env, fetchImpl = globalThis.fetch, now = Date.now
+}) {
+  if (!pool || typeof pool.connect !== 'function' || typeof apply !== 'function' ||
+      !Array.isArray(operations) || operations.length < 1 || operations.length > 100) {
+    throw new TypeError('privacy_recovery_batch_dependencies_invalid');
+  }
+
+  const seen = new Set();
+  const prepared = [];
+  for (const item of operations) {
+    assertUuid(item?.operationId);
+    if (seen.has(item.operationId) || !item.event || typeof item.event !== 'object') {
+      throw new TypeError('privacy_recovery_batch_operation_invalid');
+    }
+    seen.add(item.operationId);
+    const candidatePayload = createPrivacyRecoveryLedgerPayload({
+      ...item.event,
+      occurredAt: item.event.occurredAt || new Date(now()).toISOString(),
+      eventId: item.operationId
+    }, { env });
+    if (candidatePayload.skipped) throw new Error('privacy_recovery_ledger_ack_required');
+
+    const intent = await persistIntent(pool, item.operationId, candidatePayload);
+    const payload = intent.event_payload;
+    let sequence = Number(intent.ledger_sequence);
+
+    if (intent.status === 'pending') {
+      const acknowledgement = await deliverPrivacyRecoveryLedgerPayload(payload, { env, fetchImpl, now });
+      if (acknowledgement?.acknowledged !== true ||
+          acknowledgement.eventId !== item.operationId ||
+          !Number.isSafeInteger(acknowledgement.sequence) || acknowledgement.sequence < 1) {
+        throw new Error('privacy_recovery_ledger_ack_required');
+      }
+      sequence = acknowledgement.sequence;
+
+      await withClient(pool, async client => {
+        await client.query('BEGIN');
+        try {
+          const locked = await client.query(
+            `SELECT status, ledger_sequence
+               FROM privacy_recovery_operations
+              WHERE operation_id = $1
+              FOR UPDATE`,
+            [item.operationId]
+          );
+          if (locked.rowCount !== 1) throw new Error('privacy_recovery_operation_intent_missing');
+          const current = locked.rows[0];
+          if (current.status === 'pending') {
+            const updated = await client.query(
+              `UPDATE privacy_recovery_operations
+                  SET status = 'acknowledged', ledger_sequence = $2,
+                      acknowledged_at = statement_timestamp(), updated_at = statement_timestamp()
+                WHERE operation_id = $1 AND status = 'pending'`,
+              [item.operationId, acknowledgement.sequence]
+            );
+            if (updated.rowCount !== 1) throw new Error('privacy_recovery_operation_ack_state_conflict');
+          } else if (Number(current.ledger_sequence) !== sequence) {
+            throw new Error('privacy_recovery_operation_ack_sequence_conflict');
+          }
+          await client.query('COMMIT');
+        } catch (error) {
+          await client.query('ROLLBACK').catch(() => {});
+          throw error;
+        }
+      });
+    } else if (intent.status !== 'applied' &&
+        (!Number.isSafeInteger(sequence) || sequence < 1)) {
+      throw new Error('privacy_recovery_operation_ack_sequence_missing');
+    }
+
+    prepared.push({ operationId: item.operationId, sequence });
+  }
+
+  return withClient(pool, async client => {
+    await client.query('BEGIN');
+    try {
+      const ids = prepared.map(item => item.operationId).sort();
+      const locked = await client.query(
+        `SELECT operation_id, status, ledger_sequence
+           FROM privacy_recovery_operations
+          WHERE operation_id = ANY($1::uuid[])
+          ORDER BY operation_id
+          FOR UPDATE`,
+        [ids]
+      );
+      if (locked.rowCount !== ids.length) throw new Error('privacy_recovery_batch_intent_missing');
+      const statuses = locked.rows.map(row => row.status);
+      if (statuses.every(status => status === 'applied')) {
+        await client.query('COMMIT');
+        return {
+          applied: true,
+          duplicate: true,
+          operationIds: ids,
+          sequences: locked.rows.map(row => Number(row.ledger_sequence))
+        };
+      }
+      if (statuses.some(status => status === 'applied') ||
+          statuses.some(status => status !== 'acknowledged')) {
+        throw new Error('privacy_recovery_batch_state_conflict');
+      }
+
+      const result = await apply(client);
+      for (const id of ids) {
+        const updated = await client.query(
+          `UPDATE privacy_recovery_operations
+              SET status = 'applied', applied_at = statement_timestamp(),
+                  updated_at = statement_timestamp()
+            WHERE operation_id = $1 AND status = 'acknowledged'`,
+          [id]
+        );
+        if (updated.rowCount !== 1) throw new Error('privacy_recovery_operation_apply_state_conflict');
+      }
+      await client.query('COMMIT');
+      return {
+        applied: true,
+        duplicate: false,
+        operationIds: ids,
+        sequences: prepared.sort((a, b) => a.operationId.localeCompare(b.operationId)).map(item => item.sequence),
+        result
+      };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    }
+  });
+}
