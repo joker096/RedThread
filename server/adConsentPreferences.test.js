@@ -268,3 +268,20 @@ test('ad-consent lifecycle generation is stable and changes on re-consent', () =
   assert.equal(isSameAdConsentLifecycle(first, { ...first, category_consents: {} }), false);
   assert.throws(() => getAdConsentLifecycleGeneration({ consent_version: 0, updated_at: first.updated_at }), /ad_consent_lifecycle_generation_invalid/);
 });
+
+
+test('ad consent route cannot apply a revocation before Ledger ACK or reuse a stale lifecycle', () => {
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  const start = source.indexOf("app.put('/api/ads/consent'");
+  const end = source.indexOf("app.post('/api/ads/events'", start);
+  assert.ok(start >= 0 && end > start, 'ad consent route boundaries must exist');
+  const route = source.slice(start, end);
+  const preflight = route.indexOf('const preflight = await pool.query');
+  const coordinator = route.indexOf('runAckGatedPrivacyRecoveryOperation({');
+  const mutation = route.indexOf('persistPreferencesAndHistory(transactionClient)');
+  assert.ok(preflight >= 0 && coordinator > preflight && mutation > coordinator);
+  assert.equal(route.includes('enqueuePrivacyRecoveryEvent'), false, 'ad revocation must not use the legacy outbox path');
+  assert.ok(route.includes('isSameAdConsentLifecycle(previous, current)'), 'the exact preflight lifecycle must be revalidated after ACK');
+  assert.ok(route.includes("throw new Error('ad_consent_state_changed_retry')"));
+  assert.ok(route.includes('updated_at::text AS updated_at'), 'PostgreSQL timestamp precision must be retained');
+});
