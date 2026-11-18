@@ -104,7 +104,9 @@ test('coordinated backup bundle restores PostgreSQL and private media from one s
     });
     const bundleDir = path.join(backupRoot, snapshotId);
     const manifest = await readFile(path.join(bundleDir, 'manifest.txt'), 'utf8');
+    assert.ok(manifest.includes('format=vow-backup-bundle-v2'));
     assert.ok(manifest.includes('snapshot_id=' + snapshotId));
+    assert.ok(manifest.includes('snapshot_consistency=best_effort_non_atomic'));
     assert.ok(manifest.includes('postgres_archive=postgres/vow-postgres-' + snapshotId + '.dump.age'));
     assert.ok(manifest.includes('private_media_archive=private-media/vow-private-media-' + snapshotId + '.tar.age'));
     assert.ok((await readFile(path.join(bundleDir, 'manifest.sha256'), 'utf8')).includes('manifest.txt'));
@@ -166,8 +168,9 @@ test('coordinated restore rejects a tampered encrypted artifact before opening s
     await writeFile(postgresPath + '.sha256', postgresDigest + '  ' + postgresName + '\n', { mode: 0o600 });
     await writeFile(mediaPath + '.sha256', mediaDigest + '  ' + mediaName + '\n', { mode: 0o600 });
     const manifest = [
-      'format=vow-backup-bundle-v1',
+      'format=vow-backup-bundle-v2',
       'snapshot_id=tamper_fixture',
+      'snapshot_consistency=best_effort_non_atomic',
       'postgres_archive=postgres/' + postgresName,
       'postgres_sha256=' + postgresDigest,
       'private_media_archive=private-media/' + mediaName,
