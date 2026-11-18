@@ -104,3 +104,29 @@ The ACK-gated operations schema is installed by
 used sequence number 241, which already exists in the base branch for the L3
 replay migration; it was replaced so the new migration follows existing
 migrations 241–243 without a duplicate sequence number.
+
+
+## Multi-resource voice-intro erasure
+
+A batch coordinator, `runAckGatedPrivacyRecoveryBatch`, now supports operations
+that must all be acknowledged before any domain mutation is allowed. It
+persists every immutable intent, obtains and durably stores every individual
+Ledger ACK, then locks all operation rows in stable UUID order. Only when every
+operation is acknowledged does it execute the domain callback and mark every
+operation applied in the same PostgreSQL transaction. A partial Ledger outage
+therefore leaves acknowledged/pending intents resumable and does not partially
+erase the resource set.
+
+The `DELETE /api/profiles/me/voice-intro` route uses this batch for the clip
+erasure event and, when a current consent grant exists, its separate withdrawal
+event. The apply transaction revalidates the exact clip ID/path/creation time
+and consent version/grant/withdrawal timestamps after all ACKs. It then records
+the consent withdrawal event, queues encrypted-file purging, and deletes the
+clip row atomically. Re-consent, clip replacement, or another lifecycle change
+during the ACK round-trip returns `voice_intro_state_changed_retry` rather than
+erasing a newer resource.
+
+The batch coordinator has unit coverage for a partial Ledger outage, retry
+from already-persisted ACKs, all-or-nothing domain apply, and completed-batch
+idempotency. The voice route has structural regression coverage. PostgreSQL
+route-level concurrency tests and full CI/E2E validation remain outstanding.
