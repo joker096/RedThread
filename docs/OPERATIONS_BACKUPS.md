@@ -251,6 +251,8 @@ Regression tests cover symlink and hardlink members, parent traversal, checksum 
 
 Use the bundle wrapper when a database snapshot and its private-media archive must be retained and restored as one named recovery point. It invokes the existing encrypted streaming backup scripts with one shared snapshot ID, then writes a manifest that binds both archive paths and SHA-256 digests. Existing standalone backup commands remain supported.
 
+Use a bundle wrapper only after pausing media uploads, replacements, account-deletion purges and moderation actions that can change media references. The wrapper now requires an explicit operator acknowledgement before it creates a backup directory or reads either source; this is an attestation, not an automated lock, so the operator must keep those writes paused until both archives and checksums are complete. Set `BACKUP_CONFIRM_QUIESCED=I_UNDERSTAND_MEDIA_AND_DATABASE_WRITES_ARE_QUIESCED` in the protected execution environment. The standalone database and media backup scripts do not provide a cross-system consistency guarantee.
+
 Create a bundle from a trusted backup runner:
 
 ```bash
