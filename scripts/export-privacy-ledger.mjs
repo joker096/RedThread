@@ -9,12 +9,12 @@ function hmacHex(secret, value) {
   return createHmac('sha256', secret).update(value, 'utf8').digest('hex');
 }
 
-function validEvent(event) {
+const EVENT_TYPES = new Set([\n  'account_erasure_requested',\n  'voice_intro_consent_withdrawn',\n  'voice_intro_erasure_requested',\n  'private_photo_erasure_requested',\n  'identity_l3_consent_withdrawn',\n  'ad_consent_revoked',\n  'gift_order_consent_withdrawn',\n  'gift_address_draft_consent_withdrawn'\n]);\n\nfunction validEvent(event) {
   if (!event || typeof event !== 'object' || Array.isArray(event)) return false;
   return Number.isSafeInteger(event.sequence) && event.sequence > 0 &&
     typeof event.event_id === 'string' &&
     Number.isSafeInteger(event.schema_version) &&
-    typeof event.event_type === 'string' &&
+    EVENT_TYPES.has(event.event_type) &&
     /^[a-f0-9]{64}$/i.test(event.subject_ref) &&
     (event.resource_ref === null || event.resource_ref === undefined || /^[a-f0-9]{64}$/i.test(event.resource_ref)) &&
     typeof event.occurred_at === 'string' && Number.isFinite(Date.parse(event.occurred_at)) &&
