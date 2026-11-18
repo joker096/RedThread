@@ -967,8 +967,12 @@ test('auth API supports registration, session lookup, logout and login', {
         `/api/gifts/orders/${giftReference}/withdraw-consent`,
         { method: 'POST', headers: { Cookie: giftRecipient.cookie } }
       );
-      assert.equal(repeatedWithdrawal.status, 409,
-        'a second withdrawal must not create another transition or audit event');
+      assert.equal(repeatedWithdrawal.status, 200,
+        'a repeated withdrawal must return the prior completed result without another transition');
+      assert.deepEqual(await repeatedWithdrawal.json(), {
+        order: { id: giftReference, status: 'cancelled', consentWithdrawn: true },
+        duplicate: true
+      });
 
       // Race two recipient requests against a separate order. Row/advisory locks must
       // allow only one transition and exactly one consent-withdrawal audit event.
