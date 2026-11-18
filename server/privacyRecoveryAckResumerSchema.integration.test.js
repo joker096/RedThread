@@ -202,6 +202,7 @@ test('PostgreSQL ACK saga accepts address-draft withdrawal only with its pseudon
   timeout: 15_000
 }, async () => {
   const db = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+  const client = await db.connect();
   const operationId = randomUUID();
   const missingResourceId = randomUUID();
   const payload = {
@@ -213,15 +214,15 @@ test('PostgreSQL ACK saga accepts address-draft withdrawal only with its pseudon
     occurred_at: '2026-11-18T08:00:00.000Z'
   };
   try {
-    await db.query('BEGIN');
-    await db.query(
+    await client.query('BEGIN');
+    await client.query(
       `INSERT INTO privacy_recovery_operations (operation_id, event_id, event_payload)
        VALUES ($1, $1, $2::jsonb)`,
       [operationId, JSON.stringify(payload)]
     );
-    await db.query('SAVEPOINT missing_resource');
+    await client.query('SAVEPOINT missing_resource');
     await assert.rejects(
-      db.query(
+      client.query(
         `INSERT INTO privacy_recovery_operations (operation_id, event_id, event_payload)
          VALUES ($1, $1, $2::jsonb)`,
         [missingResourceId, JSON.stringify({
@@ -230,9 +231,10 @@ test('PostgreSQL ACK saga accepts address-draft withdrawal only with its pseudon
       ),
       error => error.code === '23514'
     );
-    await db.query('ROLLBACK TO SAVEPOINT missing_resource');
-    await db.query('ROLLBACK');
+    await client.query('ROLLBACK TO SAVEPOINT missing_resource');
+    await client.query('ROLLBACK');
   } finally {
+    client.release();
     await db.end();
   }
 });
