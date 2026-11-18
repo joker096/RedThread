@@ -105,6 +105,13 @@ test('snapshot barrier client rejects tampered proof and invalid identifiers', a
     }),
     /invalid_privacy_recovery_snapshot_barrier/
   );
+  await assert.rejects(
+    createPrivacyRecoverySnapshotBarrier({ snapshotId, barrierId }, {
+      env: { ...baseEnv, PRIVACY_RECOVERY_LEDGER_PROOF_PUBLIC_KEY: undefined },
+      fetchImpl: async () => { throw new Error('must not call'); }
+    }),
+    /public_key_not_configured/
+  );
 });
 
 test('required ledger fails closed when configuration is missing', async () => {
