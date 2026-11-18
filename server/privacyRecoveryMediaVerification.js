@@ -34,6 +34,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
   snapshotLedgerSequence,
   throughSequence,
   storageRoots = {
+    restoreRoot: env.RESTORE_DESTINATION,
     photo: env.PHOTO_STORAGE_DIR,
     voice: env.VOICE_INTRO_STORAGE_DIR,
     identityL3: env.IDENTITY_L3_STORAGE_DIR
@@ -225,6 +226,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
     // actual isolated storage roots before allowing restore activation.
     const physicalAbsence = await verifyPhysicalMediaAbsence({
       obligations: obligationRows,
+      effects,
       roots: storageRoots
     });
 
