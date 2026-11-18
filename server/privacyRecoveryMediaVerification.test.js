@@ -1,6 +1,9 @@
-import test from 'node:test';
+import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { verifyPrivateMediaPrivacyRecovery } from './privacyRecoveryMediaVerification.js';
 
 const event = {
@@ -24,12 +27,31 @@ const event = {
   resource_id: '123e4567-e89b-42d3-a456-426614174002',
   purge_count: 1
 };
-const storagePath = '/private/photos/123e4567-e89b-42d3-a456-426614174002.jpg';
-const pathDigest = createHash('sha256').update(storagePath).digest('hex');
+let storagePath;
+let pathDigest;
+let physicalRoot;
+const storageRoots = {};
+before(async () => {
+  physicalRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-physical-purge-'));
+  storageRoots.restoreRoot = physicalRoot;
+  await writeFile(path.join(physicalRoot, '.vow-restore-pending'), 'pending', { mode: 0o600 });
+  for (const key of ['photo', 'voice', 'identityL3', 'identityL3Temp']) {
+    storageRoots[key] = path.join(physicalRoot, key);
+    await mkdir(storageRoots[key], { mode: 0o700 });
+  }
+  storagePath = path.join(storageRoots.photo, event.resource_id + '.jpg');
+  pathDigest = createHash('sha256').update(storagePath).digest('hex');
+});
+after(async () => {
+  if (physicalRoot) await rm(physicalRoot, { recursive: true, force: true });
+});
+
 const isolatedEnv = { NODE_ENV: 'test', PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true', PRIVACY_RECOVERY_RESTORE_DATABASE_NAME: 'vow_restore_test', PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner', PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY' };
 
+function verify(args) { return verifyPrivateMediaPrivacyRecovery({ ...args, storageRoots }); }
+
 function makePool({ receiptRows = [event], obligations = [{
-  ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest
+  ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest, storage_object_id: event.resource_id
 }], queuePaths = [], completionRows = [{ ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest }], remainingPhotos = [], profiles = [{ user_id: event.subject_user_id, photo_urls: [] }], l3ConsentRows = [{ withdrawn_at: new Date('2026-11-18T00:00:00.000Z') }], l3TokenRows = [], l3SubmissionRows = [], l3PurgeJobRows = [] } = {}) {
   const calls = [];
   const client = {
@@ -58,7 +80,7 @@ function makePool({ receiptRows = [event], obligations = [{
 
 test('post-replay verification confirms receipt, deleted metadata, hidden photo URL and completed physical purge receipt', async () => {
   const { pool, calls } = makePool();
-  const result = await verifyPrivateMediaPrivacyRecovery({
+  const result = await verify({
     pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7
   });
   assert.deepEqual(result, {
@@ -69,6 +91,9 @@ test('post-replay verification confirms receipt, deleted metadata, hidden photo 
     verifiedVoiceConsentWithdrawalCount: 0,
     verifiedPurgeObligationCount: 1,
     verifiedPurgeCompletionCount: 1,
+    verifiedPhotoObjectAbsenceCount: 1,
+    verifiedVoiceObjectAbsenceCount: 0,
+    verifiedIdentityL3ObjectAbsenceCount: 0,
     throughSequence: 7
   });
   assert.equal(calls.includes('COMMIT'), true);
@@ -77,7 +102,7 @@ test('post-replay verification confirms receipt, deleted metadata, hidden photo 
 test('verification rejects a partially populated purge obligation set even when the queue is empty', async () => {
   const { pool, calls } = makePool({ obligations: [], queuePaths: [], completionRows: [] });
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    verify({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_purge_obligation_missing/
   );
   assert.equal(calls.includes('ROLLBACK'), true);
@@ -87,7 +112,7 @@ test('verification rejects a partially populated purge obligation set even when 
 test('verification fails closed when a purge obligation has no immutable completion receipt', async () => {
   const { pool, calls } = makePool({ completionRows: [] });
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    verify({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_purge_completion_missing/
   );
   assert.equal(calls.includes('ROLLBACK'), true);
@@ -98,7 +123,7 @@ test('verification fails closed when a purge obligation has no immutable complet
 test('verification refuses activation while a purge obligation remains in the operational queue', async () => {
   const { pool, calls } = makePool({ queuePaths: [storagePath] });
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    verify({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_purge_still_queued/
   );
   assert.equal(calls.includes('ROLLBACK'), true);
@@ -109,22 +134,37 @@ test('verification rejects a missing receipt or changed event digest', async () 
   const missingReceipt = { ...event, event_digest: null, receipt_event_type: null, outcome_code: null };
   const { pool } = makePool({ receiptRows: [missingReceipt] });
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    verify({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_receipt_mismatch/
   );
+});
+
+test('post-replay verification rejects a photo file that remains despite completion receipts', async () => {
+  await writeFile(storagePath, 'synthetic private photo', { mode: 0o600 });
+  const { pool, calls } = makePool();
+  try {
+    await assert.rejects(
+      verify({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+      /privacy_recovery_physical_media_still_exists/
+    );
+    assert.equal(calls.includes('ROLLBACK'), true);
+    assert.equal(calls.includes('COMMIT'), false);
+  } finally {
+    await rm(storagePath, { force: true });
+  }
 });
 
 test('verification rejects remaining photo metadata and stale profile visibility', async () => {
   const { pool: remainingPool } = makePool({ remainingPhotos: [{ id: event.resource_id }] });
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool: remainingPool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    verify({ pool: remainingPool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_photo_metadata_remains/
   );
   const { pool: staleUrlPool } = makePool({
     profiles: [{ user_id: event.subject_user_id, photo_urls: ['/api/photos/' + event.resource_id] }]
   });
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool: staleUrlPool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    verify({ pool: staleUrlPool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_photo_visibility_remains/
   );
 });
@@ -156,21 +196,22 @@ test('L3 verification accepts zero retained media purge obligations', async () =
     profiles: [],
     l3ConsentRows: [{ withdrawn_at: new Date('2026-11-18T00:00:00.000Z') }]
   });
-  const result = await verifyPrivateMediaPrivacyRecovery({
+  const result = await verify({
     pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7
   });
   assert.equal(result.complete, true);
   assert.equal(result.verifiedEventCount, 1);
   assert.equal(result.verifiedPurgeObligationCount, 0);
   assert.equal(result.verifiedPurgeCompletionCount, 0);
+  assert.equal(result.verifiedIdentityL3ObjectAbsenceCount, 0);
   assert.equal(calls.includes('COMMIT'), true);
 });
 
 test('L3 verification accepts multiple purge obligations and matching completion receipts', async () => {
   const l3Event = makeL3Event(2);
   const obligations = [
-    { ledger_sequence: '7', queue_name: 'identity_l3_media', storage_path_sha256: 'c'.repeat(64) },
-    { ledger_sequence: '7', queue_name: 'identity_l3_media', storage_path_sha256: 'd'.repeat(64) }
+    { ledger_sequence: '7', queue_name: 'identity_l3_media', storage_path_sha256: 'c'.repeat(64), storage_object_id: '123e4567-e89b-42d3-a456-426614174003' },
+    { ledger_sequence: '7', queue_name: 'identity_l3_media', storage_path_sha256: 'd'.repeat(64), storage_object_id: '123e4567-e89b-42d3-a456-426614174004' }
   ];
   const { pool, calls } = makePool({
     receiptRows: [l3Event],
@@ -179,19 +220,20 @@ test('L3 verification accepts multiple purge obligations and matching completion
     profiles: [],
     l3ConsentRows: [{ withdrawn_at: new Date('2026-11-18T00:00:00.000Z') }]
   });
-  const result = await verifyPrivateMediaPrivacyRecovery({
+  const result = await verify({
     pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7
   });
   assert.equal(result.complete, true);
   assert.equal(result.verifiedPurgeObligationCount, 2);
   assert.equal(result.verifiedPurgeCompletionCount, 2);
+  assert.equal(result.verifiedIdentityL3ObjectAbsenceCount, 2);
   assert.equal(calls.includes('COMMIT'), true);
 });
 
 test('verification is restricted to explicitly isolated non-production restores', async () => {
   const { pool, calls } = makePool();
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({
+    verify({
       pool, env: { ...isolatedEnv, NODE_ENV: 'production' },
       snapshotLedgerSequence: 6, throughSequence: 7
     }),

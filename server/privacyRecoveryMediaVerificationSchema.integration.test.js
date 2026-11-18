@@ -27,6 +27,17 @@ test('privacy recovery verification evidence is immutable and receipt-bound', {
       'privacy_recovery_replay_effects', 'privacy_recovery_replay_purge_obligations'
     ]));
 
+    const purgeColumns = await client.query(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'privacy_recovery_replay_purge_obligations'`
+    );
+    assert.equal(
+      purgeColumns.rows.some(row => row.column_name === 'storage_object_id'),
+      true,
+      'migration 248 must persist generated object UUIDs for physical absence checks'
+    );
+
     await client.query('BEGIN');
     try {
       await client.query(
@@ -49,13 +60,13 @@ test('privacy recovery verification evidence is immutable and receipt-bound', {
       );
       await client.query(
         `INSERT INTO privacy_recovery_replay_purge_obligations
-           (ledger_sequence, event_id, queue_name, storage_path_sha256)
-         VALUES ($1, $2, 'private_photo', $3)`,
-        [sequence, eventId, storageDigest]
+           (ledger_sequence, event_id, queue_name, storage_path_sha256, storage_object_id)
+         VALUES ($1, $2, 'private_photo', $3, $4)`,
+        [sequence, eventId, storageDigest, resourceId]
       );
 
       const evidence = await client.query(
-        `SELECT x.subject_user_id, x.resource_id, o.storage_path_sha256
+        `SELECT x.subject_user_id, x.resource_id, o.storage_path_sha256, o.storage_object_id
            FROM privacy_recovery_replay_effects x
            JOIN privacy_recovery_replay_purge_obligations o USING (ledger_sequence, event_id)
           WHERE x.ledger_sequence = $1`,
@@ -65,6 +76,7 @@ test('privacy recovery verification evidence is immutable and receipt-bound', {
       assert.equal(evidence.rows[0].subject_user_id, subjectId);
       assert.equal(evidence.rows[0].resource_id, resourceId);
       assert.equal(evidence.rows[0].storage_path_sha256, storageDigest);
+      assert.equal(evidence.rows[0].storage_object_id, resourceId);
 
       await client.query('SAVEPOINT immutable_effect_update');
       await assert.rejects(

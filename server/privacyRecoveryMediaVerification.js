@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
+import { verifyPhysicalMediaAbsence } from './privacyRecoveryPhysicalMediaVerification.js';
 
 const OUTCOMES = Object.freeze({
   private_photo_erasure_requested: ['photo_erasure_queued', 'photos'],
@@ -31,7 +32,14 @@ export async function verifyPrivateMediaPrivacyRecovery({
   pool,
   env = process.env,
   snapshotLedgerSequence,
-  throughSequence
+  throughSequence,
+  storageRoots = {
+    restoreRoot: env.RESTORE_DESTINATION,
+    photo: env.PHOTO_STORAGE_DIR,
+    voice: env.VOICE_INTRO_STORAGE_DIR,
+    identityL3: env.IDENTITY_L3_STORAGE_DIR,
+    identityL3Temp: env.IDENTITY_L3_TEMP_DIR
+  }
 }) {
   assertIsolated(env);
   assertPrivacyRecoveryRestoreTargetConfig(env);
@@ -164,7 +172,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
     }
 
     const obligationsResult = await client.query(
-      `SELECT ledger_sequence, queue_name, storage_path_sha256
+      `SELECT ledger_sequence, queue_name, storage_path_sha256, storage_object_id
          FROM privacy_recovery_replay_purge_obligations
         WHERE ledger_sequence > $1 AND ledger_sequence <= $2`,
       [snapshotLedgerSequence, throughSequence]
@@ -214,6 +222,13 @@ export async function verifyPrivateMediaPrivacyRecovery({
         throw new Error('privacy_recovery_verification_purge_still_queued');
       }
     }
+    // A completion receipt proves that a worker reached its success path; it
+    // does not independently prove that the object is absent now. Scan the
+    // actual isolated storage roots before allowing restore activation.
+    const physicalAbsence = await verifyPhysicalMediaAbsence({
+      obligations: obligationRows,
+      roots: storageRoots
+    });
 
     await client.query('COMMIT');
     open = false;
@@ -225,6 +240,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
       verifiedVoiceConsentWithdrawalCount: consentEffects.length,
       verifiedPurgeObligationCount: obligationRows.length,
       verifiedPurgeCompletionCount: completionRows.length,
+      ...physicalAbsence,
       throughSequence
     };
   } catch (error) {

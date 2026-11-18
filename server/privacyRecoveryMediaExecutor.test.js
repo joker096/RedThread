@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { applyPrivateMediaPrivacyRecoveryEvent } from './privacyRecoveryMediaExecutor.js';
+import { applyPrivateMediaPrivacyRecoveryEvent, extractPrivacyRecoveryPurgeObjectId } from './privacyRecoveryMediaExecutor.js';
 
 const event = {
   ledger_sequence: '42',
@@ -45,6 +45,43 @@ function fakePool({ receipt = null } = {}) {
   };
   return { pool: { async connect() { return client; } }, calls };
 }
+
+
+test('purge obligation object IDs are extracted from generated photo, voice and L3 names', () => {
+  const id = '123e4567-e89b-42d3-a456-426614174099';
+  assert.equal(
+    extractPrivacyRecoveryPurgeObjectId('/restore/photos/' + id + '.jpg', 'private_photo'),
+    id
+  );
+  assert.equal(
+    extractPrivacyRecoveryPurgeObjectId('/restore/photos/' + id + '.png', 'private_photo'),
+    id
+  );
+  assert.equal(
+    extractPrivacyRecoveryPurgeObjectId('/restore/voice/' + id + '.enc', 'private_voice_intro'),
+    id
+  );
+  assert.equal(
+    extractPrivacyRecoveryPurgeObjectId(id, 'identity_l3_media'),
+    id
+  );
+});
+
+test('purge obligation object ID extraction rejects paths that do not match the storage adapter format', () => {
+  const id = '123e4567-e89b-42d3-a456-426614174099';
+  assert.throws(
+    () => extractPrivacyRecoveryPurgeObjectId('/restore/photos/' + id + '.gif', 'private_photo'),
+    /privacy_recovery_purge_object_id_invalid/
+  );
+  assert.throws(
+    () => extractPrivacyRecoveryPurgeObjectId('/restore/voice/' + id + '.wav', 'private_voice_intro'),
+    /privacy_recovery_purge_object_id_invalid/
+  );
+  assert.throws(
+    () => extractPrivacyRecoveryPurgeObjectId('../' + id + '.enc', 'identity_l3_media'),
+    /privacy_recovery_purge_object_id_invalid/
+  );
+});
 
 test('exact replay receipt is idempotent and checked before requiring a resource mapping', async () => {
   const receipt = {

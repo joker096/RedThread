@@ -30,6 +30,30 @@ function digestEvent(row) {
   return createHash('sha256').update(JSON.stringify(canonicalEvent(row))).digest('hex');
 }
 
+export function extractPrivacyRecoveryPurgeObjectId(storagePath, queueName) {
+  if (typeof storagePath !== 'string' || !storagePath) {
+    throw new Error('privacy_recovery_purge_object_id_invalid');
+  }
+  const filename = path.basename(storagePath);
+  let objectId = filename;
+  if (queueName === 'private_photo') {
+    const extension = path.extname(filename).toLowerCase();
+    if (!['.jpg', '.png'].includes(extension)) {
+      throw new Error('privacy_recovery_purge_object_id_invalid');
+    }
+    objectId = filename.slice(0, -extension.length);
+  } else if (queueName === 'private_voice_intro') {
+    if (path.extname(filename).toLowerCase() !== '.enc') {
+      throw new Error('privacy_recovery_purge_object_id_invalid');
+    }
+    objectId = filename.slice(0, -4);
+  } else if (queueName !== 'identity_l3_media') {
+    throw new Error('privacy_recovery_purge_object_id_invalid');
+  }
+  assertUuid(objectId, 'privacy_recovery_purge_object_id_invalid');
+  return objectId.toLowerCase();
+}
+
 function assertUuid(value, code) {
   if (typeof value !== 'string' || !UUID.test(value)) throw new Error(code);
 }
@@ -347,14 +371,17 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
         mapping.sequence,
         mapping.eventId,
         purgeQueueName,
-        createHash('sha256').update(storagePath, 'utf8').digest('hex')
+        createHash('sha256').update(storagePath, 'utf8').digest('hex'),
+        extractPrivacyRecoveryPurgeObjectId(storagePath, purgeQueueName)
       ]);
       await client.query(
         `INSERT INTO privacy_recovery_replay_purge_obligations
-           (ledger_sequence, event_id, queue_name, storage_path_sha256)
-         SELECT item.ledger_sequence, item.event_id, item.queue_name, item.storage_path_sha256
+           (ledger_sequence, event_id, queue_name, storage_path_sha256, storage_object_id)
+         SELECT item.ledger_sequence, item.event_id, item.queue_name,
+                item.storage_path_sha256, item.storage_object_id
            FROM jsonb_to_recordset($1::jsonb) AS item(
-             ledger_sequence BIGINT, event_id UUID, queue_name TEXT, storage_path_sha256 TEXT
+             ledger_sequence BIGINT, event_id UUID, queue_name TEXT,
+             storage_path_sha256 TEXT, storage_object_id UUID
            )`,
         [JSON.stringify(obligations)]
       );
