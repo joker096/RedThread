@@ -278,8 +278,8 @@ test('profile photo erasure is ACK-gated and revalidates the immutable asset set
   const end = source.indexOf("app.post('/api/passes/undo'", start);
   assert.ok(start >= 0 && end > start, 'profile update route boundaries must exist');
   const route = source.slice(start, end);
-  assert.ok(route.includes('const preflight = await pool.query') === false,
-    'profile route must use its explicit photo preflight query rather than a stale transaction lock');
+  assert.ok(route.includes('const preflight = await pool.query'),
+    'photo identities must be read before obtaining the remote Ledger ACK');
   assert.ok(route.includes('expectedRemovedAssets = preflight.rows'));
   assert.ok(route.includes('derivePrivacyRecoveryOperationId({'));
   assert.ok(route.includes('runAckGatedPrivacyRecoveryBatch({'));
