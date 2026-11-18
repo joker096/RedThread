@@ -30,7 +30,7 @@ function digestEvent(row) {
   return createHash('sha256').update(JSON.stringify(canonicalEvent(row))).digest('hex');
 }
 
-function extractPurgeObjectId(storagePath, queueName) {
+export function extractPrivacyRecoveryPurgeObjectId(storagePath, queueName) {
   if (typeof storagePath !== 'string' || !storagePath) {
     throw new Error('privacy_recovery_purge_object_id_invalid');
   }
@@ -363,7 +363,7 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
         mapping.eventId,
         purgeQueueName,
         createHash('sha256').update(storagePath, 'utf8').digest('hex'),
-        extractPurgeObjectId(storagePath, purgeQueueName)
+        extractPrivacyRecoveryPurgeObjectId(storagePath, purgeQueueName)
       ]);
       await client.query(
         `INSERT INTO privacy_recovery_replay_purge_obligations
