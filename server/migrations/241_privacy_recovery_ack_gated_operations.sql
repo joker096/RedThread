@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS privacy_recovery_operations (
   created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
   CHECK (event_id = operation_id),
-  CHECK (event_id::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}
+  CHECK (event_id::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'),
   CHECK (event_payload->>'event_id' = event_id::text),
   CHECK (event_payload->>'schema_version' = '1'),
   CHECK (event_payload->>'event_type' IN (
