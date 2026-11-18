@@ -2274,7 +2274,8 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     return res.status(204).end();
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
-    if (['privacy_recovery_ledger_unavailable', 'privacy_recovery_ledger_ack_required'].includes(error?.message)) {
+    if (String(error?.message || '').startsWith('privacy_recovery_ledger_') ||
+        String(error?.message || '').startsWith('privacy_recovery_operation_')) {
       console.error('Privacy recovery Ledger rejected account erasure:', error?.message || 'unknown error');
       return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
     }
@@ -3721,8 +3722,8 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
     }
     return res.json(outcome);
   } catch (error) {
-    if (error?.message === 'privacy_recovery_ledger_unavailable' ||
-        error?.message === 'privacy_recovery_ledger_ack_required') {
+    if (String(error?.message || '').startsWith('privacy_recovery_ledger_') ||
+        String(error?.message || '').startsWith('privacy_recovery_operation_')) {
       console.error('Privacy recovery Ledger rejected photo erasure:', error?.message || 'unknown error');
       return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
     }
