@@ -94,11 +94,18 @@ test("ledger rejects a declared oversized body before reading its stream", async
 });
 
 async function verifyBarrierProof(proof) {
-  const { signature, ...payload } = proof;
+  const payload = {
+    barrier_id: proof.barrier_id,
+    snapshot_id: proof.snapshot_id,
+    ledger_sequence: proof.ledger_sequence,
+    status: proof.status,
+    created_at: proof.created_at,
+    released_at: proof.released_at ?? null
+  };
   const key = await crypto.subtle.importKey(
     "raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
   );
-  const supplied = Uint8Array.from(signature.match(/.{2}/g), part => Number.parseInt(part, 16));
+  const supplied = Uint8Array.from(proof.signature.match(/.{2}/g), part => Number.parseInt(part, 16));
   return crypto.subtle.verify("HMAC", key, supplied, new TextEncoder().encode(JSON.stringify(payload)));
 }
 
