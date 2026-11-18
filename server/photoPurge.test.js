@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { mkdtemp, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import { privatePhotoPurgeExitCode } from './process-private-photo-purge.js';
 import {
@@ -57,7 +57,7 @@ test('purge worker deletes a file and its queue row transactionally', async () =
   const task = { id: 'task-1', storage_path: validPath, attempts: 0 };
   const client = {
     query: async (sql, params) => {
-      statements.push({ sql: sql.replace(/\s+/g, ' ').trim(), params });
+      statements.push({ sql: sql.replace(/\\s+/g, ' ').trim(), params });
       if (sql.includes('SELECT id, storage_path, attempts')) return { rows: [task], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     },
@@ -87,7 +87,7 @@ test('purge worker retains failed tasks and schedules a retry', async () => {
   const task = { id: 'task-2', storage_path: validPath, attempts: 2 };
   const client = {
     query: async (sql, params) => {
-      statements.push({ sql: sql.replace(/\s+/g, ' ').trim(), params });
+      statements.push({ sql: sql.replace(/\\s+/g, ' ').trim(), params });
       if (sql.includes('SELECT id, storage_path, attempts')) return { rows: [task], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     },
@@ -111,20 +111,28 @@ test('purge worker retains failed tasks and schedules a retry', async () => {
 });
 
 
-test('photo purge runner rejects a symlinked storage root and accepts a real directory', async () => {
+test('photo purge runner rejects symlinked roots and symlinked ancestors', async () => {
   const { runPrivatePhotoPurge } = await import('./process-private-photo-purge.js');
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-photo-purge-'));
   const realRoot = path.join(tempRoot, 'real');
   const linkedRoot = path.join(tempRoot, 'linked');
+  const linkedAncestor = path.join(tempRoot, 'linked-parent');
+  const nestedTarget = path.join(realRoot, 'nested');
+  const nestedThroughLink = path.join(linkedAncestor, 'nested');
   const pool = { query: async () => ({ rows: [] }) };
   try {
-    await (await import('node:fs/promises')).mkdir(realRoot);
+    await mkdir(nestedTarget, { recursive: true });
     await symlink(realRoot, linkedRoot, 'dir');
+    await symlink(realRoot, linkedAncestor, 'dir');
     await assert.rejects(
       runPrivatePhotoPurge({ storageRoot: linkedRoot, pool }),
       /not a real directory/
     );
-    const summary = await runPrivatePhotoPurge({ storageRoot: realRoot, pool });
+    await assert.rejects(
+      runPrivatePhotoPurge({ storageRoot: nestedThroughLink, pool }),
+      /not a real directory/
+    );
+    const summary = await runPrivatePhotoPurge({ storageRoot: nestedTarget, pool });
     assert.deepEqual(summary, { scanned: 0, deleted: 0, retried: 0, failures: 0 });
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
@@ -138,7 +146,6 @@ test('photo purge process exit code reports deletion failures to the scheduler',
   assert.equal(privatePhotoPurgeExitCode({ failures: 4 }), 2);
   assert.equal(privatePhotoPurgeExitCode(undefined), 0);
 });
-
 
 test('photo purge skips a queue row already locked by another worker', async () => {
   const statements = [];
