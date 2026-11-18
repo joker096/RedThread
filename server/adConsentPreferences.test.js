@@ -298,11 +298,11 @@ test('ad-consent revocation persists no database lock across Ledger ACK and reva
   const ack = route.indexOf('runAckGatedPrivacyRecoveryOperation({');
   const callback = route.indexOf('apply: async transactionClient =>');
   const lifecycleCheck = route.indexOf('isSameAdConsentLifecycle(previous, current)');
-  const historyInsert = route.indexOf('INSERT INTO ad_consent_history');
+  const applyCall = route.indexOf('return persistPreferencesAndHistory(transactionClient);');
   assert.ok(preflight >= 0 && ack > preflight && callback > ack && lifecycleCheck > callback,
     'revocation must capture a lock-free snapshot, obtain ACK, then revalidate the same lifecycle');
-  assert.ok(historyInsert > lifecycleCheck,
-    'consent preferences and immutable history must be written only after lifecycle revalidation');
+  assert.ok(applyCall > lifecycleCheck,
+    'the preference/history persistence callback must run only after lifecycle revalidation');
   assert.ok(route.includes('getAdConsentLifecycleGeneration(previous)'));
   assert.ok(route.includes('ad_consent_state_changed_retry'));
   assert.equal(route.includes('enqueuePrivacyRecoveryEvent'), false);
