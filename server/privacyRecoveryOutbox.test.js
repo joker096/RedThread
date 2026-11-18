@@ -55,7 +55,7 @@ test('worker delivers the persisted payload and records the acknowledged sequenc
     })
   };
   const result = await processPrivacyRecoveryOutboxBatch({
-    pool, env, fetchImpl: async () => new Response(JSON.stringify({ accepted: true, sequence: 42 }), { status: 201 })
+    pool, env, fetchImpl: async (_url, options) => { const event = JSON.parse(options.body); return new Response(JSON.stringify({ accepted: true, event_id: event.event_id, sequence: 42 }), { status: 201 }); }
   });
   assert.equal(result.claimed, 1);
   assert.deepEqual(result.results[0], { eventId, acknowledged: true, sequence: 42 });
@@ -119,7 +119,7 @@ test('stale worker cannot acknowledge or reschedule an event after its lease was
   };
   const result = await processPrivacyRecoveryOutboxBatch({
     pool, env,
-    fetchImpl: async () => new Response(JSON.stringify({ accepted: true, sequence: 43 }), { status: 201 })
+    fetchImpl: async (_url, options) => { const event = JSON.parse(options.body); return new Response(JSON.stringify({ accepted: true, event_id: event.event_id, sequence: 43 }), { status: 201 }); }
   });
   assert.equal(result.claimed, 1);
   assert.equal(result.results[0].acknowledged, false);
@@ -206,7 +206,7 @@ test('outbox never persists an arbitrary ledger-prefixed database exception', as
   };
   const result = await processPrivacyRecoveryOutboxBatch({
     pool, env,
-    fetchImpl: async () => new Response(JSON.stringify({ accepted: true, sequence: 44 }), { status: 201 })
+    fetchImpl: async (_url, options) => { const event = JSON.parse(options.body); return new Response(JSON.stringify({ accepted: true, event_id: event.event_id, sequence: 44 }), { status: 201 }); }
   });
   assert.equal(retry.values[2], 'privacy_recovery_delivery_failed');
   assert.equal(result.results[0].error, 'privacy_recovery_delivery_failed');
