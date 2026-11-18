@@ -95,6 +95,17 @@ The worker logs alert markers when any of these conditions are present:
 
 These are operational alert signals, not automatic repair commands. Never delete or manually reset queue rows/leases to silence an alert. Preserve append-only conflict evidence and use the existing reconciliation procedures for financial identity mismatches.
 
+## Webhook event-ID conflict serialization
+
+Webhook enqueue and worker processing share a PostgreSQL advisory lock scoped to the provider event ID. The worker holds the session lock from its final lease/conflict check through domain processing and inbox completion; enqueue takes the matching transaction lock before inserting or recording a delivery.
+
+This defines a deterministic order for a conflicting reuse:
+- If conflicting evidence is committed before the worker enters the processing critical section, the worker quarantines the row and does not apply its payload.
+- If processing already owns the lock, the conflicting delivery waits until the first verified delivery has completed or been durably retried; the conflict is then recorded as later evidence.
+- A worker that has lost its lease or fencing token must not process the payload after acquiring the lock.
+
+The lock is database-local coordination, not a substitute for provider signature verification, transaction-level idempotency, or financial reconciliation. Do not manually clear locks or queue state; PostgreSQL releases session advisory locks when the worker connection closes.
+
 ## Checkout recovery observability and privacy
 
 Checkout recovery metrics are aggregate-only and must never include user IDs, checkout attempt IDs, transaction IDs, email addresses, or provider payloads. Worker outcome logs may contain only the action, bounded reason code, dry-run flag, and page count.

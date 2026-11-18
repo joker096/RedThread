@@ -59,6 +59,12 @@ export async function enqueueVerifiedPaddleWebhook(pool, event) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // Serialize first delivery, duplicate detection, and conflicting-ID evidence
+    // with the worker's event-scoped session lock.
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended('paddle-webhook-event:' || $1::text, 0))",
+      [eventId]
+    );
     const inserted = await client.query(
       `INSERT INTO paddle_webhook_inbox
          (event_id, event_type, occurred_at, payload, payload_sha256, status)
@@ -104,7 +110,7 @@ export async function enqueueVerifiedPaddleWebhook(pool, event) {
           SET status = 'dead_letter', payload = NULL,
               lease_token = NULL, lease_expires_at = NULL,
               last_error_code = 'event_id_payload_conflict'
-        WHERE event_id = $1 AND status IN ('pending', 'retry')`,
+        WHERE event_id = $1 AND status IN ('pending', 'retry', 'processing')`,
       [eventId]
     );
     await client.query('COMMIT');
@@ -222,21 +228,62 @@ export async function processOnePaddleWebhook(pool, processEvent, {
       Object.assign(new Error('missing_paddle_webhook_payload'), { code: 'missing_paddle_webhook_payload' }));
     return { claimed: true, processed: false };
   }
+
+  // Keep an event-scoped session lock from the final lease/conflict check
+  // through domain commit and inbox completion. Enqueue uses the matching
+  // transaction-scoped lock, so a conflicting delivery is either visible
+  // before effects begin or is ordered after this delivery has completed.
+  const lockClient = await pool.connect();
+  let eventLockHeld = false;
   let heartbeatBusy = false;
   let leaseLost = false;
-  const heartbeat = setInterval(async () => {
-    if (heartbeatBusy) return;
-    heartbeatBusy = true;
-    try {
-      if (!await heartbeatPaddleWebhook(pool, job.event_id, job.lease_token, { leaseMs })) leaseLost = true;
-    } catch {
-      // The completion update is still fenced; a failed heartbeat cannot authorize a stale worker.
-    } finally {
-      heartbeatBusy = false;
-    }
-  }, Math.max(10_000, Math.floor(leaseMs / 3)));
-  heartbeat.unref?.();
+  let heartbeat;
   try {
+    await lockClient.query(
+      "SELECT pg_advisory_lock(hashtextextended('paddle-webhook-event:' || $1::text, 0))",
+      [job.event_id]
+    );
+    eventLockHeld = true;
+    const state = await lockClient.query(
+      `SELECT status, lease_token = $2::uuid AS lease_matches,
+              lease_expires_at > statement_timestamp() AS lease_valid,
+              EXISTS (
+                SELECT 1 FROM paddle_webhook_inbox_conflicts
+                 WHERE event_id = $1
+              ) AS has_conflict
+         FROM paddle_webhook_inbox
+        WHERE event_id = $1`,
+      [job.event_id, job.lease_token]
+    );
+    const current = state.rows[0];
+    if (!current || current.status !== 'processing' ||
+        current.lease_matches !== true || current.lease_valid !== true) {
+      return { claimed: true, processed: false, leaseLost: true };
+    }
+    if (current.has_conflict === true) {
+      await lockClient.query(
+        `UPDATE paddle_webhook_inbox
+            SET status = 'dead_letter', payload = NULL,
+                lease_token = NULL, lease_expires_at = NULL,
+                last_error_code = 'event_id_payload_conflict'
+          WHERE event_id = $1 AND status = 'processing' AND lease_token = $2::uuid`,
+        [job.event_id, job.lease_token]
+      );
+      return { claimed: true, processed: false, conflict: true };
+    }
+
+    heartbeat = setInterval(async () => {
+      if (heartbeatBusy) return;
+      heartbeatBusy = true;
+      try {
+        if (!await heartbeatPaddleWebhook(pool, job.event_id, job.lease_token, { leaseMs })) leaseLost = true;
+      } catch {
+        // The completion update is still fenced; a failed heartbeat cannot authorize a stale worker.
+      } finally {
+        heartbeatBusy = false;
+      }
+    }, Math.max(10_000, Math.floor(leaseMs / 3)));
+    heartbeat.unref?.();
     await processEvent(pool, job.payload);
     const completed = await completePaddleWebhook(pool, job.event_id, job.lease_token);
     return { claimed: true, processed: completed, leaseLost: leaseLost || !completed };
@@ -244,6 +291,13 @@ export async function processOnePaddleWebhook(pool, processEvent, {
     const recorded = await failPaddleWebhook(pool, job.event_id, job.lease_token, job.attempt_count, error);
     return { claimed: true, processed: false, retryScheduled: recorded, errorCode: safeErrorCode(error) };
   } finally {
-    clearInterval(heartbeat);
+    if (heartbeat) clearInterval(heartbeat);
+    if (eventLockHeld) {
+      await lockClient.query(
+        "SELECT pg_advisory_unlock(hashtextextended('paddle-webhook-event:' || $1::text, 0))",
+        [job.event_id]
+      ).catch(() => {});
+    }
+    lockClient.release();
   }
 }
