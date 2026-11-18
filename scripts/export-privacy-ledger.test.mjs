@@ -88,3 +88,11 @@ test('export refuses non-HTTPS endpoints and weak authentication secrets', async
     fetchImpl: async () => pageResponse([], 0, 0)
   }), /configuration_invalid/);
 });
+
+test('export rejects event types outside the versioned Ledger contract', async () => {
+  const fetchImpl = async () => pageResponse([event(1, { event_type: 'unknown_privacy_event' })], 1, 1);
+  await assert.rejects(
+    fetchCompleteLedger({ endpoint: 'https://ledger.example.workers.dev', authSecret: secret, fetchImpl }),
+    /sequence_gap/
+  );
+});
