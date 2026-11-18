@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 
 export const PRIVACY_RECOVERY_EVENT_TYPES = Object.freeze([
   'account_erasure_requested',
@@ -129,4 +129,112 @@ export async function appendPrivacyRecoveryEvent(input, options = {}) {
   const event = createPrivacyRecoveryLedgerPayload(input, options);
   if (event.skipped) return event;
   return deliverPrivacyRecoveryLedgerPayload(event, options);
+}
+
+const SNAPSHOT_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+function validateSnapshotBarrierInput(snapshotId, barrierId) {
+  if (typeof snapshotId !== 'string' || !SNAPSHOT_ID.test(snapshotId) || !UUID.test(barrierId || '')) {
+    throw new TypeError('invalid_privacy_recovery_snapshot_barrier');
+  }
+}
+
+function snapshotBarrierProofPayload(proof) {
+  return {
+    barrier_id: proof.barrier_id,
+    snapshot_id: proof.snapshot_id,
+    ledger_sequence: proof.ledger_sequence,
+    status: proof.status,
+    created_at: proof.created_at,
+    released_at: proof.released_at ?? null
+  };
+}
+
+function verifySnapshotBarrierProof(proof, { snapshotId, barrierId, status, authSecret }) {
+  const payload = snapshotBarrierProofPayload(proof);
+  if (payload.snapshot_id !== snapshotId || payload.barrier_id !== barrierId ||
+      payload.status !== status || !Number.isSafeInteger(payload.ledger_sequence) ||
+      payload.ledger_sequence < 0 || !Number.isFinite(Date.parse(payload.created_at)) ||
+      (status === 'active' && payload.released_at !== null) ||
+      (status === 'released' && !Number.isFinite(Date.parse(payload.released_at))) ||
+      !/^[a-f0-9]{64}$/i.test(proof.signature || '')) {
+    throw new Error('privacy_recovery_snapshot_barrier_invalid_proof');
+  }
+  const expected = Buffer.from(hmacHex(authSecret, JSON.stringify(payload)), 'hex');
+  const supplied = Buffer.from(proof.signature, 'hex');
+  if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
+    throw new Error('privacy_recovery_snapshot_barrier_signature_invalid');
+  }
+  return { ...payload, signature: proof.signature };
+}
+
+async function postSnapshotBarrier(path, body, {
+  env = process.env, fetchImpl = globalThis.fetch, now = Date.now
+} = {}) {
+  const endpoint = env.PRIVACY_RECOVERY_LEDGER_URL;
+  const authSecret = env.PRIVACY_RECOVERY_LEDGER_HMAC_SECRET;
+  if (!endpoint || !authSecret || authSecret.length < 32 || typeof fetchImpl !== 'function') {
+    throw new Error('privacy_recovery_ledger_not_configured');
+  }
+  const parsedEndpoint = validateEndpoint(endpoint, env);
+  const rawBody = JSON.stringify(body);
+  const timestamp = String(Math.floor(now() / 1000));
+  let response;
+  try {
+    response = await fetchImpl(new URL(path, parsedEndpoint).toString(), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-ledger-timestamp': timestamp,
+        'x-ledger-signature': hmacHex(authSecret, `${timestamp}.${rawBody}`)
+      },
+      body: rawBody,
+      cache: 'no-store',
+      redirect: 'error',
+      signal: AbortSignal.timeout(5000)
+    });
+  } catch {
+    throw new Error('privacy_recovery_snapshot_barrier_unavailable');
+  }
+  let result;
+  try { result = await response.json(); }
+  catch { throw new Error('privacy_recovery_snapshot_barrier_invalid_response'); }
+  if (!response?.ok || result?.accepted !== true) {
+    const code = typeof result?.error === 'string' ? result.error : 'rejected';
+    throw new Error('privacy_recovery_snapshot_barrier_' + code);
+  }
+  return { result, authSecret };
+}
+
+export async function createPrivacyRecoverySnapshotBarrier({
+  snapshotId, barrierId = randomUUID()
+}, options = {}) {
+  validateSnapshotBarrierInput(snapshotId, barrierId);
+  const { result, authSecret } = await postSnapshotBarrier('/v1/snapshot-barriers', {
+    snapshot_id: snapshotId,
+    barrier_id: barrierId
+  }, options);
+  if (result.duplicate !== undefined && typeof result.duplicate !== 'boolean') {
+    throw new Error('privacy_recovery_snapshot_barrier_invalid_response');
+  }
+  return {
+    ...verifySnapshotBarrierProof(result, {
+      snapshotId, barrierId, status: 'active', authSecret
+    }),
+    duplicate: result.duplicate === true
+  };
+}
+
+export async function releasePrivacyRecoverySnapshotBarrier({
+  snapshotId, barrierId
+}, options = {}) {
+  validateSnapshotBarrierInput(snapshotId, barrierId);
+  const { result, authSecret } = await postSnapshotBarrier(
+    '/v1/snapshot-barriers/' + barrierId + '/release',
+    { snapshot_id: snapshotId },
+    options
+  );
+  return verifySnapshotBarrierProof(result, {
+    snapshotId, barrierId, status: 'released', authSecret
+  });
 }
