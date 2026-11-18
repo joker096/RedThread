@@ -59,7 +59,14 @@ async function persistIntent(pool, operationId, payload) {
             FOR SHARE`,
           [operationId]
         );
-        if (existing.rowCount !== 1 || JSON.stringify(existing.rows[0].event_payload) !== JSON.stringify(payload)) throw new Error('privacy_recovery_operation_id_conflict');
+        if (existing.rowCount !== 1) throw new Error('privacy_recovery_operation_id_conflict');
+        const storedPayload = existing.rows[0].event_payload;
+        const sameIdentity = storedPayload?.event_id === payload.event_id &&
+          storedPayload?.event_type === payload.event_type &&
+          storedPayload?.subject_ref === payload.subject_ref &&
+          (storedPayload?.resource_ref ?? null) === (payload.resource_ref ?? null) &&
+          storedPayload?.schema_version === payload.schema_version;
+        if (!sameIdentity) throw new Error('privacy_recovery_operation_id_conflict');
         intent = existing.rows[0];
       }
       await client.query('COMMIT');
