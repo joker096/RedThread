@@ -42,8 +42,28 @@ BEGIN
     RAISE EXCEPTION 'privacy recovery operation identity and payload are immutable'
       USING ERRCODE = '55000';
   END IF;
+  IF OLD.status = 'pending' AND NEW.status NOT IN ('pending', 'acknowledged') THEN
+    RAISE EXCEPTION 'pending privacy recovery operation must be acknowledged before apply'
+      USING ERRCODE = '55000';
+  END IF;
+  IF OLD.status = 'acknowledged' AND NEW.status NOT IN ('acknowledged', 'applied') THEN
+    RAISE EXCEPTION 'acknowledged privacy recovery operation cannot be downgraded'
+      USING ERRCODE = '55000';
+  END IF;
   IF OLD.status = 'applied' AND NEW.status <> 'applied' THEN
     RAISE EXCEPTION 'applied privacy recovery operation cannot be reopened'
+      USING ERRCODE = '55000';
+  END IF;
+  IF OLD.status <> 'pending' AND (
+    NEW.ledger_sequence IS DISTINCT FROM OLD.ledger_sequence
+    OR NEW.acknowledged_at IS DISTINCT FROM OLD.acknowledged_at
+  ) THEN
+    RAISE EXCEPTION 'privacy recovery ledger acknowledgement is immutable'
+      USING ERRCODE = '55000';
+  END IF;
+  IF OLD.status = 'acknowledged' AND NEW.applied_at IS NOT NULL
+     AND NEW.status <> 'applied' THEN
+    RAISE EXCEPTION 'applied timestamp requires applied state'
       USING ERRCODE = '55000';
   END IF;
   RETURN NEW;
