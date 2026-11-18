@@ -42,6 +42,7 @@ export function createPrivacyRecoveryLedgerPayload({
   eventType, userId, resourceId = null, occurredAt = new Date().toISOString(), eventId = randomUUID()
 }, { env = process.env } = {}) {
   if (!ALLOWED_EVENT_TYPES.has(eventType) || typeof userId !== 'string' || !userId ||
+      (eventType === 'gift_address_draft_consent_withdrawn' && (typeof resourceId !== 'string' || !resourceId)) ||
       (resourceId !== null && (typeof resourceId !== 'string' || !resourceId)) ||
       !UUID.test(eventId) || !Number.isFinite(Date.parse(occurredAt))) {
     throw new TypeError('invalid_privacy_recovery_event');
@@ -73,6 +74,7 @@ export async function deliverPrivacyRecoveryLedgerPayload(event, {
 } = {}) {
   if (!event || !UUID.test(event.event_id || '') || event.schema_version !== 1 ||
       !ALLOWED_EVENT_TYPES.has(event.event_type) ||
+      (event.event_type === 'gift_address_draft_consent_withdrawn' && typeof event.resource_ref !== 'string') ||
       !/^[a-f0-9]{64}$/i.test(event.subject_ref || '') ||
       (event.resource_ref != null && !/^[a-f0-9]{64}$/i.test(event.resource_ref)) ||
       !Number.isFinite(Date.parse(event.occurred_at)) ||
