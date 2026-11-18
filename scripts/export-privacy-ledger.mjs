@@ -18,7 +18,9 @@ const EVENT_TYPES = new Set([
   'ad_consent_revoked',
   'gift_order_consent_withdrawn',
   'gift_address_draft_consent_withdrawn'
-]);\n\nfunction validEvent(event) {
+]);
+
+function validEvent(event) {
   if (!event || typeof event !== 'object' || Array.isArray(event)) return false;
   return Number.isSafeInteger(event.sequence) && event.sequence > 0 &&
     typeof event.event_id === 'string' &&
