@@ -96,3 +96,13 @@ test('export rejects event types outside the versioned Ledger contract', async (
     /sequence_gap/
   );
 });
+
+test('export rejects address-draft withdrawal without its order resource reference', async () => {
+  const fetchImpl = async () => pageResponse([
+    event(1, { event_type: 'gift_address_draft_consent_withdrawn', resource_ref: null })
+  ], 1, 1);
+  await assert.rejects(
+    fetchCompleteLedger({ endpoint: 'https://ledger.example.workers.dev', authSecret: secret, fetchImpl }),
+    /sequence_gap_or_invalid_event/
+  );
+});
