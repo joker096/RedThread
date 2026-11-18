@@ -151,12 +151,17 @@ function snapshotBarrierProofPayload(proof) {
 }
 
 function verifySnapshotBarrierProof(proof, { snapshotId, barrierId, status, authSecret }) {
+  if (!proof || typeof proof !== 'object' || Array.isArray(proof)) {
+    throw new Error('privacy_recovery_snapshot_barrier_invalid_proof');
+  }
   const payload = snapshotBarrierProofPayload(proof);
   if (payload.snapshot_id !== snapshotId || payload.barrier_id !== barrierId ||
       payload.status !== status || !Number.isSafeInteger(payload.ledger_sequence) ||
-      payload.ledger_sequence < 0 || !Number.isFinite(Date.parse(payload.created_at)) ||
+      payload.ledger_sequence < 0 || typeof payload.created_at !== 'string' ||
+      !Number.isFinite(Date.parse(payload.created_at)) || new Date(payload.created_at).toISOString() !== payload.created_at ||
       (status === 'active' && payload.released_at !== null) ||
-      (status === 'released' && !Number.isFinite(Date.parse(payload.released_at))) ||
+      (status === 'released' && (!Number.isFinite(Date.parse(payload.released_at)) ||
+        new Date(payload.released_at).toISOString() !== payload.released_at)) ||
       !/^[a-f0-9]{64}$/i.test(proof.signature || '')) {
     throw new Error('privacy_recovery_snapshot_barrier_invalid_proof');
   }
@@ -214,7 +219,7 @@ export async function createPrivacyRecoverySnapshotBarrier({
     snapshot_id: snapshotId,
     barrier_id: barrierId
   }, options);
-  if (result.duplicate !== undefined && typeof result.duplicate !== 'boolean') {
+  if (typeof result.duplicate !== 'boolean') {
     throw new Error('privacy_recovery_snapshot_barrier_invalid_response');
   }
   return {
