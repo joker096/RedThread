@@ -69,6 +69,12 @@ Fail closed if the manifest, ledger, keys, media snapshot IDs, event pagination,
 
 
 
+
+## Remote Ledger snapshot barrier boundary
+
+The off-host Ledger now has an authenticated, Ed25519-signed append barrier that pins a stable event sequence and rejects new event appends until an authenticated release. The barrier proof can be retained with a future backup bundle and verified with a public key that cannot forge the proof. This protects the remote event sequence only; it does not quiesce Vow API writes, drain ACK-gated operations, settle the transactional outbox, pause media writers, or coordinate PostgreSQL and media capture. A Ledger watermark by itself must never be treated as an atomic snapshot proof. The Vow-side quiesce/drain protocol and a synthetic end-to-end restore/replay/purge drill remain required before generating an activatable v3 bundle.
+
+
 ## Restore activation requires an atomic snapshot barrier
 
 `restore-bundle.sh` now carries the exact checked bundle manifest into the isolated media staging directory as `.vow-backup-manifest` and writes a checksum sidecar. This preserves the bundle's declared consistency class across the restore boundary instead of relying on operator memory or a caller-provided gate alone.

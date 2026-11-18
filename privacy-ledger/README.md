@@ -12,13 +12,19 @@ node --test test/worker.test.js
 
 1. Create a Cloudflare account and a D1 database named `vow-privacy-ledger`.
 2. Replace the placeholder `database_id` in `wrangler.toml`.
-3. For a new D1 database, apply `schema.sql`. For an existing Ledger, apply `migrations/0002_gift_address_draft_consent_event.sql` exactly once before deploying the updated Worker; it rebuilds the append-only table while preserving all existing rows and sequence numbers.
-4. Set `LEDGER_HMAC_SECRET` as a Worker secret (at least 32 random bytes encoded as a high-entropy string). Keep the Vow API's matching secret in its secret manager; never commit it.
-5. Deploy the Worker and verify signed append, duplicate append, conflicting duplicate, authenticated pagination, and append-only trigger behaviour using synthetic events.
-6. Configure a separately escrowed `PRIVACY_LEDGER_PSEUDONYM_KEY` in the Vow API. This is not the request-authentication key.
-7. Only after the Vow API integration and isolated restore drill pass may the ledger be marked as a release prerequisite satisfied.
+3. For a new D1 database, apply `schema.sql`. For an existing Ledger, apply `migrations/0002_gift_address_draft_consent_event.sql` and then `migrations/0003_snapshot_barrier.sql` exactly once before deploying the updated Worker; migration 0002 rebuilds the append-only event table while preserving all existing rows and sequence numbers.
+4. Generate the Ed25519 proof key pair in a trusted key-management environment (not in the repository):
 
-No account, D1 database, Worker, secret, DNS record, custom domain, scheduler, or Production resource is created by this repository scaffold. The API append client is integrated, but do not use this ledger for real user events until the external Worker/D1 has been provisioned, synthetic-event checks pass, and the isolated restore/replay path is complete.
+   ```bash
+   openssl genpkey -algorithm ED25519 -out ledger-proof-private.pem
+   openssl pkey -in ledger-proof-private.pem -outform DER | base64 -w0 > ledger-proof-private.pkcs8.b64
+   openssl pkey -in ledger-proof-private.pem -pubout -outform DER | base64 -w0 > ledger-proof-public.spki.b64
+   ```
+
+5. Set `LEDGER_HMAC_SECRET` and the base64 PKCS#8 DER private key as Worker secrets (`LEDGER_PROOF_PRIVATE_KEY`). Store only the base64 SubjectPublicKeyInfo DER public key as `PRIVACY_RECOVERY_LEDGER_PROOF_PUBLIC_KEY` in the trusted Vow API/backup runner. Keep the private key and authentication secret in their respective secret managers; never commit them.
+6. Deploy the Worker and verify signed append, duplicate append, conflicting duplicate, authenticated pagination, snapshot barrier creation/release, append rejection while active, and append-only trigger behaviour using synthetic events.
+7. Configure a separately escrowed `PRIVACY_LEDGER_PSEUDONYM_KEY` in the Vow API. This is not the request-authentication key.
+8. Only after the Vow API integration and isolated restore drill pass may the ledger be marked as a release prerequisite satisfied.
 
 ## Encrypted off-site export
 
