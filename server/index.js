@@ -6862,29 +6862,80 @@ app.delete('/api/gifts/orders/:publicReference/address-draft', validateRequestOr
   if (typeof reference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(reference)) {
     return res.status(400).json({ error: 'invalid_gift_reference' });
   }
-  let client;
   try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    const locked = await lockGiftAddressDraftOrder(client, {
-      publicReference: reference, recipientUserId: req.authUser.id
+    // Lock-free preflight: capture the exact consent grant lifecycle. The
+    // Ledger request must never run while PostgreSQL row/advisory locks are held.
+    const preflight = await pool.query(
+      `SELECT o.id, o.sender_id, o.recipient_id, c.id AS consent_event_id,
+              c.consent_version AS "consentVersion", c.action
+         FROM gift_delivery_orders o
+         LEFT JOIN LATERAL (
+           SELECT id, consent_version, action
+             FROM gift_address_draft_consent_events
+            WHERE order_id = o.id AND recipient_user_id = o.recipient_id
+            ORDER BY id DESC LIMIT 1
+         ) c ON TRUE
+        WHERE o.public_reference = $1 AND o.recipient_id = $2`,
+      [reference, req.authUser.id]
+    );
+    const candidate = preflight.rows[0];
+    if (!candidate) return res.status(404).json({ error: 'gift_address_draft_not_available' });
+    if (candidate.action !== 'granted') return res.status(204).end();
+
+    const operationId = derivePrivacyRecoveryOperationId({
+      eventType: 'gift_address_draft_consent_withdrawn',
+      userId: req.authUser.id,
+      resourceId: candidate.id,
+      generation: candidate.consent_event_id
     });
-    if (!locked.ok) {
-      await client.query('ROLLBACK');
-      return res.status(locked.status).json({ error: locked.error });
-    }
-    const result = await withdrawGiftAddressDraft(client, {
-      orderId: locked.order.id, recipientUserId: req.authUser.id,
-      actorUserId: req.authUser.id, consentVersion: GIFT_ADDRESS_DRAFT_CONSENT_VERSION
+    await runAckGatedPrivacyRecoveryOperation({
+      pool,
+      operationId,
+      event: {
+        eventType: 'gift_address_draft_consent_withdrawn',
+        userId: req.authUser.id,
+        resourceId: candidate.id
+      },
+      apply: async client => {
+        const locked = await lockGiftAddressDraftOrder(client, {
+          publicReference: reference, recipientUserId: req.authUser.id
+        });
+        if (!locked.ok || locked.order.id !== candidate.id ||
+            locked.order.sender_id !== candidate.sender_id ||
+            locked.order.recipient_id !== candidate.recipient_id) {
+          throw new Error('gift_address_draft_state_changed_retry');
+        }
+        const current = await client.query(
+          `SELECT id, consent_version, action
+             FROM gift_address_draft_consent_events
+            WHERE order_id = $1 AND recipient_user_id = $2
+            ORDER BY id DESC LIMIT 1
+            FOR UPDATE`,
+          [candidate.id, req.authUser.id]
+        );
+        if (current.rows[0]?.id !== candidate.consent_event_id ||
+            current.rows[0]?.action !== 'granted' ||
+            Number(current.rows[0]?.consent_version) !== GIFT_ADDRESS_DRAFT_CONSENT_VERSION) {
+          throw new Error('gift_address_draft_state_changed_retry');
+        }
+        await withdrawGiftAddressDraft(client, {
+          orderId: candidate.id, recipientUserId: req.authUser.id,
+          actorUserId: req.authUser.id, consentVersion: GIFT_ADDRESS_DRAFT_CONSENT_VERSION
+        });
+        return { withdrawn: true };
+      }
     });
-    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
-    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (String(error?.message || '').startsWith('privacy_recovery_ledger_')) {
+      console.error('Privacy recovery Ledger blocked gift address draft withdrawal:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
+    if (error?.message === 'gift_address_draft_state_changed_retry') {
+      return res.status(409).json({ error: 'gift_address_draft_state_changed_retry' });
+    }
     console.error('Gift address draft withdrawal failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_address_draft_withdrawal_unavailable' });
-  } finally {
-    client?.release();
   }
 });
 
