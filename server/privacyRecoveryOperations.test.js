@@ -289,3 +289,25 @@ test('profile photo erasure is ACK-gated and revalidates the immutable asset set
   assert.ok(route.includes('queuePrivatePhotoPurges(transactionClient'));
   assert.ok(route.includes('DELETE FROM photo_assets'));
 });
+
+
+test('account erasure obtains Ledger ACK outside session locks and revalidates before tombstoning', () => {
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  const start = source.indexOf("app.delete('/api/account'");
+  const end = source.indexOf("app.get('/api/billing/status'", start);
+  assert.ok(start >= 0 && end > start, 'account deletion route boundaries must exist');
+  const route = source.slice(start, end);
+  const unlockSafety = route.indexOf("pg_advisory_unlock(hashtext($1))', [safetyLockKey]");
+  const unlockCheckout = route.indexOf("pg_advisory_unlock(hashtext($1))', [checkoutLockKey]");
+  const ledgerAck = route.indexOf('runAckGatedPrivacyRecoveryOperation({');
+  assert.ok(unlockSafety >= 0 && unlockCheckout > unlockSafety && ledgerAck > unlockCheckout,
+    'both session locks must be released before waiting for the remote Ledger ACK');
+  assert.equal(route.includes('enqueuePrivacyRecoveryEvent'), false);
+  assert.ok(route.includes('generation: account.rows[0].account_created_at'));
+  assert.ok(route.includes('account_deletion_identity_changed_retry'));
+  assert.ok(route.includes('account_deletion_billing_state_changed_retry'));
+  assert.ok(route.includes('pg_advisory_xact_lock(hashtext($1))'));
+  assert.ok(route.includes('queuePrivatePhotoPurges(transactionClient'));
+  assert.ok(route.includes('queuePrivateVoiceIntroPurges(transactionClient'));
+  assert.ok(route.includes("SET status = 'deleted'"));
+});
