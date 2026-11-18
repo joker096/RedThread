@@ -272,7 +272,7 @@ export async function processOnePaddleWebhook(pool, processEvent, {
       return { claimed: true, processed: false, conflict: true };
     }
 
-    const heartbeat = setInterval(async () => {
+    heartbeat = setInterval(async () => {
       if (heartbeatBusy) return;
       heartbeatBusy = true;
       try {
