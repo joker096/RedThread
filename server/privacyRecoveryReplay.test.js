@@ -119,3 +119,16 @@ test('stages gift consent withdrawal as an auditable event but rejects unapprove
   }), /archive_invalid/);
   assert.equal(unsupportedClient.calls.length, 0, 'unapproved event types must fail before opening a transaction');
 });
+
+test('stages the new address-draft consent event without granting replay authority', async () => {
+  const client = fakeClient();
+  const result = await stagePrivacyRecoveryEvents(client, {
+    snapshotLedgerSequence: 0,
+    events: [event(1, {
+      event_type: 'gift_address_draft_consent_withdrawn',
+      resource_ref: 'f'.repeat(64)
+    })]
+  });
+  assert.equal(result.stagedCount, 1);
+  assert.equal(client.rows[0].event_type, 'gift_address_draft_consent_withdrawn');
+});
