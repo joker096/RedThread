@@ -885,7 +885,8 @@ function publicUser(row) {
 }
 
 async function requireSession(req, res, next) {
-  const accountDeletionRetry = req.method === 'DELETE' && req.path === '/api/account';
+  const accountDeletionRetry = req.method === 'DELETE' &&
+    String(req.originalUrl || req.url || req.path || '').split('?')[0].replace(/\\/+$/, '') === '/api/account';
   if (!pool) return res.status(503).json({ error: 'database_not_configured' });
 
   const authorization = req.get('authorization');
@@ -1955,7 +1956,8 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     const billingStateResult = await client.query(
       `SELECT paddle_customer_id, paddle_subscription_id, paddle_subscription_status,
               premium_until, premium_lifetime, statement_timestamp() AS billing_snapshot_at
-       FROM users WHERE id = $1 AND status = 'active'`,
+       FROM users WHERE id = $1
+         AND (status = 'active' OR (status = 'suspended' AND deletion_pending_at IS NOT NULL))`,
       [req.authUser.id]
     );
     const billingState = billingStateResult.rows[0];
