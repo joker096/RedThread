@@ -55,6 +55,6 @@ chmod 600 "$BUNDLE_DIR/manifest.txt"
 chmod 600 "$BUNDLE_DIR/manifest.sha256"
 complete=1
 trap - EXIT
-printf 'Created coordinated encrypted Vow backup bundle: %s\n' "$BUNDLE_DIR"
+printf 'Created encrypted Vow backup artifact pair (not an atomic cross-system snapshot): %s\n' "$BUNDLE_DIR"
 printf 'Snapshot ID: %s\n' "$SNAPSHOT_ID"
-printf 'Keep the PostgreSQL and private-media artifacts together; restore only into isolated staging targets.\n'
+printf 'Database and media capture times are not synchronized; restore only into isolated staging and reconcile the privacy Ledger before any release.\n'
