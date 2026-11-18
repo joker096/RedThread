@@ -27,14 +27,12 @@ async function persistIntent(pool, operationId, payload) {
       );
       if (inserted.rowCount !== 1) {
         const existing = await client.query(
-          `SELECT event_payload FROM privacy_recovery_operations
-            WHERE operation_id = $1 FOR SHARE`,
-          [operationId]
+          `SELECT 1 FROM privacy_recovery_operations
+            WHERE operation_id = $1 AND event_payload = $2::jsonb
+            FOR SHARE`,
+          [operationId, JSON.stringify(payload)]
         );
-        if (existing.rowCount !== 1 ||
-            JSON.stringify(existing.rows[0].event_payload) !== JSON.stringify(payload)) {
-          throw new Error('privacy_recovery_operation_id_conflict');
-        }
+        if (existing.rowCount !== 1) throw new Error('privacy_recovery_operation_id_conflict');
       }
       await client.query('COMMIT');
     } catch (error) {
@@ -80,25 +78,21 @@ export async function runAckGatedPrivacyRecoveryOperation({
     throw new Error('privacy_recovery_ledger_ack_required');
   }
 
-  return withClient(pool, async client => {
+  // Persist the ACK in its own transaction. If the subsequent domain
+  // transaction fails, a resumer can continue from acknowledged without
+  // depending on the remote service being available again.
+  await withClient(pool, async client => {
     await client.query('BEGIN');
     try {
       const locked = await client.query(
-        `SELECT status, event_payload, ledger_sequence
+        `SELECT status, ledger_sequence
            FROM privacy_recovery_operations
           WHERE operation_id = $1
           FOR UPDATE`,
         [operationId]
       );
-      if (locked.rowCount !== 1 ||
-          JSON.stringify(locked.rows[0].event_payload) !== JSON.stringify(payload)) {
-        throw new Error('privacy_recovery_operation_intent_missing');
-      }
+      if (locked.rowCount !== 1) throw new Error('privacy_recovery_operation_intent_missing');
       const operation = locked.rows[0];
-      if (operation.status === 'applied') {
-        await client.query('COMMIT');
-        return { operationId, applied: true, duplicate: true, sequence: Number(operation.ledger_sequence) };
-      }
       if (operation.status === 'pending') {
         const updated = await client.query(
           `UPDATE privacy_recovery_operations
@@ -111,22 +105,49 @@ export async function runAckGatedPrivacyRecoveryOperation({
       } else if (Number(operation.ledger_sequence) !== acknowledgement.sequence) {
         throw new Error('privacy_recovery_operation_ack_sequence_conflict');
       }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    }
+  });
+
+  return withClient(pool, async client => {
+    await client.query('BEGIN');
+    try {
+      const locked = await client.query(
+        `SELECT status, ledger_sequence
+           FROM privacy_recovery_operations
+          WHERE operation_id = $1
+          FOR UPDATE`,
+        [operationId]
+      );
+      if (locked.rowCount !== 1) throw new Error('privacy_recovery_operation_intent_missing');
+      const operation = locked.rows[0];
+      if (operation.status === 'applied') {
+        await client.query('COMMIT');
+        return { operationId, applied: true, duplicate: true, sequence: Number(operation.ledger_sequence) };
+      }
+      if (operation.status !== 'acknowledged') {
+        throw new Error('privacy_recovery_operation_ack_required');
+      }
 
       // Route-specific callback performs its mutation here. It must re-check
       // current state because it may have changed while the remote ACK was in flight.
       const result = await apply(client);
-      await client.query(
+      const applied = await client.query(
         `UPDATE privacy_recovery_operations
             SET status = 'applied', applied_at = statement_timestamp(),
                 updated_at = statement_timestamp()
           WHERE operation_id = $1 AND status = 'acknowledged'`,
         [operationId]
       );
+      if (applied.rowCount !== 1) throw new Error('privacy_recovery_operation_apply_state_conflict');
       await client.query('COMMIT');
       return { operationId, applied: true, duplicate: false, sequence: acknowledgement.sequence, result };
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       throw error;
     }
-  });
+  });;
 }
