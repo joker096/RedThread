@@ -113,7 +113,7 @@ test('PostgreSQL ACK resumer leaves live leases alone and recovers expired worke
         WHERE operation_id = $1`,
       [operationId]
     );
-    const recovered = await resumePendingPrivacyRecoveryLedgerAcks({ pool: db, env, fetchImpl });
+    const recovered = await resumePendingPrivacyRecoveryLedgerAcks({ pool: db, env, operationIds: [operationId], fetchImpl });
     assert.deepEqual(recovered, { claimed: 1, acknowledged: 1, deferred: 0, leaseLost: 0 },
       'a worker restart must recover an expired lease using the same immutable event');
     const stored = await db.query(
@@ -173,7 +173,7 @@ test('concurrent PostgreSQL ACK workers cannot claim the same live operation lea
       [operationId, JSON.stringify(payload)]
     );
 
-    const firstWorker = resumePendingPrivacyRecoveryLedgerAcks({ pool: db, env, fetchImpl });
+    const firstWorker = resumePendingPrivacyRecoveryLedgerAcks({ pool: db, env, operationIds: [operationId], fetchImpl });
     await fetchStarted;
     const secondWorker = await resumePendingPrivacyRecoveryLedgerAcks({
       pool: db, env, operationIds: [operationId],
