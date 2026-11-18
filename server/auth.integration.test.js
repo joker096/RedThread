@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { ASSESSMENT_OPTIONS } from './relationshipAssessment.js';
 import { createAccountReuseDigest, hashSessionToken } from './security.js';
+import { startTestPrivacyRecoveryLedger } from './testPrivacyRecoveryLedger.js';
 
 const { Pool } = pg;
 
