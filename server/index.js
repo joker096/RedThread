@@ -897,10 +897,13 @@ async function requireSession(req, res, next) {
   // it as an independent exact-match fallback: adapters and mounted middleware
   // can expose an absolute or rewritten originalUrl while preserving req.path.
   const requestPath = String(req.path || '').split('?')[0];
+  const mountedRequestPath = `${String(req.baseUrl || '').replace(/\\/+$/, '')}/${requestPath.replace(/^\\/+/, '')}`;
   const accountDeletionRetry = req.method === 'DELETE' && (
     req.route?.path === '/api/account' ||
+    (req.baseUrl === '/api' && req.route?.path === '/account') ||
     originalRequestPath === '/api/account' ||
-    requestPath === '/api/account'
+    requestPath === '/api/account' ||
+    mountedRequestPath === '/api/account'
   );
   if (!pool) return res.status(503).json({ error: 'database_not_configured' });
 
