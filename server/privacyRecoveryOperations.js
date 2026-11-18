@@ -46,7 +46,7 @@ async function persistIntent(pool, operationId, payload) {
            (operation_id, event_id, event_payload, status)
          VALUES ($1, $1, $2::jsonb, 'pending')
          ON CONFLICT (operation_id) DO NOTHING
-         RETURNING operation_id, status, ledger_sequence`,
+         RETURNING operation_id, status, ledger_sequence, event_payload`,
         [operationId, JSON.stringify(payload)]
       );
       let intent;
@@ -54,12 +54,12 @@ async function persistIntent(pool, operationId, payload) {
         intent = inserted.rows[0];
       } else {
         const existing = await client.query(
-          `SELECT status, ledger_sequence FROM privacy_recovery_operations
-            WHERE operation_id = $1 AND event_payload = $2::jsonb
+          `SELECT status, ledger_sequence, event_payload FROM privacy_recovery_operations
+            WHERE operation_id = $1
             FOR SHARE`,
-          [operationId, JSON.stringify(payload)]
+          [operationId]
         );
-        if (existing.rowCount !== 1) throw new Error('privacy_recovery_operation_id_conflict');
+        if (existing.rowCount !== 1 || JSON.stringify(existing.rows[0].event_payload) !== JSON.stringify(payload)) throw new Error('privacy_recovery_operation_id_conflict');
         intent = existing.rows[0];
       }
       await client.query('COMMIT');
@@ -86,17 +86,21 @@ export async function runAckGatedPrivacyRecoveryOperation({
     throw new TypeError('privacy_recovery_operation_dependencies_invalid');
   }
   assertUuid(operationId);
-  if (!event || typeof event !== 'object' || !event.occurredAt) {
-    throw new TypeError('privacy_recovery_operation_event_requires_stable_occurred_at');
+  if (!event || typeof event !== 'object') {
+    throw new TypeError('privacy_recovery_operation_event_invalid');
   }
 
-  const payload = createPrivacyRecoveryLedgerPayload({
+  const candidatePayload = createPrivacyRecoveryLedgerPayload({
     ...event,
+    occurredAt: event.occurredAt || new Date(now()).toISOString(),
     eventId: operationId
   }, { env });
-  if (payload.skipped) throw new Error('privacy_recovery_ledger_ack_required');
+  if (candidatePayload.skipped) throw new Error('privacy_recovery_ledger_ack_required');
 
-  const intent = await persistIntent(pool, operationId, payload);
+  // The first committed intent owns occurred_at and the exact payload. Retries
+  // reuse that stored payload even when a later HTTP attempt has a new timestamp.
+  const intent = await persistIntent(pool, operationId, candidatePayload);
+  const payload = intent.event_payload;
   let ledgerSequence = Number(intent.ledger_sequence);
 
   // Only pending intents need a network call. Once an ACK is durably recorded,
