@@ -30,7 +30,7 @@ const isolatedEnv = { NODE_ENV: 'test', PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true
 
 function makePool({ receiptRows = [event], obligations = [{
   ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest
-}], queuePaths = [], completionRows = [{ ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest }], remainingPhotos = [], profiles = [{ user_id: event.subject_user_id, photo_urls: [] }] } = {}) {
+}], queuePaths = [], completionRows = [{ ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest }], remainingPhotos = [], profiles = [{ user_id: event.subject_user_id, photo_urls: [] }], l3ConsentRows = [{ withdrawn_at: new Date('2026-11-18T00:00:00.000Z') }], l3TokenRows = [], l3SubmissionRows = [], l3PurgeJobRows = [] } = {}) {
   const calls = [];
   const client = {
     async query(sql) {
@@ -44,7 +44,10 @@ function makePool({ receiptRows = [event], obligations = [{
       if (sql.includes('FROM privacy_recovery_replay_purge_completions')) return { rows: completionRows };
       if (sql.includes('FROM private_photo_purge_queue')) return { rows: queuePaths.map(storage_path => ({ storage_path })) };
       if (sql.includes('FROM private_voice_intro_purge_queue')) return { rows: [] };
-      if (sql.includes('FROM identity_l3_submissions')) return { rows: [] };
+      if (sql.includes('FROM identity_l3_consents')) return { rows: l3ConsentRows, rowCount: l3ConsentRows.length };
+      if (sql.includes('FROM identity_l3_upload_tokens')) return { rows: l3TokenRows };
+      if (sql.includes('FROM identity_l3_submissions')) return { rows: l3SubmissionRows };
+      if (sql.includes('FROM identity_l3_media_purge_jobs')) return { rows: l3PurgeJobRows };
       if (sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
       throw new Error('unexpected_query');
     },
@@ -124,6 +127,65 @@ test('verification rejects remaining photo metadata and stale profile visibility
     verifyPrivateMediaPrivacyRecovery({ pool: staleUrlPool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_photo_visibility_remains/
   );
+});
+
+function makeL3Event(purgeCount) {
+  const l3Event = {
+    ...event,
+    event_type: 'identity_l3_consent_withdrawn',
+    resource_ref: null,
+    receipt_event_type: 'identity_l3_consent_withdrawn',
+    effect_event_type: 'identity_l3_consent_withdrawn',
+    event_digest: createHash('sha256').update(JSON.stringify([
+      '7', event.event_id, '1', 'identity_l3_consent_withdrawn',
+      event.subject_ref, null, event.occurred_at.toISOString(), event.received_at.toISOString()
+    ])).digest('hex'),
+    outcome_code: 'identity_l3_consent_withdrawn',
+    resource_id: null,
+    purge_count: purgeCount
+  };
+  return l3Event;
+}
+
+test('L3 verification accepts zero retained media purge obligations', async () => {
+  const l3Event = makeL3Event(0);
+  const { pool, calls } = makePool({
+    receiptRows: [l3Event],
+    obligations: [],
+    completionRows: [],
+    profiles: [],
+    l3ConsentRows: [{ withdrawn_at: new Date('2026-11-18T00:00:00.000Z') }]
+  });
+  const result = await verifyPrivateMediaPrivacyRecovery({
+    pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7
+  });
+  assert.equal(result.complete, true);
+  assert.equal(result.verifiedEventCount, 1);
+  assert.equal(result.verifiedPurgeObligationCount, 0);
+  assert.equal(result.verifiedPurgeCompletionCount, 0);
+  assert.equal(calls.includes('COMMIT'), true);
+});
+
+test('L3 verification accepts multiple purge obligations and matching completion receipts', async () => {
+  const l3Event = makeL3Event(2);
+  const obligations = [
+    { ledger_sequence: '7', queue_name: 'identity_l3_media', storage_path_sha256: 'c'.repeat(64) },
+    { ledger_sequence: '7', queue_name: 'identity_l3_media', storage_path_sha256: 'd'.repeat(64) }
+  ];
+  const { pool, calls } = makePool({
+    receiptRows: [l3Event],
+    obligations,
+    completionRows: obligations,
+    profiles: [],
+    l3ConsentRows: [{ withdrawn_at: new Date('2026-11-18T00:00:00.000Z') }]
+  });
+  const result = await verifyPrivateMediaPrivacyRecovery({
+    pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7
+  });
+  assert.equal(result.complete, true);
+  assert.equal(result.verifiedPurgeObligationCount, 2);
+  assert.equal(result.verifiedPurgeCompletionCount, 2);
+  assert.equal(calls.includes('COMMIT'), true);
 });
 
 test('verification is restricted to explicitly isolated non-production restores', async () => {
