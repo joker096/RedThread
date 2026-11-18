@@ -21,14 +21,16 @@ function ledgerIsRequired(env) {
   return env.PRIVACY_RECOVERY_LEDGER_REQUIRED === 'true' || env.NODE_ENV === 'production';
 }
 
-function validateEndpoint(endpoint) {
+function validateEndpoint(endpoint, env = process.env) {
   let parsedEndpoint;
   try {
     parsedEndpoint = new URL(endpoint);
   } catch {
     throw new Error('privacy_recovery_ledger_invalid_url');
   }
-  if (parsedEndpoint.protocol !== 'https:' || parsedEndpoint.pathname !== '/' ||
+  const testLoopbackHttp = env.NODE_ENV === 'test' && parsedEndpoint.protocol === 'http:' &&
+    parsedEndpoint.hostname === '127.0.0.1';
+  if ((parsedEndpoint.protocol !== 'https:' && !testLoopbackHttp) || parsedEndpoint.pathname !== '/' ||
       parsedEndpoint.search || parsedEndpoint.hash || parsedEndpoint.username || parsedEndpoint.password) {
     throw new Error('privacy_recovery_ledger_invalid_url');
   }
@@ -83,7 +85,7 @@ export async function deliverPrivacyRecoveryLedgerPayload(event, {
     throw new Error('privacy_recovery_ledger_not_configured');
   }
   if (typeof fetchImpl !== 'function') throw new Error('privacy_recovery_ledger_not_configured');
-  const parsedEndpoint = validateEndpoint(endpoint);
+  const parsedEndpoint = validateEndpoint(endpoint, env);
   const body = JSON.stringify(event);
   const timestamp = String(Math.floor(now() / 1000));
   const signature = hmacHex(authSecret, `${timestamp}.${body}`);
