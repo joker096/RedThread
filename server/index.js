@@ -890,7 +890,9 @@ async function requireSession(req, res, next) {
   // the route stack. Prefer it, while retaining the normalized request path
   // for compatible middleware/test adapters. Only the exact DELETE endpoint
   // may authenticate a fail-closed deletion retry.
-  const requestPath = String(req.path || req.originalUrl || req.url || '').split('?')[0];
+  // req.path may be router-relative when this middleware is mounted below
+  // /api; originalUrl preserves the full endpoint path used by the retry guard.
+  const requestPath = String(req.originalUrl || req.url || req.path || '').split('?')[0];
   const accountDeletionRetry = req.method === 'DELETE' &&
     (req.route?.path === '/api/account' || requestPath === '/api/account');
   if (!pool) return res.status(503).json({ error: 'database_not_configured' });
