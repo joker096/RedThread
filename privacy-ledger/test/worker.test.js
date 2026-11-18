@@ -93,6 +93,15 @@ test("ledger rejects a declared oversized body before reading its stream", async
   assert.equal(consumed, false);
 });
 
+async function verifyBarrierProof(proof) {
+  const { signature, ...payload } = proof;
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
+  );
+  const supplied = Uint8Array.from(signature.match(/.{2}/g), part => Number.parseInt(part, 16));
+  return crypto.subtle.verify("HMAC", key, supplied, new TextEncoder().encode(JSON.stringify(payload)));
+}
+
 class FakeLedgerDb {
   constructor() { this.rows = []; this.sequence = 0; this.barriers = []; }
   prepare(sql) {
@@ -250,6 +259,163 @@ test("ledger accepts address-draft consent withdrawal events", async () => {
   assert.equal(response.status, 201);
   assert.deepEqual(await response.json(), { accepted: true, duplicate: false, event_id: '123e4567-e89b-42d3-a456-426614174000', sequence: 1 });
   assert.equal(db.rows[0].event_type, "gift_address_draft_consent_withdrawn");
+});
+
+
+test("snapshot barrier pins the current Ledger watermark and blocks new appends", async () => {
+  const db = new FakeLedgerDb();
+  const firstBody = eventPayload();
+  const first = await handleRequest(await signedRequest("POST", "https://ledger.test/v1/events", firstBody), { ...env, LEDGER_DB: db });
+  assert.equal(first.status, 201);
+
+  const barrierId = "123e4567-e89b-42d3-a456-426614174020";
+  const requestBody = JSON.stringify({ snapshot_id: "snapshot-atomic-01", barrier_id: barrierId });
+  const created = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/snapshot-barriers", requestBody),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(created.status, 201);
+  const proof = await created.json();
+  assert.equal(proof.accepted, true);
+  assert.equal(proof.ledger_sequence, 1);
+  assert.equal(proof.status, "active");
+  assert.equal(await verifyBarrierProof(proof), true);
+
+  const blockedBody = eventPayload({
+    event_id: "123e4567-e89b-42d3-b456-426614174021",
+    event_type: "private_photo_erasure_requested"
+  });
+  const blocked = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/events", blockedBody),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(blocked.status, 423);
+  assert.deepEqual(await blocked.json(), { error: "snapshot_barrier_active" });
+  assert.equal(db.rows.length, 1);
+
+  const duplicate = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/events", firstBody),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(duplicate.status, 200);
+  assert.equal((await duplicate.json()).duplicate, true);
+
+  const exportResponse = await handleRequest(
+    await signedRequest("GET", "https://ledger.test/v1/events?after=0&limit=10&through=1"),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(exportResponse.status, 200);
+  const page = await exportResponse.json();
+  assert.equal(page.watermark, 1);
+  assert.equal(page.events.length, 1);
+});
+
+test("snapshot barrier release is authenticated, idempotent and re-enables ordered appends", async () => {
+  const db = new FakeLedgerDb();
+  const barrierId = "123e4567-e89b-42d3-a456-426614174022";
+  const snapshotId = "snapshot-atomic-02";
+  const createBody = JSON.stringify({ snapshot_id: snapshotId, barrier_id: barrierId });
+  const created = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/snapshot-barriers", createBody),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(created.status, 201);
+  const activeProof = await created.json();
+  assert.equal(activeProof.ledger_sequence, 0);
+  assert.equal(await verifyBarrierProof(activeProof), true);
+
+  const releaseBody = JSON.stringify({ snapshot_id: snapshotId });
+  const releaseUrl = "https://ledger.test/v1/snapshot-barriers/" + barrierId + "/release";
+  const released = await handleRequest(
+    await signedRequest("POST", releaseUrl, releaseBody),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(released.status, 200);
+  const releaseProof = await released.json();
+  assert.equal(releaseProof.status, "released");
+  assert.equal(releaseProof.ledger_sequence, 0);
+  assert.equal(typeof releaseProof.released_at, "string");
+  assert.equal(await verifyBarrierProof(releaseProof), true);
+
+  const duplicateRelease = await handleRequest(
+    await signedRequest("POST", releaseUrl, releaseBody),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(duplicateRelease.status, 200);
+  assert.equal((await duplicateRelease.json()).released_at, releaseProof.released_at);
+
+  const nextBody = eventPayload({
+    event_id: "123e4567-e89b-42d3-a456-426614174023",
+    event_type: "private_photo_erasure_requested"
+  });
+  const appended = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/events", nextBody),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(appended.status, 201);
+  assert.equal((await appended.json()).sequence, 1);
+});
+
+test("only one snapshot barrier may be active and a repeated create is idempotent", async () => {
+  const db = new FakeLedgerDb();
+  const firstId = "123e4567-e89b-42d3-a456-426614174024";
+  const firstBody = JSON.stringify({ snapshot_id: "snapshot-one", barrier_id: firstId });
+  const first = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/snapshot-barriers", firstBody),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(first.status, 201);
+  const duplicate = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/snapshot-barriers", firstBody),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(duplicate.status, 200);
+  assert.equal((await duplicate.json()).duplicate, true);
+
+  const secondBody = JSON.stringify({
+    snapshot_id: "snapshot-two",
+    barrier_id: "123e4567-e89b-42d3-a456-426614174025"
+  });
+  const second = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/snapshot-barriers", secondBody),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(second.status, 409);
+  assert.equal((await second.json()).error, "snapshot_barrier_conflict");
+  assert.equal(db.barriers.filter(row => row.status === "active").length, 1);
+});
+
+test("snapshot barrier endpoints reject malformed, unsigned and mismatched requests", async () => {
+  const db = new FakeLedgerDb();
+  const unsigned = await handleRequest(new Request("https://ledger.test/v1/snapshot-barriers", {
+    method: "POST", body: "{}"
+  }), { ...env, LEDGER_DB: db });
+  assert.equal(unsigned.status, 401);
+
+  const malformed = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/snapshot-barriers", JSON.stringify({
+      snapshot_id: "../bad",
+      barrier_id: "not-a-uuid"
+    })),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(malformed.status, 400);
+
+  const barrierId = "123e4567-e89b-42d3-a456-426614174026";
+  const created = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/snapshot-barriers",
+      JSON.stringify({ snapshot_id: "snapshot-three", barrier_id: barrierId })),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(created.status, 201);
+
+  const wrongIdentity = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/snapshot-barriers/" + barrierId + "/release",
+      JSON.stringify({ snapshot_id: "different-snapshot" })),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(wrongIdentity.status, 409);
+  assert.equal(db.barriers[0].status, "active");
 });
 
 test("ledger requires a resource reference for address-draft consent withdrawal", async () => {
