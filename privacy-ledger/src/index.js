@@ -123,14 +123,14 @@ export async function handleRequest(request, env) {
       ).run();
       const row = await env.LEDGER_DB.prepare("SELECT sequence FROM privacy_events WHERE event_id = ?")
         .bind(event.event_id).first();
-      return json({ accepted: true, duplicate: false, sequence: row.sequence }, 201);
+      return json({ accepted: true, duplicate: false, event_id: event.event_id, sequence: row.sequence }, 201);
     } catch (error) {
       const existing = await env.LEDGER_DB.prepare(
         "SELECT sequence, payload_sha256 FROM privacy_events WHERE event_id = ?"
       ).bind(event.event_id).first();
       if (existing) {
         if (existing.payload_sha256 !== payloadHash) return json({ error: "event_id_conflict" }, 409);
-        return json({ accepted: true, duplicate: true, sequence: existing.sequence }, 200);
+        return json({ accepted: true, duplicate: true, event_id: event.event_id, sequence: existing.sequence }, 200);
       }
       return json({ error: "ledger_write_failed" }, 503);
     }
