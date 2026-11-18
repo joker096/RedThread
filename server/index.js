@@ -7308,7 +7308,7 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
     const preflight = await pool.query(
       `SELECT u.id AS active_user_id, p.user_id, p.ads_consent, p.date_offers_consent,
               p.wedding_offers_consent, p.marriage_planning_opt_in,
-              p.category_consents, p.consent_version, p.updated_at
+              p.category_consents, p.consent_version, p.updated_at::text AS updated_at
          FROM users u
          LEFT JOIN ad_consent_preferences p ON p.user_id = u.id
         WHERE u.id = $1 AND u.status = 'active'`,
@@ -7340,7 +7340,7 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
           if (activeAccount.rowCount !== 1) throw new Error('account_not_active');
           const currentResult = await transactionClient.query(
             `SELECT user_id, ads_consent, date_offers_consent, wedding_offers_consent,
-                    marriage_planning_opt_in, category_consents, consent_version, updated_at
+                    marriage_planning_opt_in, category_consents, consent_version, updated_at::text AS updated_at
                FROM ad_consent_preferences WHERE user_id = $1 FOR UPDATE`,
             [userId]
           );
@@ -7373,7 +7373,7 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
     }
     const currentResult = await client.query(
       `SELECT user_id, ads_consent, date_offers_consent, wedding_offers_consent,
-              marriage_planning_opt_in, category_consents, consent_version, updated_at
+              marriage_planning_opt_in, category_consents, consent_version, updated_at::text AS updated_at
          FROM ad_consent_preferences WHERE user_id = $1 FOR UPDATE`,
       [userId]
     );
