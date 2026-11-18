@@ -52,7 +52,9 @@ test('purge destroys a connection when PostgreSQL rollback fails', async () => {
   };
   const pool = { async connect() { return client; } };
   await assert.rejects(() => purgeExpiredGiftAddressDrafts(pool), /purge_statement_failed/);
-  assert.deepEqual(calls, ['BEGIN', 'ROLLBACK']);
+  assert.equal(calls[0], 'BEGIN');
+  assert.match(calls[1], /^WITH due AS/);
+  assert.equal(calls[2], 'ROLLBACK');
   assert.equal(releasedWith?.message, 'rollback_connection_lost',
     'a connection with uncertain transaction state must be destroyed');
 });
