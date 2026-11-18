@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -133,6 +133,15 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
     assert.deepEqual(await readFile(path.join(restoredMedia, 'voice', 'voice-fixture.bin')), voiceFixture);
     assert.equal(await readFile(path.join(restoredMedia, '.vow-restore-pending'), 'utf8'), '',
       'restored media must remain blocked pending privacy reconciliation');
+    const stagedManifest = await readFile(path.join(restoredMedia, '.vow-backup-manifest'), 'utf8');
+    assert.equal(stagedManifest, manifest, 'staging must retain the exact bundle consistency declaration');
+    assert.ok(stagedManifest.includes('snapshot_consistency=best_effort_non_atomic'));
+    assert.ok((await readFile(path.join(restoredMedia, '.vow-backup-manifest.sha256'), 'utf8'))
+      .includes('.vow-backup-manifest'));
+    await assert.rejects(
+      lstat(path.join(restoredMedia, '.vow-snapshot-barrier-proof.json')),
+      { code: 'ENOENT' }
+    );
   } finally {
     if (source) await source.end().catch(() => {});
     if (target) await target.end().catch(() => {});

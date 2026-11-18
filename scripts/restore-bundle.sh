@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-: "${BACKUP_BUNDLE_DIR:?Set BACKUP_BUNDLE_DIR to a coordinated backup bundle directory}"
+: "${BACKUP_BUNDLE_DIR:?Set BACKUP_BUNDLE_DIR to an encrypted backup bundle directory}"
 : "${AGE_IDENTITY_FILE:?Set AGE_IDENTITY_FILE to the age private identity file}"
 : "${RESTORE_DATABASE_URL:?Set RESTORE_DATABASE_URL to a dedicated isolated staging database}"
 : "${RESTORE_CONFIRM_STAGING:?Explicit staging restore confirmation is required}"
@@ -13,6 +13,17 @@ if [[ ! -d "$BACKUP_BUNDLE_DIR" || -L "$BACKUP_BUNDLE_DIR" ]]; then
   exit 1
 fi
 BUNDLE_DIR="$(cd -- "$BACKUP_BUNDLE_DIR" && pwd -P)"
+restore_created=0
+restore_bundle_complete=0
+cleanup_restore_destination() {
+  status=$?
+  trap - EXIT
+  if [[ "$restore_bundle_complete" -ne 1 && "$restore_created" -eq 1 ]]; then
+    rm -rf -- "$RESTORE_DESTINATION"
+  fi
+  exit "$status"
+}
+trap cleanup_restore_destination EXIT
 for file in "$BUNDLE_DIR/manifest.txt" "$BUNDLE_DIR/manifest.sha256" "$AGE_IDENTITY_FILE"; do
   if [[ ! -f "$file" || -L "$file" ]]; then
     echo "bundle manifest and age identity must be regular non-symlink files" >&2
@@ -78,5 +89,26 @@ ARCHIVE_FILE="$POSTGRES_FILE" AGE_IDENTITY_FILE="$AGE_IDENTITY_FILE" \
 ARCHIVE_FILE="$MEDIA_FILE" AGE_IDENTITY_FILE="$AGE_IDENTITY_FILE" \
   RESTORE_DESTINATION="$RESTORE_DESTINATION" \
   bash "$SCRIPT_DIR/restore-private-media.sh"
+restore_created=1
+
+# Preserve the exact bundle declaration in staging. Activation independently
+# rejects legacy/non-atomic snapshots even if a permissive external gate is supplied.
+staging_manifest="$RESTORE_DESTINATION/.vow-backup-manifest"
+staging_manifest_checksum="$RESTORE_DESTINATION/.vow-backup-manifest.sha256"
+if [[ -e "$staging_manifest" || -L "$staging_manifest" ||
+      -e "$staging_manifest_checksum" || -L "$staging_manifest_checksum" ]]; then
+  echo "restore staging already contains backup manifest metadata" >&2
+  exit 1
+fi
+cp -- "$BUNDLE_DIR/manifest.txt" "$staging_manifest"
+chmod 600 "$staging_manifest"
+(cd -- "$RESTORE_DESTINATION" && sha256sum .vow-backup-manifest > .vow-backup-manifest.sha256)
+chmod 600 "$staging_manifest_checksum"
+if [[ -f "$BUNDLE_DIR/snapshot-barrier-proof.json" && ! -L "$BUNDLE_DIR/snapshot-barrier-proof.json" ]]; then
+  cp -- "$BUNDLE_DIR/snapshot-barrier-proof.json" "$RESTORE_DESTINATION/.vow-snapshot-barrier-proof.json"
+  chmod 600 "$RESTORE_DESTINATION/.vow-snapshot-barrier-proof.json"
+fi
+restore_bundle_complete=1
+trap - EXIT
 printf 'Restored backup artifact pair %s (consistency: %s) into isolated staging targets.\n' "$SNAPSHOT_ID" "$SNAPSHOT_CONSISTENCY"
 printf 'Database/media atomicity is not established. Keep both targets isolated until Ledger replay and media verification are complete.\n'

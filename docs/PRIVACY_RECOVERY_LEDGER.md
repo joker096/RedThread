@@ -68,6 +68,22 @@ A restored database and all restored private media remain isolated. Fetch every 
 Fail closed if the manifest, ledger, keys, media snapshot IDs, event pagination, or replay verification is missing or inconsistent. Record the final ledger sequence and a signed restore attestation. Only then may an operator explicitly release the restored environment.
 
 
+
+## Restore activation requires an atomic snapshot barrier
+
+`restore-bundle.sh` now carries the exact checked bundle manifest into the isolated media staging directory as `.vow-backup-manifest` and writes a checksum sidecar. This preserves the bundle's declared consistency class across the restore boundary instead of relying on operator memory or a caller-provided gate alone.
+
+`activate-private-media-restore.sh` refuses activation unless staging contains all of the following:
+- a v3 manifest declaring `snapshot_consistency=atomic`;
+- a numeric `snapshot_ledger_sequence` and UUID `snapshot_barrier_id`;
+- a regular `.vow-snapshot-barrier-proof.json` whose SHA-256 matches the manifest;
+- an intact staging manifest checksum.
+
+Legacy v1 (`legacy_unverified`) and current v2 (`best_effort_non_atomic`) bundles can still be restored into isolated staging for inspection and recovery work, but they cannot be bind-mounted as active private media. The external privacy-recovery gate receives the snapshot ID, Ledger watermark, barrier ID and proof path; it remains responsible for cryptographically validating the barrier proof and completing replay/purge verification. A matching checksum is integrity checking, not proof authenticity.
+
+No v3 bundle generator or coordinated barrier protocol is claimed by this change. Until that protocol is implemented and independently verified, current backups intentionally remain non-activatable. This is a fail-closed safety boundary, not a production-ready snapshot workflow.
+
+
 ## Independent physical-media purge verification
 
 `server/privacyRecoveryMediaVerification.js` now requires a second, read-only filesystem check for every recorded purge obligation before it returns `complete: true`. An immutable PostgreSQL completion receipt is evidence that a purge worker committed its success path; it is not, by itself, evidence that the object is still absent from the restored storage volume.
