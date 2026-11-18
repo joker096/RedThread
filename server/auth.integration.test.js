@@ -1983,7 +1983,7 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(rejectedPhotoRemoval.status, 503,
       'photo metadata and assets must remain unchanged until every erasure event is ACKed');
-    const photoBeforeRetry = await db.query(
+    const photoBeforeRetry = await identityGateDb.query(
       'SELECT p.photo_urls, COUNT(a.id)::int AS asset_count FROM profiles p LEFT JOIN photo_assets a ON a.user_id = p.user_id WHERE p.user_id = $1 GROUP BY p.photo_urls',
       [registered.user.id]
     );
