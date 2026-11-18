@@ -27,18 +27,12 @@ test('physical verifier accepts absent photo, voice and L3 objects under pending
   const photoId = randomUUID();
   const voiceId = randomUUID();
   const l3 = randomUUID();
-  const effects = [
-    { ledger_sequence: '1', resource_id: photoId },
-    { ledger_sequence: '2', resource_id: voiceId },
-    { ledger_sequence: '3', resource_id: null }
-  ];
   const result = await verifyPhysicalMediaAbsence({
     roots,
-    effects,
     obligations: [
-      { ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: sha256('photo-path') },
-      { ledger_sequence: '2', queue_name: 'private_voice_intro', storage_path_sha256: sha256('voice-path') },
-      { ledger_sequence: '3', queue_name: 'identity_l3_media', storage_path_sha256: sha256(l3) }
+      { ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: sha256('photo-path'), storage_object_id: photoId },
+      { ledger_sequence: '2', queue_name: 'private_voice_intro', storage_path_sha256: sha256('voice-path'), storage_object_id: voiceId },
+      { ledger_sequence: '3', queue_name: 'identity_l3_media', storage_path_sha256: sha256(l3), storage_object_id: l3 }
     ]
   });
   assert.deepEqual(result, {
@@ -50,23 +44,21 @@ test('physical verifier accepts absent photo, voice and L3 objects under pending
 
 test('physical verifier rejects a retained object for each media class', async t => {
   const cases = [
-    ['private_photo', 'photo', randomUUID() + '.jpg', id => ({ ledger_sequence: '1', resource_id: id })],
-    ['private_voice_intro', 'voice', randomUUID() + '.enc', id => ({ ledger_sequence: '1', resource_id: id })],
-    ['identity_l3_media', 'identityL3', randomUUID(), () => ({ ledger_sequence: '1', resource_id: null })]
+    ['private_photo', 'photo', randomUUID() + '.jpg'],
+    ['private_voice_intro', 'voice', randomUUID() + '.enc'],
+    ['identity_l3_media', 'identityL3', randomUUID()]
   ];
-  for (const [queue_name, rootKey, name, makeEffect] of cases) {
+  for (const [queue_name, rootKey, name] of cases) {
     await t.test(queue_name, async () => {
       const location = path.join(roots[rootKey], name);
       await writeFile(location, 'synthetic encrypted fixture', { mode: 0o600 });
-      const resourceId = name.replace(/\\.(?:jpg|enc)$/i, '');
-      const effect = makeEffect(resourceId);
+      const objectId = name.replace(/\\.(?:jpg|enc)$/i, '');
       const expectedDigest = queue_name === 'identity_l3_media' ? sha256(name) : sha256('opaque-path-digest');
       try {
         await assert.rejects(
           verifyPhysicalMediaAbsence({
             roots,
-            effects: [effect],
-            obligations: [{ ledger_sequence: '1', queue_name, storage_path_sha256: expectedDigest }]
+            obligations: [{ ledger_sequence: '1', queue_name, storage_path_sha256: expectedDigest, storage_object_id: objectId }]
           }),
           /privacy_recovery_physical_media_still_exists/
         );
@@ -81,8 +73,7 @@ test('physical verifier fails closed when the pending restore marker or a storag
   await assert.rejects(
     verifyPhysicalMediaAbsence({
       roots: { ...roots, restoreRoot: path.join(root, 'missing') },
-      effects: [{ ledger_sequence: '1', resource_id: randomUUID() }],
-      obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'a'.repeat(64) }]
+      obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'a'.repeat(64), storage_object_id: randomUUID() }]
     }),
     /privacy_recovery_physical_restore_root_unavailable/
   );
@@ -90,7 +81,7 @@ test('physical verifier fails closed when the pending restore marker or a storag
     verifyPhysicalMediaAbsence({
       roots: { ...roots, voice: path.join(root, 'missing') },
       effects: [{ ledger_sequence: '1', resource_id: randomUUID() }],
-      obligations: [{ ledger_sequence: '1', queue_name: 'private_voice_intro', storage_path_sha256: 'b'.repeat(64) }]
+      obligations: [{ ledger_sequence: '1', queue_name: 'private_voice_intro', storage_path_sha256: 'b'.repeat(64), storage_object_id: randomUUID() }]
     }),
     /privacy_recovery_physical_voice_storage_unavailable/
   );
@@ -98,7 +89,7 @@ test('physical verifier fails closed when the pending restore marker or a storag
     verifyPhysicalMediaAbsence({
       roots: { ...roots, photo: '' },
       effects: [{ ledger_sequence: '1', resource_id: randomUUID() }],
-      obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'c'.repeat(64) }]
+      obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'c'.repeat(64), storage_object_id: randomUUID() }]
     }),
     /privacy_recovery_physical_photo_root_required/
   );
@@ -111,7 +102,7 @@ test('physical verifier rejects storage roots outside the isolated restore tree'
       verifyPhysicalMediaAbsence({
         roots: { ...roots, photo: outside },
         effects: [{ ledger_sequence: '1', resource_id: randomUUID() }],
-        obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'd'.repeat(64) }]
+        obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'd'.repeat(64), storage_object_id: randomUUID() }]
       }),
       /privacy_recovery_physical_photo_root_outside_restore/
     );
@@ -124,8 +115,7 @@ test('physical verifier rejects malformed obligation metadata and missing replay
   await assert.rejects(
     verifyPhysicalMediaAbsence({
       roots,
-      effects: [],
-      obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'not-a-digest' }]
+      obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'not-a-digest', storage_object_id: randomUUID() }]
     }),
     /privacy_recovery_physical_obligation_invalid/
   );
