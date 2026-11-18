@@ -276,6 +276,21 @@ test("ledger accepts address-draft consent withdrawal events", async () => {
 });
 
 
+test("snapshot barrier fails closed when the asymmetric proof key is not configured", async () => {
+  const db = new FakeLedgerDb();
+  const response = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/snapshot-barriers",
+      JSON.stringify({
+        snapshot_id: "snapshot-no-proof-key",
+        barrier_id: "123e4567-e89b-42d3-a456-426614174029"
+      })),
+    { LEDGER_HMAC_SECRET: secret, LEDGER_DB: db }
+  );
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error, "snapshot_barrier_proof_key_not_configured");
+  assert.equal(db.barriers.length, 0);
+});
+
 test("snapshot barrier pins the current Ledger watermark and blocks new appends", async () => {
   const db = new FakeLedgerDb();
   const firstBody = eventPayload();
