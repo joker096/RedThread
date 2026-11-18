@@ -912,7 +912,9 @@ async function requireSession(req, res, next) {
         [hashMobileToken(mobileToken, 'access')]
       );
       const mobileUser = mobileResult.rows[0];
-      if (!mobileUser || mobileUser.status !== 'active' || (mobileUser.deletion_pending_at && !accountDeletionRetry)) {
+      const pendingDeletionRetry = accountDeletionRetry && mobileUser?.status === 'suspended' && Boolean(mobileUser.deletion_pending_at);
+      if (!mobileUser || (mobileUser.status !== 'active' && !pendingDeletionRetry) ||
+          (mobileUser.deletion_pending_at && !accountDeletionRetry)) {
         return res.status(401).json({ error: 'not_authenticated' });
       }
       if (emailVerificationRequired && !mobileUser.email_verified_at) {
@@ -943,7 +945,9 @@ async function requireSession(req, res, next) {
       [hashSessionToken(token)]
     );
     const user = result.rows[0];
-    if (!user || user.status !== 'active' || (user.deletion_pending_at && !accountDeletionRetry)) {
+    const pendingDeletionRetry = accountDeletionRetry && user?.status === 'suspended' && Boolean(user.deletion_pending_at);
+    if (!user || (user.status !== 'active' && !pendingDeletionRetry) ||
+        (user.deletion_pending_at && !accountDeletionRetry)) {
       clearSessionCookie(res);
       return res.status(401).json({ error: 'not_authenticated' });
     }
@@ -1906,7 +1910,8 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     const account = await client.query(
       `SELECT u.password_hash, u.email, u.created_at::text AS account_created_at
        FROM users u
-       WHERE u.id = $1 AND u.status = 'active'
+       WHERE u.id = $1
+         AND (u.status = 'active' OR (u.status = 'suspended' AND u.deletion_pending_at IS NOT NULL))
          AND (
            ( $3 = 'mobile' AND EXISTS (
              SELECT 1 FROM mobile_sessions ms
@@ -2088,9 +2093,11 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     // ACK is pending; only DELETE /api/account may retry the same lifecycle.
     const pendingDeletion = await client.query(
       `UPDATE users
-          SET deletion_pending_at = COALESCE(deletion_pending_at, statement_timestamp()),
+          SET status = 'suspended',
+              deletion_pending_at = COALESCE(deletion_pending_at, statement_timestamp()),
               updated_at = statement_timestamp()
-        WHERE id = $1 AND status = 'active'
+        WHERE id = $1
+          AND (status = 'active' OR (status = 'suspended' AND deletion_pending_at IS NOT NULL))
         RETURNING id`,
       [req.authUser.id]
     );
@@ -2140,7 +2147,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
         const currentReuseDigest = current?.email
           ? createAccountReuseDigest(current.email, process.env.ACCOUNT_REUSE_HMAC_KEY)
           : null;
-        if (!current || current.status !== 'active' || !current.deletion_pending_at ||
+        if (!current || current.status !== 'suspended' || !current.deletion_pending_at ||
             current.account_created_at !== account.rows[0].account_created_at ||
             currentReuseDigest !== accountReuseDigest) {
           throw new Error('account_deletion_identity_changed_retry');
