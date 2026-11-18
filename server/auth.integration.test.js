@@ -1902,6 +1902,12 @@ test('auth API supports registration, session lookup, logout and login', {
       categoryConsents: {}
     }, 'a separate account must not read another account\'s consent preferences');
 
+    identityGateDb = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 8_000,
+      query_timeout: 10_000
+    });
     const revocationPayload = {
       adsConsent: false,
       dateOffersConsent: true,
@@ -1917,7 +1923,7 @@ test('auth API supports registration, session lookup, logout and login', {
     });
     assert.equal(rejectedAdRevocation.status, 503,
       'advertising consent must remain unchanged when the independent Ledger rejects the revocation');
-    const consentBeforeRetry = await db.query(
+    const consentBeforeRetry = await identityGateDb.query(
       'SELECT ads_consent, date_offers_consent, wedding_offers_consent, marriage_planning_opt_in FROM ad_consent_preferences WHERE user_id = $1',
       [registered.user.id]
     );
@@ -2067,12 +2073,6 @@ test('auth API supports registration, session lookup, logout and login', {
       // The lock client was already released by the transaction cleanup above.
       await photoRaceDb.end();
     }
-    identityGateDb = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      connectionTimeoutMillis: 5_000,
-      statement_timeout: 8_000,
-      query_timeout: 10_000
-    });
     const weeklyQuotaIndexes = await identityGateDb.query(
       `SELECT indexname FROM pg_indexes
        WHERE schemaname = current_schema() AND tablename = 'matches'
