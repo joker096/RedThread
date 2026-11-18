@@ -10,6 +10,7 @@ import path from 'node:path';
 import pg from 'pg';
 import { createSessionToken, hashSessionToken } from './security.js';
 import { runIdentityL3PurgeOnce } from './process-identity-l3-queue.js';
+import { startTestPrivacyRecoveryLedger } from './testPrivacyRecoveryLedger.js';
 
 const { Pool } = pg;
 
@@ -149,6 +150,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     );
 
     const port = await findFreePort();
+    const ledger = await startTestPrivacyRecoveryLedger();
     const origin = 'http://localhost:3000';
     const api = 'http://127.0.0.1:' + port;
     child = spawn(process.execPath, ['server/index.js'], {
@@ -157,6 +159,10 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
         API_PORT: String(port),
         APP_ORIGIN: origin,
         NODE_ENV: 'test',
+        PRIVACY_RECOVERY_LEDGER_REQUIRED: 'true',
+        PRIVACY_RECOVERY_LEDGER_URL: ledger.url,
+        PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: 'test-ledger-hmac-secret-'.padEnd(40, 'x'),
+        PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: 'test-ledger-pseudonym-key-'.padEnd(40, 'y'),
         EMAIL_VERIFICATION_REQUIRED: 'false',
         IDENTITY_L3_ENABLED: 'true',
         IDENTITY_L3_STORAGE_DIR: storageRoot,
@@ -526,6 +532,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
       [[applicantId, moderatorId]]
     );
     await pool.end();
+    await ledger.close().catch(() => {});
     await Promise.all([
       rm(storageRoot, { recursive: true, force: true }),
       rm(tempRoot, { recursive: true, force: true })
