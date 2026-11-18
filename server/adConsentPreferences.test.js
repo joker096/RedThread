@@ -4,6 +4,9 @@ import { readFileSync } from 'node:fs';
 import {
   AD_CONSENT_CATEGORIES,
   AD_CONSENT_VERSION,
+  getAdConsentLifecycleGeneration,
+  hasAdConsentRevocation,
+  isSameAdConsentLifecycle,
   normalizeAdConsentPreferences,
   serializeAdConsentPreferences
 } from './adConsentPreferences.js';
@@ -219,4 +222,48 @@ test('persisted consent from an older policy version fails closed', () => {
     marriagePlanningOptIn: false,
     categoryConsents: {}
   });
+});
+
+
+test('revocation detection covers master, dependent, and category consent withdrawals', () => {
+  const previous = {
+    ads_consent: true,
+    date_offers_consent: true,
+    wedding_offers_consent: true,
+    marriage_planning_opt_in: true,
+    category_consents: { fashion: true, travel: true }
+  };
+  assert.equal(hasAdConsentRevocation(previous, {
+    adsConsent: true, dateOffersConsent: false, weddingOffersConsent: true,
+    marriagePlanningOptIn: true, categoryConsents: { fashion: true, travel: true }
+  }), true);
+  assert.equal(hasAdConsentRevocation(previous, {
+    adsConsent: true, dateOffersConsent: true, weddingOffersConsent: true,
+    marriagePlanningOptIn: true, categoryConsents: { fashion: true }
+  }), true);
+  assert.equal(hasAdConsentRevocation(previous, {
+    adsConsent: true, dateOffersConsent: true, weddingOffersConsent: true,
+    marriagePlanningOptIn: true, categoryConsents: { fashion: true, travel: true }
+  }), false);
+  assert.equal(hasAdConsentRevocation(null, {
+    adsConsent: false, dateOffersConsent: false, weddingOffersConsent: false,
+    marriagePlanningOptIn: false, categoryConsents: {}
+  }), false);
+});
+
+test('ad-consent lifecycle generation is stable and changes on re-consent', () => {
+  const first = {
+    consent_version: 1,
+    updated_at: '2026-11-18T08:00:00.000Z',
+    ads_consent: true,
+    date_offers_consent: true,
+    wedding_offers_consent: false,
+    marriage_planning_opt_in: false,
+    category_consents: { travel: true }
+  };
+  assert.equal(getAdConsentLifecycleGeneration(first), '1:2026-11-18T08:00:00.000Z');
+  assert.equal(isSameAdConsentLifecycle(first, { ...first, updated_at: new Date(first.updated_at) }), true);
+  assert.equal(isSameAdConsentLifecycle(first, { ...first, updated_at: '2026-11-18T08:01:00.000Z' }), false);
+  assert.equal(isSameAdConsentLifecycle(first, { ...first, category_consents: {} }), false);
+  assert.throws(() => getAdConsentLifecycleGeneration({ consent_version: 0, updated_at: first.updated_at }), /ad_consent_lifecycle_generation_invalid/);
 });
