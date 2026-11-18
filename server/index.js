@@ -7334,7 +7334,7 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
           // Reacquire locks only after the ACK. A re-consent or any other update
           // during the network round-trip makes this operation non-applicable.
           const activeAccount = await transactionClient.query(
-            "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE',
+            'SELECT id FROM users WHERE id = $1 AND status = \'active\' FOR SHARE',
             [userId]
           );
           if (activeAccount.rowCount !== 1) throw new Error('account_not_active');
