@@ -220,5 +220,8 @@ test("ledger requires a resource reference for address-draft consent withdrawal"
   const body = eventPayload({ event_type: "gift_address_draft_consent_withdrawn" });
   const response = await handleRequest(await signedRequest("POST", "https://ledger.test/v1/events", body), { ...env, LEDGER_DB: db });
   assert.equal(response.status, 400);
+  const nullResource = eventPayload({ event_type: "gift_address_draft_consent_withdrawn", resource_ref: null });
+  const nullResponse = await handleRequest(await signedRequest("POST", "https://ledger.test/v1/events", nullResource), { ...env, LEDGER_DB: db });
+  assert.equal(nullResponse.status, 400, "null resource references must fail at ingress too");
   assert.deepEqual(db.rows, []);
 });
