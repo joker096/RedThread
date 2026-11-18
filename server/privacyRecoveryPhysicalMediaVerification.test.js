@@ -10,7 +10,8 @@ let root;
 let roots;
 before(async () => {
   root = await mkdtemp(path.join(os.tmpdir(), 'vow-physical-check-'));
-  roots = {};
+  roots = { restoreRoot: root };
+  await writeFile(path.join(root, '.vow-restore-pending'), 'pending', { mode: 0o600 });
   for (const key of ['photo', 'voice', 'identityL3']) {
     roots[key] = path.join(root, key);
     await mkdir(roots[key], { mode: 0o700 });
@@ -22,16 +23,22 @@ after(async () => {
 
 const sha256 = value => createHash('sha256').update(value, 'utf8').digest('hex');
 
-test('physical verifier accepts absent photo, voice and L3 objects', async () => {
-  const photo = path.join(roots.photo, randomUUID() + '.jpg');
-  const voice = path.join(roots.voice, randomUUID() + '.enc');
+test('physical verifier accepts absent photo, voice and L3 objects under pending staging', async () => {
+  const photoId = randomUUID();
+  const voiceId = randomUUID();
   const l3 = randomUUID();
+  const effects = [
+    { ledger_sequence: '1', resource_id: photoId },
+    { ledger_sequence: '2', resource_id: voiceId },
+    { ledger_sequence: '3', resource_id: null }
+  ];
   const result = await verifyPhysicalMediaAbsence({
     roots,
+    effects,
     obligations: [
-      { queue_name: 'private_photo', storage_path_sha256: sha256(photo) },
-      { queue_name: 'private_voice_intro', storage_path_sha256: sha256(voice) },
-      { queue_name: 'identity_l3_media', storage_path_sha256: sha256(l3) }
+      { ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: sha256('photo-path') },
+      { ledger_sequence: '2', queue_name: 'private_voice_intro', storage_path_sha256: sha256('voice-path') },
+      { ledger_sequence: '3', queue_name: 'identity_l3_media', storage_path_sha256: sha256(l3) }
     ]
   });
   assert.deepEqual(result, {
@@ -43,50 +50,91 @@ test('physical verifier accepts absent photo, voice and L3 objects', async () =>
 
 test('physical verifier rejects a retained object for each media class', async t => {
   const cases = [
-    ['private_photo', 'photo', randomUUID() + '.jpg', value => path.join(roots.photo, value)],
-    ['private_voice_intro', 'voice', randomUUID() + '.enc', value => path.join(roots.voice, value)],
-    ['identity_l3_media', 'identityL3', randomUUID(), value => value]
+    ['private_photo', 'photo', randomUUID() + '.jpg', id => ({ ledger_sequence: '1', resource_id: id })],
+    ['private_voice_intro', 'voice', randomUUID() + '.enc', id => ({ ledger_sequence: '1', resource_id: id })],
+    ['identity_l3_media', 'identityL3', randomUUID(), () => ({ ledger_sequence: '1', resource_id: null })]
   ];
-  for (const [queue_name, rootKey, name, hashValue] of cases) {
+  for (const [queue_name, rootKey, name, makeEffect] of cases) {
     await t.test(queue_name, async () => {
       const location = path.join(roots[rootKey], name);
       await writeFile(location, 'synthetic encrypted fixture', { mode: 0o600 });
-      const value = hashValue(name);
-      await assert.rejects(
-        verifyPhysicalMediaAbsence({
-          roots,
-          obligations: [{ queue_name, storage_path_sha256: sha256(value) }]
-        }),
-        /privacy_recovery_physical_media_still_exists/
-      );
-      await rm(location, { force: true });
+      const resourceId = name.replace(/\\.(?:jpg|enc)$/i, '');
+      const effect = makeEffect(resourceId);
+      const expectedDigest = queue_name === 'identity_l3_media' ? sha256(name) : sha256('opaque-path-digest');
+      try {
+        await assert.rejects(
+          verifyPhysicalMediaAbsence({
+            roots,
+            effects: [effect],
+            obligations: [{ ledger_sequence: '1', queue_name, storage_path_sha256: expectedDigest }]
+          }),
+          /privacy_recovery_physical_media_still_exists/
+        );
+      } finally {
+        await rm(location, { force: true });
+      }
     });
   }
 });
 
-test('physical verifier fails closed when a required storage root is missing or unsafe', async () => {
+test('physical verifier fails closed when the pending restore marker or a storage root is missing', async () => {
+  await assert.rejects(
+    verifyPhysicalMediaAbsence({
+      roots: { ...roots, restoreRoot: path.join(root, 'missing') },
+      effects: [{ ledger_sequence: '1', resource_id: randomUUID() }],
+      obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'a'.repeat(64) }]
+    }),
+    /privacy_recovery_physical_restore_root_unavailable/
+  );
   await assert.rejects(
     verifyPhysicalMediaAbsence({
       roots: { ...roots, voice: path.join(root, 'missing') },
-      obligations: [{ queue_name: 'private_voice_intro', storage_path_sha256: 'a'.repeat(64) }]
+      effects: [{ ledger_sequence: '1', resource_id: randomUUID() }],
+      obligations: [{ ledger_sequence: '1', queue_name: 'private_voice_intro', storage_path_sha256: 'b'.repeat(64) }]
     }),
     /privacy_recovery_physical_voice_storage_unavailable/
   );
   await assert.rejects(
     verifyPhysicalMediaAbsence({
       roots: { ...roots, photo: '' },
-      obligations: [{ queue_name: 'private_photo', storage_path_sha256: 'b'.repeat(64) }]
+      effects: [{ ledger_sequence: '1', resource_id: randomUUID() }],
+      obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'c'.repeat(64) }]
     }),
     /privacy_recovery_physical_photo_root_required/
   );
 });
 
-test('physical verifier rejects malformed obligation metadata', async () => {
+test('physical verifier rejects storage roots outside the isolated restore tree', async () => {
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'vow-outside-'));
+  try {
+    await assert.rejects(
+      verifyPhysicalMediaAbsence({
+        roots: { ...roots, photo: outside },
+        effects: [{ ledger_sequence: '1', resource_id: randomUUID() }],
+        obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'd'.repeat(64) }]
+      }),
+      /privacy_recovery_physical_photo_root_outside_restore/
+    );
+  } finally {
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test('physical verifier rejects malformed obligation metadata and missing replay effects', async () => {
   await assert.rejects(
     verifyPhysicalMediaAbsence({
       roots,
-      obligations: [{ queue_name: 'private_photo', storage_path_sha256: 'not-a-digest' }]
+      effects: [],
+      obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'not-a-digest' }]
     }),
     /privacy_recovery_physical_obligation_invalid/
+  );
+  await assert.rejects(
+    verifyPhysicalMediaAbsence({
+      roots,
+      effects: [],
+      obligations: [{ ledger_sequence: '1', queue_name: 'private_photo', storage_path_sha256: 'e'.repeat(64) }]
+    }),
+    /privacy_recovery_physical_effect_missing/
   );
 });
