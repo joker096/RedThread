@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { lstat, unlink } from 'node:fs/promises';
+import { lstat, realpath, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
@@ -9,6 +9,31 @@ const { Pool } = pg;
 
 export function privatePhotoPurgeExitCode(summary) {
   return Number(summary?.failures || 0) > 0 ? 2 : 0;
+}
+
+export async function assertPrivatePhotoStorageRoot(storageRoot) {
+  if (typeof storageRoot !== 'string' || storageRoot.trim() === '') {
+    throw new Error('private photo storage root is not a real directory');
+  }
+  const resolvedRoot = path.resolve(storageRoot);
+  const parsed = path.parse(resolvedRoot);
+  const segments = resolvedRoot.slice(parsed.root.length).split(path.sep).filter(Boolean);
+  let current = parsed.root;
+  const rootInfo = await lstat(current);
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
+    throw new Error('private photo storage root is not a real directory');
+  }
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    const info = await lstat(current);
+    if (!info.isDirectory() || info.isSymbolicLink()) {
+      throw new Error('private photo storage root is not a real directory');
+    }
+  }
+  if (await realpath(resolvedRoot) !== resolvedRoot) {
+    throw new Error('private photo storage root is not a real directory');
+  }
+  return resolvedRoot;
 }
 
 export async function runPrivatePhotoPurge({
@@ -25,11 +50,7 @@ export async function runPrivatePhotoPurge({
     ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: true } : undefined
   });
   try {
-    const resolvedStorageRoot = path.resolve(storageRoot);
-    const rootInfo = await lstat(resolvedStorageRoot);
-    if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
-      throw new Error('private photo storage root is not a real directory');
-    }
+    const resolvedStorageRoot = await assertPrivatePhotoStorageRoot(storageRoot);
     return await processPrivatePhotoPurgeBatch(pool, {
       storageRoot: resolvedStorageRoot,
       batchSize,
