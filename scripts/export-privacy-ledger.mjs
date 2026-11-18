@@ -9,7 +9,16 @@ function hmacHex(secret, value) {
   return createHmac('sha256', secret).update(value, 'utf8').digest('hex');
 }
 
-const EVENT_TYPES = new Set([\n  'account_erasure_requested',\n  'voice_intro_consent_withdrawn',\n  'voice_intro_erasure_requested',\n  'private_photo_erasure_requested',\n  'identity_l3_consent_withdrawn',\n  'ad_consent_revoked',\n  'gift_order_consent_withdrawn',\n  'gift_address_draft_consent_withdrawn'\n]);\n\nfunction validEvent(event) {
+const EVENT_TYPES = new Set([
+  'account_erasure_requested',
+  'voice_intro_consent_withdrawn',
+  'voice_intro_erasure_requested',
+  'private_photo_erasure_requested',
+  'identity_l3_consent_withdrawn',
+  'ad_consent_revoked',
+  'gift_order_consent_withdrawn',
+  'gift_address_draft_consent_withdrawn'
+]);\n\nfunction validEvent(event) {
   if (!event || typeof event !== 'object' || Array.isArray(event)) return false;
   return Number.isSafeInteger(event.sequence) && event.sequence > 0 &&
     typeof event.event_id === 'string' &&
