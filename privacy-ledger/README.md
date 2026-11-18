@@ -12,13 +12,23 @@ node --test test/worker.test.js
 
 1. Create a Cloudflare account and a D1 database named `vow-privacy-ledger`.
 2. Replace the placeholder `database_id` in `wrangler.toml`.
-3. For a new D1 database, apply `schema.sql`. For an existing Ledger, apply `migrations/0002_gift_address_draft_consent_event.sql` exactly once before deploying the updated Worker; it rebuilds the append-only table while preserving all existing rows and sequence numbers.
+3. For a new D1 database, apply `schema.sql`. For an existing Ledger, apply `migrations/0002_gift_address_draft_consent_event.sql` and then `migrations/0003_snapshot_barrier.sql` exactly once before deploying the updated Worker; migration 0002 rebuilds the append-only event table while preserving all existing rows and sequence numbers.
 4. Set `LEDGER_HMAC_SECRET` as a Worker secret (at least 32 random bytes encoded as a high-entropy string). Keep the Vow API's matching secret in its secret manager; never commit it.
 5. Deploy the Worker and verify signed append, duplicate append, conflicting duplicate, authenticated pagination, and append-only trigger behaviour using synthetic events.
 6. Configure a separately escrowed `PRIVACY_LEDGER_PSEUDONYM_KEY` in the Vow API. This is not the request-authentication key.
 7. Only after the Vow API integration and isolated restore drill pass may the ledger be marked as a release prerequisite satisfied.
 
 No account, D1 database, Worker, secret, DNS record, custom domain, scheduler, or Production resource is created by this repository scaffold. The API append client is integrated, but do not use this ledger for real user events until the external Worker/D1 has been provisioned, synthetic-event checks pass, and the isolated restore/replay path is complete.
+
+
+## Ledger snapshot append barrier
+
+The Worker exposes authenticated `POST /v1/snapshot-barriers` and `POST /v1/snapshot-barriers/{barrier_id}/release` endpoints. Barrier creation accepts a caller-generated snapshot ID and UUIDv4 barrier ID, records the current maximum Ledger sequence, and returns an HMAC-signed proof. Only one barrier can be active. Repeating the same create request while that barrier remains active returns the same boundary; reusing a released snapshot ID is rejected. Release is idempotent and returns a separately signed release receipt.
+
+While a barrier is active, new `POST /v1/events` appends return HTTP 423 `snapshot_barrier_active`; idempotent duplicates of events already stored remain readable. Authenticated export pagination continues to work through the pinned sequence. The barrier row is append-only except for the single active-to-released transition; an abandoned active barrier remains active until an authenticated release, intentionally failing closed.
+
+**This is only the remote Ledger half of a snapshot protocol.** It does not pause Vow API mutations, drain acknowledged-but-not-applied operations, pause the transactional outbox, stop media uploads/purge workers, or coordinate PostgreSQL and filesystem capture. A signed Ledger watermark alone is not an atomic database/media snapshot and must not be used to produce an activatable v3 backup. The Vow-side quiesce/drain protocol and an end-to-end synthetic backup/restore/replay drill are still required.
+
 
 ## Encrypted off-site export
 
