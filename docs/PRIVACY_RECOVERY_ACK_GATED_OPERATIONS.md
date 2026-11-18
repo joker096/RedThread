@@ -43,7 +43,7 @@ Do not treat a stale preflight result as authorization to apply after ACK. If st
 ## Remaining work
 
 - Add PostgreSQL-backed route-level tests for every migrated path: Ledger outage before ACK, database failure after ACK, stale lifecycle change during ACK, duplicate HTTP retry, and concurrent requests.
-- Add a durable operation resumer/reconciler for `pending` and `acknowledged` rows, with bounded retries and operator-visible terminal failures.
+- The lease-based ACK repair worker now retries `pending` delivery with bounded backoff. Still add event-specific apply reconciliation for `acknowledged` operations whose domain transaction failed; the generic worker deliberately never performs destructive domain mutations.
 - Audit any other privacy-critical event paths outside `server/index.js` and ensure they cannot bypass ACK-gated operations.
 - Run CI and Browser E2E on the same exact HEAD with checkout SHA verified; then Android/iOS native builds and virtual-device smoke checks on the validated SHA.
 
