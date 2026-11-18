@@ -19,6 +19,7 @@ const SAFE_LEDGER_ERRORS = new Set([
 export async function resumePendingPrivacyRecoveryLedgerAcks({
   pool,
   limit = 25,
+  operationIds = null,
   leaseMs = 30_000,
   baseBackoffMs = 5_000,
   maxBackoffMs = 60 * 60 * 1000,
@@ -32,6 +33,10 @@ export async function resumePendingPrivacyRecoveryLedgerAcks({
       env.PRIVACY_RECOVERY_LEDGER_HMAC_SECRET.length < 32 ||
       (env.PRIVACY_RECOVERY_LEDGER_REQUIRED !== 'true' && env.NODE_ENV !== 'production') ||
       !Number.isSafeInteger(limit) || limit < 1 || limit > 100 ||
+      (operationIds !== null && (!Array.isArray(operationIds) || operationIds.length < 1 ||
+        operationIds.length > 100 || operationIds.some(id =>
+          typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) ||
+        new Set(operationIds).size !== operationIds.length)) ||
       !Number.isSafeInteger(leaseMs) || leaseMs < 10_000 || leaseMs > 5 * 60_000 ||
       !Number.isSafeInteger(baseBackoffMs) || baseBackoffMs < 100 ||
       !Number.isSafeInteger(maxBackoffMs) || maxBackoffMs < baseBackoffMs) {
@@ -47,6 +52,7 @@ export async function resumePendingPrivacyRecoveryLedgerAcks({
           WHERE status = 'pending'
             AND ack_next_attempt_at <= statement_timestamp()
             AND (ack_lease_expires_at IS NULL OR ack_lease_expires_at <= statement_timestamp())
+            AND ($4::uuid[] IS NULL OR operation_id = ANY($4::uuid[]))
           ORDER BY ack_next_attempt_at, created_at, operation_id
           LIMIT $1
           FOR UPDATE SKIP LOCKED
@@ -59,7 +65,7 @@ export async function resumePendingPrivacyRecoveryLedgerAcks({
          FROM candidates
         WHERE operation.operation_id = candidates.operation_id
        RETURNING operation.operation_id, operation.event_payload, operation.ack_attempts`,
-      [limit, leaseToken, leaseMs]
+      [limit, leaseToken, leaseMs, operationIds]
     );
     return result.rows;
   });
