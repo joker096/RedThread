@@ -4,9 +4,9 @@ Status: foundation implemented on an isolated Draft branch; domain routes are no
 
 ## Required ordering
 
-1. The caller supplies a stable operation UUID and stable UTC `occurredAt`. For server-owned one-time resource transitions, `derivePrivacyRecoveryOperationId` derives a deterministic UUIDv4 from the event type, subject, resource and lifecycle generation. The generation must identify the same consent grant / resource lifecycle across retries; it must change only for a genuinely new lifecycle, never per HTTP attempt.
+1. The caller supplies a stable operation UUID. For server-owned one-time resource transitions, `derivePrivacyRecoveryOperationId` derives a deterministic UUIDv4 from the event type, subject, resource and lifecycle generation. The generation must identify the same consent grant / resource lifecycle across retries; it must change only for a genuinely new lifecycle, never per HTTP attempt. The first committed intent chooses `occurred_at`; later attempts load and reuse that exact immutable payload.
 2. `runAckGatedPrivacyRecoveryOperation` commits an immutable, pseudonymized intent row in `privacy_recovery_operations`.
-3. The same event UUID and exact payload are sent to the independent Ledger.
+3. The same event UUID and exact payload are sent to the independent Ledger. The original `occurred_at` is retained from the first persisted intent, even if later retries happen at a different time.
 4. The Ledger response echoes `event_id`; the client validates that exact ID plus a positive sequence. Both first-write and duplicate ACKs return the same event ID.
 5. Only then does a second PostgreSQL transaction lock the operation row, revalidate current domain conditions through the route callback, apply the domain mutation, and mark the operation applied atomically.
 
@@ -19,7 +19,7 @@ Ledger outage, rejection, malformed ACK, or timeout prevents the domain callback
 - The deterministic helper is a foundation only; it does not itself make any route ACK-gated.
 - PostgreSQL enforces monotonic state transitions only: pending → acknowledged → applied. Pending cannot jump directly to applied; acknowledged/applied states cannot be downgraded; the persisted Ledger sequence and acknowledgement timestamp cannot be rewritten after ACK.
 - The database constraint and trigger are the final guardrail even if a future route or maintenance script bypasses the application helper.
-- Reusing an operation UUID with a different event payload is rejected.
+- Reusing an operation UUID with a different event type, subject, resource or schema version is rejected; the original persisted `occurred_at` is reused rather than treated as a conflict.
 - The operation row is committed before contacting the Ledger.
 - Domain changes and the `applied` transition share one PostgreSQL transaction.
 - Route callbacks must re-check ownership, authorization, consent version, eligibility and any required locks after the ACK. No stale pre-ACK validation is sufficient.
