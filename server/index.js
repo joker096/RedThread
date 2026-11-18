@@ -908,9 +908,14 @@ async function requireSession(req, res, next) {
          LEFT JOIN paddle_checkout_attempts pca ON pca.user_id = u.id
          WHERE s.access_token_hash = $1
            AND s.access_expires_at > NOW()
-           AND s.revoked_at IS NULL
+           AND (
+             s.revoked_at IS NULL
+             OR ($2::boolean AND u.status = 'suspended'
+                 AND u.deletion_pending_at IS NOT NULL
+                 AND s.revoked_reason = 'account_unavailable')
+           )
          LIMIT 1`,
-        [hashMobileToken(mobileToken, 'access')]
+        [hashMobileToken(mobileToken, 'access'), accountDeletionRetry]
       );
       const mobileUser = mobileResult.rows[0];
       const pendingDeletionRetry = accountDeletionRetry && mobileUser?.status === 'suspended' && Boolean(mobileUser.deletion_pending_at);
