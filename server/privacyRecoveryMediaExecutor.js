@@ -35,14 +35,23 @@ export function extractPrivacyRecoveryPurgeObjectId(storagePath, queueName) {
     throw new Error('privacy_recovery_purge_object_id_invalid');
   }
   const filename = path.basename(storagePath);
-  const pattern = queueName === 'private_photo'
-    ? /^([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\\.(?:jpg|png)$/i
-    : queueName === 'private_voice_intro'
-      ? /^([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\\.enc$/i
-      : /^([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
-  const match = filename.match(pattern);
-  if (!match) throw new Error('privacy_recovery_purge_object_id_invalid');
-  return match[1].toLowerCase();
+  let objectId = filename;
+  if (queueName === 'private_photo') {
+    const extension = path.extname(filename).toLowerCase();
+    if (!['.jpg', '.png'].includes(extension)) {
+      throw new Error('privacy_recovery_purge_object_id_invalid');
+    }
+    objectId = filename.slice(0, -extension.length);
+  } else if (queueName === 'private_voice_intro') {
+    if (path.extname(filename).toLowerCase() !== '.enc') {
+      throw new Error('privacy_recovery_purge_object_id_invalid');
+    }
+    objectId = filename.slice(0, -4);
+  } else if (queueName !== 'identity_l3_media') {
+    throw new Error('privacy_recovery_purge_object_id_invalid');
+  }
+  assertUuid(objectId, 'privacy_recovery_purge_object_id_invalid');
+  return objectId.toLowerCase();
 }
 
 function assertUuid(value, code) {
