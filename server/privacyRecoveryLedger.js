@@ -7,7 +7,8 @@ export const PRIVACY_RECOVERY_EVENT_TYPES = Object.freeze([
   'private_photo_erasure_requested',
   'identity_l3_consent_withdrawn',
   'ad_consent_revoked',
-  'gift_order_consent_withdrawn'
+  'gift_order_consent_withdrawn',
+  'gift_address_draft_consent_withdrawn'
 ]);
 
 const ALLOWED_EVENT_TYPES = new Set(PRIVACY_RECOVERY_EVENT_TYPES);
