@@ -33,8 +33,18 @@ function assertUuid(value) {
 
 async function withClient(pool, callback) {
   const client = await pool.connect();
-  try { return await callback(client); }
-  finally { client.release(); }
+  let releaseError;
+  try {
+    return await callback(client);
+  } catch (error) {
+    // A callback may have attempted ROLLBACK and swallowed a rollback failure.
+    // Destroy the connection on any failed transaction path rather than return
+    // a client whose PostgreSQL transaction/protocol state may be uncertain.
+    releaseError = error;
+    throw error;
+  } finally {
+    client.release(releaseError);
+  }
 }
 
 async function persistIntent(pool, operationId, payload) {
