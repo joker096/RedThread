@@ -56,6 +56,16 @@ function fakePool() {
   };
 }
 
+test('operation identifiers must satisfy the Ledger UUIDv4 contract', async () => {
+  const pool = fakePool();
+  await assert.rejects(runAckGatedPrivacyRecoveryOperation({
+    pool, operationId: '123e4567-e89b-12d3-a456-426614174000', event, env,
+    fetchImpl: async () => { throw new Error('must not call'); },
+    apply: async () => {}
+  }), /privacy_recovery_operation_id_invalid/);
+  assert.equal(pool.state.calls.length, 0, 'invalid IDs must not persist intents or contact Ledger');
+});
+
 test('ledger outage persists intent but never invokes the domain mutation', async () => {
   const pool = fakePool();
   let applied = 0;
