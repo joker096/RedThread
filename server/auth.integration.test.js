@@ -1650,6 +1650,31 @@ test('auth API supports registration, session lookup, logout and login', {
       if (giftOrderId) {
         await preserveGiftOrderFixture(giftTestDb, giftOrderId);
       }
+      // Use the real safety workflow before tombstoning fixture accounts.
+      // A direct status update is intentionally rejected while any in-flight
+      // gift still retains a private address pointer.
+      if (giftMatchCreated) {
+        const cleanupBlock = await request(`/api/blocks/${giftRecipient.user.id}`, {
+          method: 'POST',
+          headers: { Cookie: giftSender.cookie }
+        });
+        assert.equal(cleanupBlock.status, 204,
+          'fixture cleanup must safety-hold any remaining in-flight gift orders');
+        await giftTestDb.query(
+          'DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2',
+          [giftSender.user.id, giftRecipient.user.id]
+        );
+      }
+      const unsafeGiftAddressRefs = await giftTestDb.query(
+        `SELECT id, status FROM gift_delivery_orders
+         WHERE (sender_id = $1 OR recipient_id = $1 OR sender_id = $2 OR recipient_id = $2)
+           AND address_vault_ref IS NOT NULL
+           AND status IN ('address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')`,
+        [giftSender.user.id, giftRecipient.user.id]
+      );
+      assert.equal(unsafeGiftAddressRefs.rowCount, 0,
+        'all in-flight gift address pointers must be revoked through the safety workflow before tombstoning');
+
       // Gift orders and their match remain as immutable evidence. Tombstone the
       // disposable fixture accounts so account erasure scrubs profiles while
       // preserving order/event provenance.
