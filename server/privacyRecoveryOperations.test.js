@@ -304,6 +304,8 @@ test('account erasure obtains Ledger ACK outside session locks and revalidates b
     'both session locks must be released before waiting for the remote Ledger ACK');
   assert.equal(route.includes('enqueuePrivacyRecoveryEvent'), false);
   assert.ok(route.includes('generation: account.rows[0].account_created_at'));
+  assert.ok(route.includes('deletion_pending_at = COALESCE(deletion_pending_at, statement_timestamp())'));
+  assert.ok(route.includes("SET status = 'suspended'"));
   assert.ok(route.includes('account_deletion_identity_changed_retry'));
   assert.ok(route.includes('account_deletion_billing_state_changed_retry'));
   assert.ok(route.includes('pg_advisory_xact_lock(hashtext($1))'));
