@@ -210,15 +210,15 @@ jobs:
           xcrun simctl privacy "$DEVICE_ID" grant microphone com.vow.app
           xcrun simctl launch "$DEVICE_ID" com.vow.app
           sleep 8
-          xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -F com.vow.app
           xcrun simctl terminate "$DEVICE_ID" com.vow.app
           xcrun simctl launch "$DEVICE_ID" com.vow.app
-          xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -F com.vow.app
           # Exercise the registered non-secret custom-scheme return on a cold start.
           xcrun simctl terminate "$DEVICE_ID" com.vow.app
           xcrun simctl openurl "$DEVICE_ID" 'vow://identity/return'
           sleep 5
-          xcrun simctl spawn "$DEVICE_ID" launchctl list | grep -F com.vow.app
+          # simctl launch returns the launched process identifier; avoid parsing
+          # launchctl's transient service listing during SpringBoard startup.
+          xcrun simctl launch "$DEVICE_ID" com.vow.app
       - name: Verify privacy manifest in simulator bundle
         run: |
           manifest="ios/build/Build/Products/Debug-iphonesimulator/App.app/PrivacyInfo.xcprivacy"
