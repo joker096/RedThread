@@ -349,6 +349,19 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
 
     // Withdrawal revokes an existing approval immediately and the purge worker
     // must be able to clear media from the now-revoked terminal submission.
+    ledger.failNext();
+    const rejectedWithdrawal = await request('/api/identity/l3/consent', {
+      method: 'DELETE',
+      headers: { Cookie: applicantCookie }
+    });
+    assert.equal(rejectedWithdrawal.status, 503,
+      'L3 consent and approval state must not be mutated before the Ledger ACK');
+    const consentBeforeRetry = await pool.query(
+      'SELECT withdrawn_at FROM identity_l3_consents WHERE user_id = $1',
+      [applicantId]
+    );
+    assert.equal(consentBeforeRetry.rows[0]?.withdrawn_at, null);
+
     const withdrawn = await request('/api/identity/l3/consent', {
       method: 'DELETE',
       headers: { Cookie: applicantCookie }
