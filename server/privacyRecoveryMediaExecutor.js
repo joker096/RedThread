@@ -30,6 +30,21 @@ function digestEvent(row) {
   return createHash('sha256').update(JSON.stringify(canonicalEvent(row))).digest('hex');
 }
 
+function extractPurgeObjectId(storagePath, queueName) {
+  if (typeof storagePath !== 'string' || !storagePath) {
+    throw new Error('privacy_recovery_purge_object_id_invalid');
+  }
+  const filename = path.basename(storagePath);
+  const pattern = queueName === 'private_photo'
+    ? /^([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\\.(?:jpg|png)$/i
+    : queueName === 'private_voice_intro'
+      ? /^([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\\.enc$/i
+      : /^([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
+  const match = filename.match(pattern);
+  if (!match) throw new Error('privacy_recovery_purge_object_id_invalid');
+  return match[1].toLowerCase();
+}
+
 function assertUuid(value, code) {
   if (typeof value !== 'string' || !UUID.test(value)) throw new Error(code);
 }
@@ -347,14 +362,17 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
         mapping.sequence,
         mapping.eventId,
         purgeQueueName,
-        createHash('sha256').update(storagePath, 'utf8').digest('hex')
+        createHash('sha256').update(storagePath, 'utf8').digest('hex'),
+        extractPurgeObjectId(storagePath, purgeQueueName)
       ]);
       await client.query(
         `INSERT INTO privacy_recovery_replay_purge_obligations
-           (ledger_sequence, event_id, queue_name, storage_path_sha256)
-         SELECT item.ledger_sequence, item.event_id, item.queue_name, item.storage_path_sha256
+           (ledger_sequence, event_id, queue_name, storage_path_sha256, storage_object_id)
+         SELECT item.ledger_sequence, item.event_id, item.queue_name,
+                item.storage_path_sha256, item.storage_object_id
            FROM jsonb_to_recordset($1::jsonb) AS item(
-             ledger_sequence BIGINT, event_id UUID, queue_name TEXT, storage_path_sha256 TEXT
+             ledger_sequence BIGINT, event_id UUID, queue_name TEXT,
+             storage_path_sha256 TEXT, storage_object_id UUID
            )`,
         [JSON.stringify(obligations)]
       );
