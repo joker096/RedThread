@@ -113,3 +113,12 @@ test('rejects a tampered ciphertext before invoking age', async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('accepts address-draft consent withdrawal in encrypted ledger archives', async () => {
+  const result = await verifyLedgerExportStream(streamOf(
+    manifest(1),
+    event(1, { event_type: 'gift_address_draft_consent_withdrawn', resource_ref: 'b'.repeat(64) })
+  ));
+  assert.equal(result.eventCount, 1);
+  assert.equal(result.lastSequence, 1);
+});
