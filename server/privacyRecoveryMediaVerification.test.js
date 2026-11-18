@@ -51,7 +51,7 @@ const isolatedEnv = { NODE_ENV: 'test', PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true
 function verify(args) { return verifyPrivateMediaPrivacyRecovery({ ...args, storageRoots }); }
 
 function makePool({ receiptRows = [event], obligations = [{
-  ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest
+  ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest, storage_object_id: event.resource_id
 }], queuePaths = [], completionRows = [{ ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest }], remainingPhotos = [], profiles = [{ user_id: event.subject_user_id, photo_urls: [] }], l3ConsentRows = [{ withdrawn_at: new Date('2026-11-18T00:00:00.000Z') }], l3TokenRows = [], l3SubmissionRows = [], l3PurgeJobRows = [] } = {}) {
   const calls = [];
   const client = {
@@ -210,8 +210,8 @@ test('L3 verification accepts zero retained media purge obligations', async () =
 test('L3 verification accepts multiple purge obligations and matching completion receipts', async () => {
   const l3Event = makeL3Event(2);
   const obligations = [
-    { ledger_sequence: '7', queue_name: 'identity_l3_media', storage_path_sha256: 'c'.repeat(64) },
-    { ledger_sequence: '7', queue_name: 'identity_l3_media', storage_path_sha256: 'd'.repeat(64) }
+    { ledger_sequence: '7', queue_name: 'identity_l3_media', storage_path_sha256: 'c'.repeat(64), storage_object_id: '123e4567-e89b-42d3-a456-426614174003' },
+    { ledger_sequence: '7', queue_name: 'identity_l3_media', storage_path_sha256: 'd'.repeat(64), storage_object_id: '123e4567-e89b-42d3-a456-426614174004' }
   ];
   const { pool, calls } = makePool({
     receiptRows: [l3Event],
