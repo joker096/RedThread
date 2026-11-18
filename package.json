@@ -41,7 +41,7 @@
     "test:voice-api:media": "tsx --test --test-name-pattern='voice intro HTTP API covers encrypted upload' server/voiceIntroApi.integration.test.js",
     "voice-intros:inventory": "node scripts/voice-intro-inventory.js",
     "voice-intros:migration-preflight": "node scripts/voice-intro-migration-preflight.js",
-    "test:privacy-ledger": "node --test privacy-ledger/test/worker.test.js server/privacyRecoveryLedger.test.js server/privacyRecoveryOutbox.test.js server/privacyRecoveryOutboxSchema.integration.test.js scripts/export-privacy-ledger.test.mjs scripts/verify-privacy-ledger-export.test.mjs server/privacyRecoveryReplay.test.js server/privacyRecoveryMapping.test.js",
+    "test:privacy-ledger": "node --test privacy-ledger/test/worker.test.js server/privacyRecoveryLedger.test.js server/privacyRecoveryOperations.test.js server/privacyRecoveryOutbox.test.js server/privacyRecoveryOutboxSchema.integration.test.js scripts/export-privacy-ledger.test.mjs scripts/verify-privacy-ledger-export.test.mjs server/privacyRecoveryReplay.test.js server/privacyRecoveryMapping.test.js",
     "privacy-ledger:export": "node scripts/export-privacy-ledger.mjs",
     "privacy-ledger:verify": "node scripts/verify-privacy-ledger-export.mjs",
     "privacy-recovery:inventory": "node scripts/privacy-recovery-inventory.js",
