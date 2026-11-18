@@ -313,3 +313,61 @@ test('account erasure obtains Ledger ACK outside session locks and revalidates b
   assert.ok(route.includes('queuePrivateVoiceIntroPurges(transactionClient'));
   assert.ok(route.includes("SET status = 'deleted'"));
 });
+
+
+test('a positive Ledger ACK followed by PostgreSQL ACK-persistence failure retries the same immutable event', async () => {
+  const pool = fakePool();
+  let failAckPersistence = true;
+  const originalConnect = pool.connect.bind(pool);
+  pool.connect = async () => {
+    const client = await originalConnect();
+    const originalQuery = client.query.bind(client);
+    client.query = async (sql, values = []) => {
+      if (failAckPersistence && String(sql).includes("SET status = 'acknowledged'")) {
+        failAckPersistence = false;
+        throw new Error('postgres_ack_commit_unavailable');
+      }
+      return originalQuery(sql, values);
+    };
+    return client;
+  };
+
+  const accepted = new Map();
+  const attempts = [];
+  const fetchImpl = async (_url, options) => {
+    const body = options.body;
+    const payload = JSON.parse(body);
+    attempts.push({ body, eventId: payload.event_id });
+    const previous = accepted.get(payload.event_id);
+    if (previous && previous.body !== body) {
+      return new Response(JSON.stringify({ accepted: false, error: 'event_id_conflict' }), { status: 409 });
+    }
+    if (!previous) accepted.set(payload.event_id, { body, sequence: 880 });
+    return new Response(JSON.stringify({
+      accepted: true, duplicate: Boolean(previous),
+      event_id: payload.event_id, sequence: accepted.get(payload.event_id).sequence
+    }), { status: previous ? 200 : 201 });
+  };
+
+  await assert.rejects(runAckGatedPrivacyRecoveryOperation({
+    pool, operationId, event, env, fetchImpl,
+    apply: async () => { throw new Error('must not apply before ACK is durable'); }
+  }), /postgres_ack_commit_unavailable/);
+  assert.equal(accepted.size, 1, 'the independent Ledger accepted the first delivery');
+  assert.equal(pool.state.row.status, 'pending', 'failed PostgreSQL ACK persistence leaves the operation retryable');
+
+  let applied = 0;
+  const resumed = await runAckGatedPrivacyRecoveryOperation({
+    pool, operationId, event: { ...event, occurredAt: '2026-11-18T12:00:00.000Z' },
+    env, fetchImpl, apply: async () => { applied += 1; return 'deleted'; }
+  });
+  assert.equal(resumed.applied, true);
+  assert.equal(resumed.sequence, 880);
+  assert.equal(applied, 1);
+  assert.equal(pool.state.row.status, 'applied');
+  assert.equal(attempts.length, 2, 'the retry redelivers the accepted event idempotently');
+  assert.equal(attempts[0].eventId, operationId);
+  assert.equal(attempts[1].eventId, operationId);
+  assert.equal(attempts[1].body, attempts[0].body,
+    'retry must use the originally persisted payload and timestamp, not the later request timestamp');
+});
