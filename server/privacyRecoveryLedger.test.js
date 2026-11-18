@@ -102,3 +102,24 @@ test('delivery rejects malformed persisted payloads before making a network requ
     /invalid_privacy_recovery_event_payload/
   );
 });
+
+test('address draft consent withdrawal is a supported pseudonymized Ledger event', async () => {
+  let payload;
+  const result = await appendPrivacyRecoveryEvent({
+    eventType: 'gift_address_draft_consent_withdrawn',
+    userId: 'recipient-user',
+    resourceId: 'gift-order',
+    occurredAt: '2026-11-18T12:00:00.000Z'
+  }, {
+    env: baseEnv,
+    fetchImpl: async (_url, options) => {
+      payload = JSON.parse(options.body);
+      return new Response(JSON.stringify({ accepted: true, event_id: payload.event_id, sequence: 29 }), { status: 201 });
+    }
+  });
+  assert.equal(result.acknowledged, true);
+  assert.equal(result.sequence, 29);
+  assert.equal(payload.event_type, 'gift_address_draft_consent_withdrawn');
+  assert.notEqual(payload.subject_ref, 'recipient-user');
+  assert.notEqual(payload.resource_ref, 'gift-order');
+});
