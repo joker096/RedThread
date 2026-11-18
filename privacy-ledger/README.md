@@ -14,6 +14,16 @@ node --test test/worker.test.js
 2. Replace the placeholder `database_id` in `wrangler.toml`.
 3. For a new D1 database, apply `schema.sql`. For an existing Ledger, apply `migrations/0002_gift_address_draft_consent_event.sql` and then `migrations/0003_snapshot_barrier.sql` exactly once before deploying the updated Worker; migration 0002 rebuilds the append-only event table while preserving all existing rows and sequence numbers.
 4. Set `LEDGER_HMAC_SECRET` as a Worker secret (at least 32 random bytes encoded as a high-entropy string). Generate a separate Ed25519 key pair for barrier proofs; set the base64 PKCS#8 DER private key as Worker secret `LEDGER_PROOF_PRIVATE_KEY`, and give only the base64 SubjectPublicKeyInfo DER public key to the trusted backup runner as `PRIVACY_RECOVERY_LEDGER_PROOF_PUBLIC_KEY`. Keep both private/authentication secrets in their respective secret managers; never commit them.
+4a. Generate the Ed25519 proof key pair in a trusted key-management environment (not in the repository):
+
+```bash
+openssl genpkey -algorithm ED25519 -out ledger-proof-private.pem
+openssl pkey -in ledger-proof-private.pem -outform DER | base64 -w0 > ledger-proof-private.pkcs8.b64
+openssl pkey -in ledger-proof-private.pem -pubout -outform DER | base64 -w0 > ledger-proof-public.spki.b64
+```
+
+Upload the private PKCS#8 value as `LEDGER_PROOF_PRIVATE_KEY` in Worker secrets. Store the public SPKI value as `PRIVACY_RECOVERY_LEDGER_PROOF_PUBLIC_KEY` in the trusted backup runner. Keep the private PEM and private DER file separately escrowed; never commit either.
+
 5. Deploy the Worker and verify signed append, duplicate append, conflicting duplicate, authenticated pagination, snapshot barrier creation/release, append rejection while active, and append-only trigger behaviour using synthetic events.
 6. Configure a separately escrowed `PRIVACY_LEDGER_PSEUDONYM_KEY` in the Vow API. This is not the request-authentication key.
 7. Only after the Vow API integration and isolated restore drill pass may the ledger be marked as a release prerequisite satisfied.
