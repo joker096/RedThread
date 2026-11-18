@@ -24,7 +24,7 @@ const event = {
   resource_id: '123e4567-e89b-42d3-a456-426614174002',
   purge_count: 1
 };
-const storagePath = '/private/photos/123e4567-e89b-42d3-a456-426614174002.jpg';
+const storagePath = '/tmp/123e4567-e89b-42d3-a456-426614174002.jpg';
 const pathDigest = createHash('sha256').update(storagePath).digest('hex');
 const isolatedEnv = { NODE_ENV: 'test', PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true', PRIVACY_RECOVERY_RESTORE_DATABASE_NAME: 'vow_restore_test', PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner', PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY' };
 
