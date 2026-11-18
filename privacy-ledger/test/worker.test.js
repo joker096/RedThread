@@ -112,9 +112,11 @@ class FakeLedgerDb {
       async run() {
         if (sql.includes("INSERT INTO privacy_snapshot_barriers")) {
           const [barrierId, snapshotId, createdAt] = this.values;
-          if (db.barriers.some(row => row.status === "active") ||
-              db.barriers.some(row => row.snapshot_id === snapshotId || row.barrier_id === barrierId)) {
+          if (db.barriers.some(row => row.status === "active")) {
             return { success: true, meta: { changes: 0 } };
+          }
+          if (db.barriers.some(row => row.snapshot_id === snapshotId || row.barrier_id === barrierId)) {
+            throw new Error("unique snapshot barrier identity");
           }
           db.barriers.push({
             barrier_id: barrierId, snapshot_id: snapshotId, status: "active",
@@ -383,6 +385,34 @@ test("only one snapshot barrier may be active and a repeated create is idempoten
   assert.equal(second.status, 409);
   assert.equal((await second.json()).error, "snapshot_barrier_conflict");
   assert.equal(db.barriers.filter(row => row.status === "active").length, 1);
+});
+
+test("released snapshot IDs cannot be reused", async () => {
+  const db = new FakeLedgerDb();
+  const barrierId = "123e4567-e89b-42d3-a456-426614174027";
+  const snapshotId = "snapshot-once";
+  const createBody = JSON.stringify({ snapshot_id: snapshotId, barrier_id: barrierId });
+  const created = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/snapshot-barriers", createBody),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(created.status, 201);
+
+  const releaseBody = JSON.stringify({ snapshot_id: snapshotId });
+  const releaseUrl = "https://ledger.test/v1/snapshot-barriers/" + barrierId + "/release";
+  const released = await handleRequest(
+    await signedRequest("POST", releaseUrl, releaseBody),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(released.status, 200);
+
+  const reused = await handleRequest(
+    await signedRequest("POST", "https://ledger.test/v1/snapshot-barriers",
+      JSON.stringify({ snapshot_id: snapshotId, barrier_id: "123e4567-e89b-42d3-a456-426614174028" })),
+    { ...env, LEDGER_DB: db }
+  );
+  assert.equal(reused.status, 409);
+  assert.equal((await reused.json()).error, "snapshot_barrier_snapshot_id_reused");
 });
 
 test("snapshot barrier endpoints reject malformed, unsigned and mismatched requests", async () => {
