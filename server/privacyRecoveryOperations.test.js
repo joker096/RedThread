@@ -27,11 +27,11 @@ function fakePool() {
           if (sql.includes('INSERT INTO privacy_recovery_operations')) {
             if (state.row) return { rowCount: 0, rows: [] };
             state.row = { operation_id: values[0], event_payload: JSON.parse(values[1]), status: 'pending', ledger_sequence: null };
-            return { rowCount: 1, rows: [{ operation_id: values[0], status: 'pending', ledger_sequence: null }] };
+            return { rowCount: 1, rows: [{ operation_id: values[0], status: 'pending', ledger_sequence: null, event_payload: state.row.event_payload }] };
           }
-          if (sql.includes('SELECT 1 FROM privacy_recovery_operations')) {
-            return state.row && JSON.stringify(state.row.event_payload) === JSON.stringify(JSON.parse(values[1]))
-              ? { rowCount: 1, rows: [{ status: state.row.status, ledger_sequence: state.row.ledger_sequence }] }
+          if (sql.includes('SELECT status, ledger_sequence, event_payload')) {
+            return state.row
+              ? { rowCount: 1, rows: [{ status: state.row.status, ledger_sequence: state.row.ledger_sequence, event_payload: state.row.event_payload }] }
               : { rowCount: 0, rows: [] };
           }
           if (sql.includes('SELECT status, ledger_sequence')) {
