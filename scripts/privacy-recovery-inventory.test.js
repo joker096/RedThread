@@ -136,3 +136,21 @@ test('rejects gaps in the staged ledger sequence and rolls back', async () => {
   await assert.rejects(runPrivacyRecoveryInventory({ pool, env }), /staged_sequence_gap/);
   assert.ok(pool.calls.includes('ROLLBACK'));
 });
+
+test('maps address-draft withdrawal but keeps it outside the approved replay executor', async () => {
+  const orderId = randomUUID();
+  const pool = fakePool({
+    events: [{
+      sequence: 1, event_id: randomUUID(), event_type: 'gift_address_draft_consent_withdrawn',
+      subject_ref: ref(userId), resource_ref: ref(orderId)
+    }],
+    users: [{ id: userId }],
+    giftAddressDrafts: [{ id: orderId, user_id: userId }]
+  });
+  const report = await runPrivacyRecoveryInventory({ pool, env });
+  assert.equal(report.matchedCount, 1);
+  assert.equal(report.byEventType.gift_address_draft_consent_withdrawn, 1);
+  assert.equal(report.unsupportedEventCount, 1);
+  assert.equal(report.readyForDomainReplay, false);
+  assert.equal(report.candidateCounts.giftAddressDrafts, 1);
+});
