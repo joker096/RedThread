@@ -54,7 +54,7 @@ test('physical verifier rejects a retained object for each media class', async t
     await t.test(queue_name, async () => {
       const location = path.join(roots[rootKey], name);
       await writeFile(location, 'synthetic encrypted fixture', { mode: 0o600 });
-      const objectId = name.slice(0, name.lastIndexOf('.'));
+      const objectId = name.includes('.') ? name.slice(0, name.lastIndexOf('.')) : name;
       const expectedDigest = queue_name === 'identity_l3_media' ? sha256(name) : sha256('opaque-path-digest');
       try {
         await assert.rejects(
