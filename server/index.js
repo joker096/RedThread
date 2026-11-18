@@ -902,7 +902,7 @@ async function requireSession(req, res, next) {
                 u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status,
                 pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan,
                 u.phone_verified_at, p.display_name, p.gender, p.country, p.city,
-                p.relationship_intent, s.id AS session_id
+                p.relationship_intent, s.id AS session_id, s.revoked_at AS session_revoked_at
          FROM mobile_sessions s
          JOIN users u ON u.id = s.user_id
          JOIN profiles p ON p.user_id = u.id
@@ -930,7 +930,9 @@ async function requireSession(req, res, next) {
         return res.status(403).json({ error: 'email_verification_required' });
       }
       req.authUser = mobileUser;
-      await pool.query('UPDATE mobile_sessions SET last_seen_at = NOW() WHERE id = $1', [mobileUser.session_id]);
+      if (!mobileUser.session_revoked_at) {
+        await pool.query('UPDATE mobile_sessions SET last_seen_at = NOW() WHERE id = $1', [mobileUser.session_id]);
+      }
       return next();
     } catch (error) {
       console.error('Mobile session authentication failed:', error?.message || 'unknown error');
