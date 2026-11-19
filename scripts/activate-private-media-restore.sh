@@ -7,6 +7,26 @@ umask 077
 : "${PRIVACY_RECOVERY_GATE_EXECUTABLE:?Set PRIVACY_RECOVERY_GATE_EXECUTABLE to the executable domain-reconciliation gate}"
 : "${PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE:?Set PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE to the Docker/host writer-isolation gate}"
 
+: "${PRIVACY_RECOVERY_WRITER_LOCK_FILE:?Set a pre-created exclusive writer-admission lock file}"
+command -v flock >/dev/null 2>&1 || { echo "flock is required for restore writer admission locking" >&2; exit 1; }
+if [[ ! "$PRIVACY_RECOVERY_WRITER_LOCK_FILE" = /* ||
+      ! -f "$PRIVACY_RECOVERY_WRITER_LOCK_FILE" ||
+      -L "$PRIVACY_RECOVERY_WRITER_LOCK_FILE" ]]; then
+  echo "writer-admission lock must be an absolute, pre-created regular non-symlink file" >&2
+  exit 1
+fi
+
+# Hold the admission lock through writer isolation, reconciliation and bind activation.
+# Every process capable of starting a media writer must use this same lock; the host gate
+# must independently verify that enforcement before it can authorize activation.
+exec 9<> "$PRIVACY_RECOVERY_WRITER_LOCK_FILE"
+if ! flock -n 9; then
+  echo "another restore or media-writer admission operation holds the lock" >&2
+  exit 1
+fi
+export PRIVACY_RECOVERY_WRITER_LOCK_FILE
+export PRIVACY_RECOVERY_WRITER_LOCK_FD=9
+
 command -v mount >/dev/null 2>&1 || { echo "mount is required" >&2; exit 1; }
 command -v mountpoint >/dev/null 2>&1 || { echo "mountpoint is required" >&2; exit 1; }
 
