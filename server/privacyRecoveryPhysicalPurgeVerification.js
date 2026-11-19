@@ -16,14 +16,10 @@ function digest(value) {
 }
 
 /**
- * Open the configured root without following its final-component symlink.
- * Enumerate through /proc/self/fd while the descriptor is held open, so a
- * rename/replacement of the configured directory cannot redirect the scan.
- *
- * Parent path components are resolved by the kernel during open(); this
- * function does not claim openat2-style protection against hostile parent
- * component replacement. Restore mounts must therefore be isolated and not
- * writable by untrusted processes during attestation.
+ * Open every path component relative to the previously opened directory
+ * descriptor. O_NOFOLLOW applies to each component, not just the final root.
+ * This prevents a symlinked/replaced parent component from redirecting the
+ * attestation scan. The final descriptor pins the directory during readdir.
  */
 async function readPrivateRoot(root, queueName) {
   if (typeof root !== 'string' || !root.trim()) {
@@ -46,10 +42,29 @@ async function readPrivateRoot(root, queueName) {
     throw new Error('privacy_recovery_physical_storage_root_unsafe:' + queueName);
   }
 
+  const flags = fsConstants.O_RDONLY | fsConstants.O_DIRECTORY |
+    fsConstants.O_NOFOLLOW | (fsConstants.O_CLOEXEC || 0);
+  let parent;
   let handle;
   try {
-    handle = await open(absolute, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY |
-      fsConstants.O_NOFOLLOW | (fsConstants.O_CLOEXEC || 0));
+    parent = await open(path.parse(absolute).root, flags);
+    const components = absolute.slice(path.parse(absolute).root.length).split(path.sep).filter(Boolean);
+    for (const component of components) {
+      let child;
+      try {
+        child = await open('/proc/self/fd/' + parent.fd + '/' + component, flags);
+      } catch (error) {
+        if (error?.code === 'ELOOP' || error?.code === 'ENOTDIR') {
+          throw new Error('privacy_recovery_physical_storage_root_unsafe:' + queueName);
+        }
+        throw error;
+      }
+      await parent.close();
+      parent = child;
+    }
+
+    handle = parent;
+    parent = null;
     const opened = await handle.stat();
     if (!opened.isDirectory() || opened.dev !== before.dev || opened.ino !== before.ino) {
       throw new Error('privacy_recovery_physical_storage_root_changed:' + queueName);
@@ -60,13 +75,11 @@ async function readPrivateRoot(root, queueName) {
       throw new Error('privacy_recovery_physical_storage_scan_failed:' + queueName);
     }
   } catch (error) {
-    if (error?.code === 'ELOOP' || error?.code === 'ENOTDIR') {
-      throw new Error('privacy_recovery_physical_storage_root_unsafe:' + queueName);
-    }
     if (String(error?.message || '').startsWith('privacy_recovery_')) throw error;
     throw new Error('privacy_recovery_physical_storage_root_unavailable:' + queueName);
   } finally {
     await handle?.close().catch(() => {});
+    await parent?.close().catch(() => {});
   }
 }
 
