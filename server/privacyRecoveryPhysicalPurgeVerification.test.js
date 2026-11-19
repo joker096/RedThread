@@ -91,6 +91,10 @@ test('physical attestation fails closed for missing or symlinked storage roots',
 
 test('physical attestation rejects malformed or unsupported obligations', async () => {
   await assert.rejects(
+    verifyPhysicalPurgeAbsence({ obligations: [null] }),
+    /privacy_recovery_physical_obligation_invalid/
+  );
+  await assert.rejects(
     verifyPhysicalPurgeAbsence({ obligations: [{ queue_name: 'unknown', storage_path_sha256: 'a'.repeat(64) }] }),
     /privacy_recovery_physical_obligation_invalid/
   );
