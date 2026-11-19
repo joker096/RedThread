@@ -270,3 +270,47 @@ test('activation rejects a pending marker with permissive mode', async () => {
     await rm(f.root, { recursive: true, force: true });
   }
 });
+
+
+test('sync failures at every activation durability barrier preserve a blocking marker', async () => {
+  for (const failAt of [1, 2, 3, 4, 5]) {
+    const f = await fixture();
+    try {
+      const realSync = spawnSync('bash', ['-c', 'command -v sync'], { encoding: 'utf8' }).stdout.trim();
+      assert.ok(realSync, 'sync executable must be available');
+      const countFile = path.join(f.root, 'sync-count');
+      const syncShim = path.join(f.bin, 'sync');
+      await writeFile(syncShim, [
+        '#!/usr/bin/env bash',
+        'set -eu',
+        '"$REAL_SYNC" "$@"',
+        'count=0',
+        'if [[ -f "$SYNC_COUNT_FILE" ]]; then read -r count < "$SYNC_COUNT_FILE"; fi',
+        'count=$((count + 1))',
+        'printf "%s\\n" "$count" > "$SYNC_COUNT_FILE"',
+        'if [[ "$count" -eq "$SYNC_FAIL_AT" ]]; then exit 77; fi',
+        'exit 0',
+        ''
+      ].join('\\n'));
+      await chmod(syncShim, 0o700);
+      const result = run(f, {
+        REAL_SYNC: realSync,
+        SYNC_COUNT_FILE: countFile,
+        SYNC_FAIL_AT: String(failAt)
+      });
+      assert.notEqual(result.status, 0, 'sync failure must fail activation at barrier ' + failAt);
+      await lstat(path.join(f.restore, '.vow-privacy-activation-incomplete'));
+      if (failAt <= 2) {
+        await lstat(path.join(f.restore, '.vow-restore-pending'));
+        assert.equal((await readFile(f.log, 'utf8')).includes('mount:'), false);
+      } else {
+        await lstat(path.join(f.restore, '.vow-privacy-reconciled'));
+        await assert.rejects(lstat(path.join(f.restore, '.vow-restore-pending')), { code: 'ENOENT' });
+        if (failAt <= 4) assert.equal((await readFile(f.log, 'utf8')).includes('mount:'), false);
+        else assert.ok((await readFile(f.log, 'utf8')).includes('mount:'));
+      }
+    } finally {
+      await rm(f.root, { recursive: true, force: true });
+    }
+  }
+});
