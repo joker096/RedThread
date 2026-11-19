@@ -60,7 +60,6 @@ export async function verifyLedgerExportStream(stream, {
     }
   });
   stream.pipe(boundedStream);
-  const lines = createInterface({ input: stream, crlfDelay: Infinity });
   let manifest = null;
   let expectedSequence = 1;
   let eventCount = 0;
@@ -77,7 +76,7 @@ export async function verifyLedgerExportStream(stream, {
           !Number.isSafeInteger(record.last_sequence) || !Number.isSafeInteger(record.event_count) ||
           record.first_sequence !== (record.event_count === 0 ? 0 : 1) ||
           record.last_sequence < 0 || record.event_count < 0 ||
-          record.last_sequence !== record.event_count ||
+          record.last_sequence !== record.event_count || record.event_count > maxEventCount ||
           typeof record.exported_at !== 'string' || !Number.isFinite(Date.parse(record.exported_at))) {
         throw new Error('privacy_ledger_archive_manifest_invalid');
       }
