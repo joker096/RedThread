@@ -30,6 +30,8 @@ async function fixture() {
   await chmod(path.join(bin, 'mountpoint'), 0o700);
   await writeFile(path.join(bin, 'mount'), '#!/usr/bin/env bash\nset -eu\nprintf "mount:%s\\n" "$*" >> "$CALL_LOG"\nexit "${MOUNT_EXIT:-0}"\n');
   await chmod(path.join(bin, 'mount'), 0o700);
+  await writeFile(path.join(bin, 'umount'), '#!/usr/bin/env bash\\nset -eu\\nprintf "umount:%s\\\\n" "$*" >> "$CALL_LOG"\\nexit "${UMOUNT_EXIT:-0}"\\n');
+  await chmod(path.join(bin, 'umount'), 0o700);
   return { root, bin, restore, mountpoint, gate, writerGate, writerLock, log };
 }
 
@@ -308,6 +310,7 @@ test('sync failures at every activation durability barrier preserve a blocking m
         await assert.rejects(lstat(path.join(f.restore, '.vow-restore-pending')), { code: 'ENOENT' });
         if (failAt <= 4) assert.equal((await readFile(f.log, 'utf8')).includes('mount:'), false);
         else assert.ok((await readFile(f.log, 'utf8')).includes('mount:'));
+        if (failAt === 5) assert.ok((await readFile(f.log, 'utf8')).includes('umount:'));
       }
     } finally {
       await rm(f.root, { recursive: true, force: true });
