@@ -6,6 +6,9 @@ umask 077
 : "${RESTORE_COMPOSE_FILE:?Set the restore-only Compose file}"
 : "${PRIVACY_RECOVERY_MEDIA_VOLUMES:?Set exact comma-separated Docker volume names for the three restored media roots}"
 : "${HOST_WRITER_ISOLATION_GATE_EXECUTABLE:?Set an executable host-level process/mount isolation gate}"
+: "${RESTORE_DOCKER_CONTEXT:?Set the explicitly provisioned restore-only Docker context}"
+: "${RESTORE_DOCKER_ENDPOINT:?Set the exact Docker endpoint pinned for this restore daemon}"
+: "${RESTORE_DOCKER_DAEMON_ID:?Set the expected Docker daemon ID for this restore instance}"
 
 if [[ ! "$RESTORE_COMPOSE_PROJECT" =~ ^vow-restore-[a-z0-9][a-z0-9-]*$ ]]; then
   echo "refusing non-dedicated Compose project; expected vow-restore-* name" >&2
@@ -16,6 +19,18 @@ if [[ ! -f "$RESTORE_COMPOSE_FILE" || -L "$RESTORE_COMPOSE_FILE" ]]; then
   exit 1
 fi
 command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 1; }
+if [[ "$RESTORE_DOCKER_CONTEXT" == "default" || ! "$RESTORE_DOCKER_CONTEXT" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+  echo "an explicitly named non-default restore Docker context is required" >&2
+  exit 1
+fi
+if [[ ! "$RESTORE_DOCKER_ENDPOINT" =~ ^(unix|tcp|ssh):// ]]; then
+  echo "restore Docker endpoint must be an explicit unix://, tcp://, or ssh:// endpoint" >&2
+  exit 1
+fi
+if [[ ! "$RESTORE_DOCKER_DAEMON_ID" =~ ^[A-Fa-f0-9]{12,64}$ ]]; then
+  echo "expected restore Docker daemon ID must be a 12-64 character hexadecimal ID" >&2
+  exit 1
+fi
 command -v jq >/dev/null 2>&1 || { echo "jq is required for fail-closed Docker mount inspection" >&2; exit 1; }
 if [[ ! "$HOST_WRITER_ISOLATION_GATE_EXECUTABLE" = /* || ! -f "$HOST_WRITER_ISOLATION_GATE_EXECUTABLE" || -L "$HOST_WRITER_ISOLATION_GATE_EXECUTABLE" || ! -x "$HOST_WRITER_ISOLATION_GATE_EXECUTABLE" ]]; then
   echo "host writer-isolation gate must be an absolute, regular, executable, non-symlink file" >&2
@@ -38,7 +53,22 @@ if [[ "$(printf '%s\n' "${media_volumes[@]}" | sort -u | wc -l | tr -d ' ')" -ne
   exit 1
 fi
 
-compose=(docker compose --profile '*' -p "$RESTORE_COMPOSE_PROJECT" -f "$RESTORE_COMPOSE_FILE")
+# Pin every daemon operation to the explicitly provisioned context. Ignore ambient DOCKER_HOST.
+unset DOCKER_HOST
+export DOCKER_CONTEXT="$RESTORE_DOCKER_CONTEXT"
+docker_cmd=(docker --context "$RESTORE_DOCKER_CONTEXT")
+context_endpoint="$("${docker_cmd[@]}" context inspect "$RESTORE_DOCKER_CONTEXT" --format '{{ (index .Endpoints "docker").Host }}')"
+if [[ "$context_endpoint" != "$RESTORE_DOCKER_ENDPOINT" ]]; then
+  echo "Docker context endpoint does not match the pinned restore endpoint" >&2
+  exit 1
+fi
+daemon_id="$("${docker_cmd[@]}" info --format '{{.ID}}')"
+if [[ "$daemon_id" != "$RESTORE_DOCKER_DAEMON_ID" ]]; then
+  echo "Docker daemon ID does not match the pinned restore daemon" >&2
+  exit 1
+fi
+
+compose=("${docker_cmd[@]}" compose --profile '*' -p "$RESTORE_COMPOSE_PROJECT" -f "$RESTORE_COMPOSE_FILE")
 services_output="$("${compose[@]}" config --services)"
 mapfile -t services <<< "$services_output"
 if [[ -z "$services_output" || "${#services[@]}" -eq 0 ]]; then
@@ -64,13 +94,13 @@ fi
 # attachment to any of the exact restore media volumes. Read-only verifier
 # attachments are permitted; containers outside this restore project are never
 # stopped automatically.
-running_output="$(docker ps -q)"
+running_output="$("${docker_cmd[@]}" ps -q)"
 mapfile -t running_containers <<< "$running_output"
 if [[ -z "$running_output" ]]; then
   running_containers=()
 fi
 for container in "${running_containers[@]}"; do
-  inspect="$(docker inspect "$container")"
+  inspect="$("${docker_cmd[@]}" inspect "$container")"
   for volume in "${media_volumes[@]}"; do
     if jq -e --arg volume "$volume" '
       if type != "array" or length != 1 or (.[0] | type) != "object" or (.[0].Mounts | type) != "array" then
@@ -92,7 +122,7 @@ for container in "${running_containers[@]}"; do
 done
 
 # Confirm the only running service in this project is the dedicated DB.
-project_output="$(docker ps -q --filter "label=com.docker.compose.project=$RESTORE_COMPOSE_PROJECT")"
+project_output="$("${docker_cmd[@]}" ps -q --filter "label=com.docker.compose.project=$RESTORE_COMPOSE_PROJECT")"
 mapfile -t project_containers <<< "$project_output"
 if [[ -z "$project_output" ]]; then
   project_containers=()
@@ -102,7 +132,7 @@ if [[ "${#project_containers[@]}" -ne 1 ]]; then
   exit 1
 fi
 for container in "${project_containers[@]}"; do
-  service="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$container")"
+  service="$("${docker_cmd[@]}" inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$container")"
   if [[ "$service" != "db" ]]; then
     echo "unexpected running restore-project service remains: $service" >&2
     exit 1
