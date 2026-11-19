@@ -56,7 +56,17 @@ test('export rejects sequence gaps rather than producing an incomplete archive',
   );
 });
 
-test('export rejects non-v4 event identifiers', async () => {\n  const fetchImpl = async () => pageResponse([\n    event(1, { event_id: '123e4567-e89b-12d3-a456-426614174001' })\n  ], 1, 1);\n  await assert.rejects(\n    fetchCompleteLedger({ endpoint: 'https://ledger.example.workers.dev', authSecret: secret, fetchImpl }),\n    /sequence_gap_or_invalid_event/\n  );\n});\n\ntest('export rejects a changing watermark between pages', async () => {
+test('export rejects non-v4 event identifiers', async () => {
+  const fetchImpl = async () => pageResponse([
+    event(1, { event_id: '123e4567-e89b-12d3-a456-426614174001' })
+  ], 1, 1);
+  await assert.rejects(
+    fetchCompleteLedger({ endpoint: 'https://ledger.example.workers.dev', authSecret: secret, fetchImpl }),
+    /sequence_gap_or_invalid_event/
+  );
+});
+
+test('export rejects a changing watermark between pages', async () => {
   let calls = 0;
   const fetchImpl = async () => {
     calls += 1;
