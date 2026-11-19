@@ -37,8 +37,7 @@ async function fixture(scenario = 'readonly') {
     '#!/usr/bin/env node',
     'let input = ""; for await (const chunk of process.stdin) input += chunk;',
     'const volume = process.argv[process.argv.indexOf("--arg") + 1];',
-    'const found = input.includes(volume) && /"RW"\s*:\s*true/.test(input); process.exit(found ? 0 : 1);',
-    '} catch { process.exit(4); }'
+    'try { const data = JSON.parse(input); const found = data.some(item => (item.Mounts || []).some(mount => mount.Type === "volume" && mount.Name === volume && mount.RW === true)); process.exit(found ? 0 : 1); } catch { process.exit(4); }'
   ].join('\n') + '\n';
   await writeFile(path.join(bin, 'jq'), jq);
   await chmod(path.join(bin, 'jq'), 0o700);
