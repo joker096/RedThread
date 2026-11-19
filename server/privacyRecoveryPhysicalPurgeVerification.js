@@ -3,6 +3,7 @@ import { lstat, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+const L3_TEMPORARY_NAME = /^\\.tmp-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CANDIDATE_NAMES = Object.freeze({
   private_photo: new RegExp('^' + UUID + '\\.(?:jpg|png)$', 'i'),
   private_voice_intro: new RegExp('^' + UUID + '\\.enc$', 'i'),
@@ -78,6 +79,13 @@ export async function verifyPhysicalPurgeAbsence({ obligations, storageRoots } =
     const entries = await readPrivateRoot(root, queueName);
     const pattern = CANDIDATE_NAMES[queueName];
     for (const entry of entries) {
+      // Encrypted L3 uploads are first written as .tmp-<UUID> in this same
+      // private root and atomically renamed after fsync. A leftover staging
+      // entry means the restored store is not clean, even though it has no
+      // permanent object-key locator in the purge ledger.
+      if (queueName === 'identity_l3_media' && L3_TEMPORARY_NAME.test(entry.name)) {
+        throw new Error('privacy_recovery_physical_temporary_object_remains:identity_l3_media');
+      }
       if (!pattern.test(entry.name)) continue;
       const locator = queueName === 'identity_l3_media'
         ? entry.name
