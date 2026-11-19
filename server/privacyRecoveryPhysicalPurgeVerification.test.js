@@ -107,7 +107,7 @@ test('physical attestation rejects abandoned encrypted L3 staging objects', asyn
     await writeFile(path.join(roots.identity_l3_media, '.tmp-' + ids.l3), 'partial encrypted upload');
     await assert.rejects(
       verifyPhysicalPurgeAbsence({
-        obligations: [{ queue_name: 'identity_l3_media', storage_path_sha256: sha(ids.l3) }],
+        obligations: [],
         storageRoots: roots
       }),
       /privacy_recovery_physical_temporary_object_remains:identity_l3_media/
