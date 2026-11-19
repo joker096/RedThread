@@ -1,4 +1,6 @@
 import pg from 'pg';
+import { readFile } from 'node:fs/promises';
+import { assertPrivateMediaRootsReadOnly } from '../server/privacyRecoveryMountIsolation.js';
 import { verifyPrivateMediaPrivacyRecovery } from '../server/privacyRecoveryMediaVerification.js';
 
 const { Pool } = pg;
@@ -38,6 +40,10 @@ async function main() {
       throw new Error('privacy_recovery_verifier_storage_root_required:' + name);
     }
   }
+  const mountInfo = await readFile('/proc/self/mountinfo', 'utf8');
+  const mountIsolation = assertPrivateMediaRootsReadOnly({ mountInfo, storageRoots });
+  process.stdout.write(JSON.stringify({ isolation: mountIsolation }) + String.fromCharCode(10));
+
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     max: 1,
