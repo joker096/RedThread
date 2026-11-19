@@ -21,7 +21,11 @@ export HOST_WRITER_ISOLATION_GATE_EXECUTABLE=/absolute/path/to/host-writer-isola
 # Pre-create this file with ownership/permissions restricted to the restore operator
 install -o root -g root -m 0600 /dev/null /run/lock/vow-restore-audit01-writers.lock
 export PRIVACY_RECOVERY_WRITER_LOCK_FILE=/run/lock/vow-restore-audit01-writers.lock
-bash scripts/privacy-recovery-stop-writers.sh
+export PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE=/absolute/path/to/scripts/privacy-recovery-stop-writers.sh
+export PRIVACY_RECOVERY_GATE_EXECUTABLE=/absolute/path/to/domain-reconciliation-gate
+export RESTORE_DESTINATION=/absolute/path/to/disposable-restore-staging
+export PRIVATE_MEDIA_MOUNTPOINT=/absolute/path/to/empty-private-media-mountpoint
+bash scripts/activate-private-media-restore.sh
 ```
 
 The host-level executable is an independent, operator-supplied control; this repository does not pretend to implement a universal host process inspector. It must verify the inherited lock descriptor and the external admission policy, and must fail if any writer-launch path can bypass the lock. The `flock` only coordinates participants that honor it; it is not a kernel-enforced freeze and does not stop arbitrary root processes. A dedicated restore-only Docker daemon/socket and an independently enforced writer-admission policy are still required to close the Docker enumeration race. If these controls cannot be evidenced, the operator must keep the restore pending and must not activate it.
