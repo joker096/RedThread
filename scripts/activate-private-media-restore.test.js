@@ -336,7 +336,7 @@ test('failed final sync plus failed bind-mount rollback remains explicitly block
       'if [[ "$count" -eq "$SYNC_FAIL_AT" ]]; then exit 77; fi',
       'exit 0',
       ''
-    ].join('\\n'));
+    ].join('\n'));
     await chmod(syncShim, 0o700);
 
     const result = run(f, {
