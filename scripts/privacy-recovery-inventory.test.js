@@ -26,7 +26,8 @@ function fakePool({ events = [], users = [], voiceIntros = [], photos = [], gift
       return {
         async query(sql) {
           calls.push(sql);
-          if (sql.includes('current_database()')) return { rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }], rowCount: 1 };
+          if (sql.includes('SELECT current_database() AS database_name')) return { rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }], rowCount: 1 };
+          if (sql.includes('FROM pg_roles r')) return { rows: [{ rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false, rolbypassrls: false, rolcanlogin: true, has_role_memberships: false, has_relation_write_privileges: false, has_sequence_write_privileges: false, has_schema_create_privileges: false, has_database_create_privilege: false }], rowCount: 1 };
           if (sql.startsWith('SELECT ledger_sequence')) return { rows: data.events, rowCount: data.events.length };
           if (sql === 'SELECT id FROM users') return { rows: data.users, rowCount: data.users.length };
           if (sql.startsWith('SELECT id, user_id FROM profile_voice_intros')) return { rows: data.voiceIntros, rowCount: data.voiceIntros.length };
