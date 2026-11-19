@@ -105,5 +105,6 @@ for container in "${project_containers[@]}"; do
   fi
 done
 
-printf 'Docker writer isolation passed for restore project %s.\n' "$RESTORE_COMPOSE_PROJECT"
-printf 'Host processes, alternate mount namespaces, open descriptors and storage aliases require separate host-level isolation evidence.\n'
+# Docker cannot prove host process isolation. Require a separate executable gate and fail closed if it rejects.
+"$HOST_WRITER_ISOLATION_GATE_EXECUTABLE"
+printf 'Docker and host writer isolation gates passed for restore project %s.\n' "$RESTORE_COMPOSE_PROJECT"
