@@ -228,10 +228,10 @@ test('restore rejects a false atomic-snapshot declaration before touching stagin
       'private_media_archive=private-media/' + mediaName,
       'private_media_sha256=' + '0'.repeat(64),
       ''
-    ].join('\\n');
+    ].join('\n');
     await writeFile(path.join(bundleDir, 'manifest.txt'), manifest, { mode: 0o600 });
     const manifestDigest = createHash('sha256').update(manifest).digest('hex');
-    await writeFile(path.join(bundleDir, 'manifest.sha256'), manifestDigest + '  manifest.txt\\n', { mode: 0o600 });
+    await writeFile(path.join(bundleDir, 'manifest.sha256'), manifestDigest + '  manifest.txt\n', { mode: 0o600 });
 
     const result = spawnSync('bash', [restoreBundleScript], {
       encoding: 'utf8',
