@@ -194,3 +194,34 @@ test('interrupted bind activation leaves a durable incomplete marker and cannot 
   }
 });
 
+
+test('activation rejects a dangling reconciled-marker symlink', async () => {
+  const f = await fixture();
+  try {
+    await rm(path.join(f.restore, '.vow-restore-pending'));
+    await import('node:fs/promises').then(({ symlink }) => symlink(path.join(f.root, 'missing-target'), path.join(f.restore, '.vow-privacy-reconciled')));
+    await writeFile(path.join(f.restore, '.vow-restore-pending'), '');
+    const result = run(f);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /missing, incomplete, or has already been activated/);
+    await assert.rejects(lstat(path.join(f.root, 'missing-target')), { code: 'ENOENT' });
+    assert.equal(await readFile(f.log, 'utf8'), '');
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('activation rejects a dangling incomplete-marker symlink', async () => {
+  const f = await fixture();
+  try {
+    await import('node:fs/promises').then(({ symlink }) => symlink(path.join(f.root, 'missing-incomplete-target'), path.join(f.restore, '.vow-privacy-activation-incomplete')));
+    const result = run(f);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /missing, incomplete, or has already been activated/);
+    await assert.rejects(lstat(path.join(f.root, 'missing-incomplete-target')), { code: 'ENOENT' });
+    assert.equal(await readFile(f.log, 'utf8'), '');
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
