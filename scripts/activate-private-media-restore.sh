@@ -72,8 +72,9 @@ if [[ ! -d "$RESTORE_DESTINATION" || -L "$RESTORE_DESTINATION" ]]; then
 fi
 if [[ ! -f "$RESTORE_DESTINATION/.vow-restore-pending" ||
       -L "$RESTORE_DESTINATION/.vow-restore-pending" ||
-      -e "$RESTORE_DESTINATION/.vow-privacy-reconciled" ]]; then
-  echo "restore staging state is missing or has already been activated" >&2
+      -e "$RESTORE_DESTINATION/.vow-privacy-reconciled" ||
+      -e "$RESTORE_DESTINATION/.vow-privacy-activation-incomplete" ]]; then
+  echo "restore staging state is missing, incomplete, or has already been activated" >&2
   exit 1
 fi
 if [[ ! -d "$PRIVATE_MEDIA_MOUNTPOINT" || -L "$PRIVATE_MEDIA_MOUNTPOINT" ]]; then
@@ -98,15 +99,33 @@ RESTORE_DESTINATION="$RESTORE_DESTINATION" bash "$PRIVACY_RECOVERY_WRITER_ISOLAT
 # A non-zero result leaves the restore pending and prevents the bind mount.
 RESTORE_DESTINATION="$RESTORE_DESTINATION" "$PRIVACY_RECOVERY_GATE_EXECUTABLE"
 
+# Persist an explicit transition marker before changing either authoritative marker.
+# If the process is killed between these operations, a later invocation fails closed
+# instead of mistaking a marker gap for a fresh or reconciled restore.
+incomplete_marker="$RESTORE_DESTINATION/.vow-privacy-activation-incomplete"
+( set -o noclobber; : > "$incomplete_marker" )
+chmod 600 "$incomplete_marker"
+sync -f "$incomplete_marker"
+sync -f "$RESTORE_DESTINATION"
+
 rm -- "$RESTORE_DESTINATION/.vow-restore-pending"
 : > "$RESTORE_DESTINATION/.vow-privacy-reconciled"
 chmod 600 "$RESTORE_DESTINATION/.vow-privacy-reconciled"
+sync -f "$RESTORE_DESTINATION/.vow-privacy-reconciled"
+sync -f "$RESTORE_DESTINATION"
 if ! mount --bind -- "$RESTORE_DESTINATION" "$PRIVATE_MEDIA_MOUNTPOINT"; then
   rm -f -- "$RESTORE_DESTINATION/.vow-privacy-reconciled"
   : > "$RESTORE_DESTINATION/.vow-restore-pending"
   chmod 600 "$RESTORE_DESTINATION/.vow-restore-pending"
+  sync -f "$RESTORE_DESTINATION"
+  rm -- "$incomplete_marker"
+  sync -f "$RESTORE_DESTINATION"
   echo "private media bind mount failed; restore returned to pending state" >&2
   exit 1
 fi
+
+# The mount succeeded; only now may a later invocation see a completed state.
+rm -- "$incomplete_marker"
+sync -f "$RESTORE_DESTINATION"
 
 printf 'Private media restore passed the privacy-recovery gate and was mounted.\\n'
