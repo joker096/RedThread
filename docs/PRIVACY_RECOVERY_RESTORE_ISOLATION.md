@@ -4,7 +4,9 @@ This runbook applies only to a disposable, isolated restore target. It is not a 
 
 ## Required isolation before verification
 
-The activation wrapper now requires two independent executables:
+The activation wrapper now requires a pre-created `PRIVACY_RECOVERY_WRITER_LOCK_FILE` and holds its non-blocking `flock` lock from before writer isolation through domain reconciliation and bind activation. The lock file must be an absolute regular non-symlink file. The wrapper exports its path and descriptor (`PRIVACY_RECOVERY_WRITER_LOCK_FD=9`) to the gates. Every process manager, container launcher, scheduled job, and operator action capable of starting a media writer must participate in the same admission lock; otherwise the lock alone does not prevent a non-cooperating writer from starting.
+
+The activation wrapper also requires two independent executables:
 - `PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE`: a fail-closed writer isolation gate.
 - `PRIVACY_RECOVERY_GATE_EXECUTABLE`: the existing domain-specific inventory/replay/receipt/queue/consent reconciliation gate.
 
@@ -16,17 +18,21 @@ export RESTORE_COMPOSE_PROJECT=vow-restore-audit01
 export RESTORE_COMPOSE_FILE=/absolute/path/to/restore-compose.yaml
 export PRIVACY_RECOVERY_MEDIA_VOLUMES=vow-restore-audit01_private_photos,vow-restore-audit01_private_voice_intros,vow-restore-audit01_private_identity_l3
 export HOST_WRITER_ISOLATION_GATE_EXECUTABLE=/absolute/path/to/host-writer-isolation-gate
+# Pre-create this file with ownership/permissions restricted to the restore operator
+install -o root -g root -m 0600 /dev/null /run/lock/vow-restore-audit01-writers.lock
+export PRIVACY_RECOVERY_WRITER_LOCK_FILE=/run/lock/vow-restore-audit01-writers.lock
 bash scripts/privacy-recovery-stop-writers.sh
 ```
 
-The host-level executable is an independent, operator-supplied control; this repository does not pretend to implement a universal host process inspector. If a trustworthy host-level check is unavailable, the Docker gate fails closed because its required executable is absent, and the operator must keep the restore pending and must not activate it.
+The host-level executable is an independent, operator-supplied control; this repository does not pretend to implement a universal host process inspector. It must verify the inherited lock descriptor and the external admission policy, and must fail if any writer-launch path can bypass the lock. The `flock` only coordinates participants that honor it; it is not a kernel-enforced freeze and does not stop arbitrary root processes. A dedicated restore-only Docker daemon/socket and an independently enforced writer-admission policy are still required to close the Docker enumeration race. If these controls cannot be evidenced, the operator must keep the restore pending and must not activate it.
 
 1. Restore PostgreSQL into a dedicated database whose name matches `vow_restore_<suffix>`.
 2. Connect with a dedicated login role whose name matches `vow_restore_<suffix>`. Do not reuse the API, migration, owner, or administrator role.
 3. The restore role must have no role memberships, no superuser/createdb/createrole/replication/bypass-RLS attributes, no write privileges on user relations or sequences, and no CREATE privilege on user schemas or the database. The verifier checks these properties at runtime.
 4. Mount each restored media root into the verifier's own mount namespace as read-only. The CLI reads `/proc/self/mountinfo` and rejects a missing or writable covering mount for photo, voice-intro, or L3 storage.
-5. Before running the verifier, invoke the writer-isolation gate. Its Docker portion stops every service in the dedicated restore project except the isolated DB and rejects any running container anywhere on the daemon with a writable attachment to the restore media volumes. The gate must additionally prove host-level isolation for processes outside Docker, alternate namespaces, writable file descriptors and aliases; otherwise activation is blocked.
-6. Keep the restored media roots read-only after verification. Do not remount them writable or attach them to a writable service until a separately reviewed activation procedure authorizes it.
+5. Pre-create a root-owned, mode-0600 lock file on a trusted local filesystem. Ensure all writer-launch paths use the same lock/admission policy. The activation wrapper holds this lock continuously across the writer gate, domain reconciliation, and bind mount. The lock is cooperative and does not itself block uncooperative privileged processes.
+6. Before running the verifier, invoke the writer-isolation gate. Its Docker portion stops every service in the dedicated restore project except the isolated DB and rejects any running container anywhere on the daemon with a writable attachment to the restore media volumes. The gate must additionally prove host-level isolation for processes outside Docker, alternate namespaces, writable file descriptors and aliases; otherwise activation is blocked.
+7. Keep the restored media roots read-only after verification. Do not remount them writable or attach them to a writable service until a separately reviewed activation procedure authorizes it.
 
 ## What the verifier proves
 
@@ -38,6 +44,8 @@ The host-level executable is an independent, operator-supplied control; this rep
 ## What it does not prove
 
 A read-only mount inside one mount namespace does not prove that no other namespace, host process, container, open writable file descriptor, or storage replica can mutate the same underlying data. The mount check is deliberately scoped to the verifier's own namespace. Operator/orchestrator isolation remains mandatory and must be evidenced independently.
+
+The Docker inventory is still subject to a time-of-check/time-of-use race unless the daemon is dedicated to the restore and its socket/admission controls prevent new writers during the full locked interval. The host gate must establish this independently; merely re-running `docker ps` is not sufficient.
 
 The verifier does not prove erasure from snapshots, backups, replicas, filesystem journals, SSD remapping, or physical blocks. It verifies the configured directory entries and recovery database evidence only.
 
