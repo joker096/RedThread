@@ -172,3 +172,25 @@ test('activation refuses a writer-admission lock already held by another process
     await rm(f.root, { recursive: true, force: true });
   }
 });
+
+test('interrupted bind activation leaves a durable incomplete marker and cannot be retried', async () => {
+  const f = await fixture();
+  try {
+    const mountScript = path.join(f.bin, 'mount');
+    await writeFile(mountScript, '#!/usr/bin/env bash\\nkill -TERM "$PPID"\\nsleep 1\\nexit 0\\n');
+    await chmod(mountScript, 0o700);
+    const interrupted = run(f);
+    assert.equal(interrupted.signal, 'SIGTERM');
+    await lstat(path.join(f.restore, '.vow-privacy-activation-incomplete'));
+    await assert.rejects(lstat(path.join(f.restore, '.vow-restore-pending')), { code: 'ENOENT' });
+    await lstat(path.join(f.restore, '.vow-privacy-reconciled'));
+
+    const retry = run(f);
+    assert.notEqual(retry.status, 0);
+    assert.match(retry.stderr, /missing, incomplete, or has already been activated/);
+    await lstat(path.join(f.restore, '.vow-privacy-activation-incomplete'));
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
