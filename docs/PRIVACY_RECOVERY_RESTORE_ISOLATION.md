@@ -56,3 +56,49 @@ The verifier does not prove erasure from snapshots, backups, replicas, filesyste
 ## Fail-closed behavior
 
 The verifier exits before connecting to PostgreSQL if any media root lacks read-only mount coverage. It also rejects a restore database role with elevated attributes, role memberships, relation/sequence write privileges, or schema/database CREATE privileges. Do not weaken these checks to make a restore pass; correct the isolated restore environment instead.
+
+
+## Host writer-isolation gate: mandatory acceptance contract
+
+The external `HOST_WRITER_ISOLATION_GATE_EXECUTABLE` is not a placeholder that may simply return zero. It is a security boundary. Until an implementation satisfies every item below and its evidence is reviewed, the restore activation wrapper must not be run against real data.
+
+### 1. Caller lock continuity
+
+- Require `PRIVACY_RECOVERY_WRITER_LOCK_FILE` and a numeric `PRIVACY_RECOVERY_WRITER_LOCK_FD`.
+- Verify that `/proc/self/fd/$PRIVACY_RECOVERY_WRITER_LOCK_FD` resolves to the same device/inode as the configured lock file. Reject missing, closed, replaced, symlink-substituted, or mismatched descriptors.
+- The descriptor must be inherited from the activation wrapper, which acquired the non-blocking exclusive `flock`. Do not open a second descriptor and assume it represents the caller's lock.
+- Keep the caller's lock descriptor open until the wrapper has completed reconciliation and bind activation. The host gate must not release, replace, or downgrade it.
+
+### 2. Admission control, not just process discovery
+
+- Prove that every supported writer launch path is mediated by the same admission policy: systemd units, Docker/container runtime, Compose operators, scheduled jobs, queue workers, maintenance scripts, and administrative tooling.
+- The policy must reject new writer admissions for the entire interval from before the host scan until the wrapper exits its critical section. A one-time scan followed by returning success is insufficient.
+- Prove that no unmediated writer path remains for the protected storage. A cooperative `flock` is not sufficient unless every launch authority is forced through it.
+- Define the threat boundary explicitly. A privileged host administrator/root compromise can bypass local controls and cannot be proven absent by a shell script; if the threat model includes hostile root, use a separately controlled restore host or VM and keep the restore blocked on a shared host.
+
+### 3. Process, namespace, descriptor and storage coverage
+
+- Enumerate processes using stable process identity (PID plus start time or pidfd) to avoid PID-reuse races. Fail closed when required `/proc` data is hidden, inaccessible, or changes during inspection.
+- Inspect every relevant mount namespace, not only the gate's namespace. Resolve mount sources and device/inode identity so bind-mount aliases and alternate paths to the same underlying media are detected.
+- Inspect open file descriptors and memory mappings for writable handles to protected media, including deleted-but-open files. A path-only `lsof`/ `fuser` result is not sufficient evidence.
+- Account for processes outside the current PID namespace, containers, runtime shims, and host services. If the gate cannot see a namespace or descriptor table, it must fail closed.
+- Verify that the protected source and restore target are not writable through another block-device, network-filesystem, snapshot, or replica path during the critical interval.
+
+### 4. Dedicated container runtime
+
+- Require an explicitly configured restore-only Docker endpoint; reject the default shared daemon socket.
+- Verify the endpoint is a dedicated daemon, not merely a socket with a restore-looking filename. Pin and check the expected daemon identity and verify that no unrelated workload can be scheduled there.
+- Ensure the daemon's admission policy is held closed for the full wrapper critical section. Docker enumeration alone is subject to a race and cannot satisfy this requirement.
+- Verify every protected volume by stable volume identity and backing device/inode, not only by Compose volume name. Reject writable volume mounts and writable bind aliases.
+
+### 5. Evidence and failure handling
+
+The gate must produce a machine-readable, timestamped evidence record containing the host identity, gate version/hash, lock device/inode and descriptor number, admission-policy identity and held state, Docker endpoint and daemon identity, process/namespace scan coverage, protected storage identities, and explicit pass/fail results for each check. Do not include private media contents or personal data in this record.
+
+Any missing capability, permission error, unsupported namespace/runtime, policy uncertainty, stale evidence, or non-zero subcheck must produce a non-zero exit and leave `.vow-restore-pending` untouched. Evidence must be retained with the restore audit record. A successful process scan without enforced admission control is a failure, not a warning.
+
+### 6. Required tests before this gate can be accepted
+
+At minimum, test that the gate rejects: a missing or replaced inherited lock descriptor; a second writer admission during the critical interval; a writer in a separate mount/PID namespace; a bind-mount alias; an open writable descriptor to a deleted file; an inaccessible `/proc` entry; a process appearing during the scan; an unexpected Docker daemon ID/socket; a new container admitted after initial enumeration; and a writable alias to any protected volume. Tests must demonstrate that admission remains blocked until the activation wrapper releases its lock, including on gate failure and signal/termination paths.
+
+The current repository does not yet contain this privileged host gate or these host-level integration tests. This contract is therefore an explicit unresolved prerequisite, not a claim that host-wide writer isolation has been implemented.
