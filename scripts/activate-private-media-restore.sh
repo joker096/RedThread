@@ -15,6 +15,28 @@ if [[ ! "$PRIVACY_RECOVERY_WRITER_LOCK_FILE" = /* ||
   echo "writer-admission lock must be an absolute, pre-created regular non-symlink file" >&2
   exit 1
 fi
+command -v stat >/dev/null 2>&1 || { echo "stat is required to validate writer lock ownership and permissions" >&2; exit 1; }
+command -v realpath >/dev/null 2>&1 || { echo "realpath is required to validate the writer lock directory" >&2; exit 1; }
+lock_dir="$(dirname -- "$PRIVACY_RECOVERY_WRITER_LOCK_FILE")"
+lock_name="$(basename -- "$PRIVACY_RECOVERY_WRITER_LOCK_FILE")"
+canonical_lock_dir="$(realpath -e -- "$lock_dir")"
+if [[ "$canonical_lock_dir" != "$lock_dir" || -L "$lock_dir" ]]; then
+  echo "writer-admission lock directory must use its canonical, non-symlink path" >&2
+  exit 1
+fi
+lock_dir_mode="$(stat -c '%a' -- "$lock_dir")"
+lock_file_owner="$(stat -c '%u' -- "$PRIVACY_RECOVERY_WRITER_LOCK_FILE")"
+lock_file_mode="$(stat -c '%a' -- "$PRIVACY_RECOVERY_WRITER_LOCK_FILE")"
+if (( (8#$lock_dir_mode & 8#022) != 0 )); then
+  echo "writer-admission lock directory must not be group- or world-writable" >&2
+  exit 1
+fi
+if [[ "$lock_file_owner" != "$(id -u)" ]] || (( (8#$lock_file_mode & 8#077) != 0 )); then
+  echo "writer-admission lock file must be owned by the activating user and inaccessible to group/others" >&2
+  exit 1
+fi
+# Use the canonical directory after validation so the opened path is unambiguous.
+PRIVACY_RECOVERY_WRITER_LOCK_FILE="$canonical_lock_dir/$lock_name"
 
 # Hold the admission lock through writer isolation, reconciliation and bind activation.
 # Every process capable of starting a media writer must use this same lock; the host gate
