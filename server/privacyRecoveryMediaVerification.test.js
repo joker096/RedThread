@@ -37,6 +37,12 @@ function makePool({ receiptRows = [event], obligations = [{
       calls.push(sql);
       if (sql.startsWith('BEGIN TRANSACTION')) return { rows: [] };
       if (sql.includes('current_database()')) return { rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
+      if (sql.includes('FROM pg_roles r')) return { rows: [{
+        rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false,
+        rolbypassrls: false, rolcanlogin: true, has_role_memberships: false,
+        has_relation_write_privileges: false, has_sequence_write_privileges: false,
+        has_schema_create_privileges: false, has_database_create_privilege: false
+      }] };
       if (sql.includes('FROM privacy_recovery_events e')) return { rows: receiptRows };
       if (sql.includes('FROM photo_assets')) return { rows: remainingPhotos };
       if (sql.includes('FROM profiles')) return { rows: profiles, rowCount: profiles.length };
