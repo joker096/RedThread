@@ -70,7 +70,8 @@ test('stages only events newer than the restored snapshot watermark', async () =
   assert.deepEqual(result, { snapshotLedgerSequence: 1, stagedCount: 2, alreadyPresentCount: 0, throughSequence: 3 });
   assert.deepEqual(client.rows.map(row => row.ledger_sequence), [2, 3]);
   assert.match(client.calls[0].sql, /current_database\(\)/);
-  assert.match(client.calls[1].sql, /FROM pg_roles r/);\n  assert.equal(client.calls[2].sql, 'BEGIN');
+  assert.match(client.calls[1].sql, /FROM pg_roles r/);
+  assert.equal(client.calls[2].sql, 'BEGIN');
   assert.equal(client.calls.at(-1).sql, 'COMMIT');
 });
 
