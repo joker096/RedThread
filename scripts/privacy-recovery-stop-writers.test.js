@@ -36,7 +36,7 @@ async function fixture(scenario = 'readonly') {
   const jq = [
     '#!/usr/bin/env node',
     'let input = ""; for await (const chunk of process.stdin) input += chunk;',
-    'try { const data = JSON.parse(input); const volume = process.argv[process.argv.indexOf("--arg") + 2];',
+    'try { const data = JSON.parse(input); const volume = process.argv[process.argv.indexOf("--arg") + 1];',
     'const found = (data[0]?.Mounts || []).some(m => m.Type === "volume" && m.Name === volume && m.RW === true); process.exit(found ? 0 : 1);',
     '} catch { process.exit(4); }'
   ].join('\n') + '\n';
