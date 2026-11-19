@@ -14,21 +14,21 @@ async function fixture(scenario = 'readonly') {
   const composeFile = path.join(root, 'restore.compose.yml');
   const hostGate = path.join(root, 'host-gate');
   const log = path.join(root, 'calls.log');
-  await writeFile(composeFile, 'services: {}\\n');
+  await writeFile(composeFile, 'services: {}\n');
   await writeFile(log, '');
   await writeFile(hostGate, '#!/usr/bin/env bash\nset -eu\necho host-gate >> "$CALL_LOG"\n');
   await chmod(hostGate, 0o700);
   const docker = [
-    '#!/usr/bin/env bash','set -eu','printf "docker:%s\\n" "$*" >> "$CALL_LOG"',
+    '#!/usr/bin/env bash','set -eu','printf "docker:%s\n" "$*" >> "$CALL_LOG"',
     'if [[ "$1" == compose ]]; then',
-    ' case "$*" in *"config --services"*) printf "db\\napi\\nworker\\n" ;; *" stop "*) exit 0 ;; *) exit 2 ;; esac',
-    'elif [[ "$1" == ps && "$*" != *"label=com.docker.compose.project="* ]]; then printf "db1\\nforeign1\\n"',
-    'elif [[ "$1" == ps ]]; then printf "db1\\n"',
-    'elif [[ "$1" == inspect && "$2" == --format ]]; then printf "db\\n"',
+    ' case "$*" in *"config --services"*) printf "db\napi\nworker\n" ;; *" stop "*) exit 0 ;; *) exit 2 ;; esac',
+    'elif [[ "$1" == ps && "$*" != *"label=com.docker.compose.project="* ]]; then printf "db1\nforeign1\n"',
+    'elif [[ "$1" == ps ]]; then printf "db1\n"',
+    'elif [[ "$1" == inspect && "$2" == --format ]]; then printf "db\n"',
     'elif [[ "$1" == inspect ]]; then',
     ' [[ "$SCENARIO" != inspect-error ]] || exit 9',
-    ' if [[ "$2" == foreign1 && "$SCENARIO" == writable ]]; then printf \'[{"Mounts":[{"Type":"volume","Name":"vow-restore-test_private_photos","RW":true}]}]\\n\'',
-    ' else printf \'[{"Mounts":[{"Type":"volume","Name":"vow-restore-test_private_photos","RW":false}]}]\\n\'; fi',
+    ' if [[ "$2" == foreign1 && "$SCENARIO" == writable ]]; then printf \'[{"Mounts":[{"Type":"volume","Name":"vow-restore-test_private_photos","RW":true}]}]\n\'',
+    ' else printf \'[{"Mounts":[{"Type":"volume","Name":"vow-restore-test_private_photos","RW":false}]}]\n\'; fi',
     'else exit 2; fi'
   ].join('\n') + '\n';
   await writeFile(path.join(bin, 'docker'), docker);
