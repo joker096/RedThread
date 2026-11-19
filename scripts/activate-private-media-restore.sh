@@ -152,7 +152,16 @@ if ! mount --bind -- "$RESTORE_DESTINATION" "$PRIVATE_MEDIA_MOUNTPOINT"; then
 fi
 
 # The mount succeeded; only now may a later invocation see a completed state.
+# If the final directory sync fails after the unlink, restore the durable fail-closed
+# marker before returning. A failed durability barrier must never look like success.
 rm -- "$incomplete_marker"
-sync -f "$RESTORE_DESTINATION"
+if ! sync -f "$RESTORE_DESTINATION"; then
+  ( set -o noclobber; : > "$incomplete_marker" ) 2>/dev/null || true
+  chmod 600 "$incomplete_marker" || true
+  sync -f "$incomplete_marker" || true
+  sync -f "$RESTORE_DESTINATION" || true
+  echo "final restore-state sync failed; activation remains blocked by the incomplete marker" >&2
+  exit 1
+fi
 
 printf 'Private media restore passed the privacy-recovery gate and was mounted.\\n'
