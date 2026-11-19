@@ -36,7 +36,7 @@ function makePool({ receiptRows = [event], obligations = [{
     async query(sql) {
       calls.push(sql);
       if (sql.startsWith('BEGIN TRANSACTION')) return { rows: [] };
-      if (sql.includes('current_database()')) return { rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
+      if (sql.includes('SELECT current_database() AS database_name')) return { rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
       if (sql.includes('FROM pg_roles r')) return { rows: [{
         rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false,
         rolbypassrls: false, rolcanlogin: true, has_role_memberships: false,
