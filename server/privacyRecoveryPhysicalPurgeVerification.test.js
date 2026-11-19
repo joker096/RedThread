@@ -89,6 +89,29 @@ test('physical attestation fails closed for missing or symlinked storage roots',
   }
 });
 
+test('physical attestation rejects a symlinked parent path component', async () => {
+  const { base, roots } = await fixture();
+  try {
+    const realParent = path.join(base, 'real-parent');
+    const linkedParent = path.join(base, 'linked-parent');
+    await mkdir(path.join(realParent, 'photos'), { recursive: true, mode: 0o700 });
+    await symlink(realParent, linkedParent, 'dir');
+    const linkedRoot = path.join(linkedParent, 'photos');
+    await assert.rejects(
+      verifyPhysicalPurgeAbsence({
+        obligations: [{
+          queue_name: 'private_photo',
+          storage_path_sha256: sha(path.join(linkedRoot, ids.photo + '.jpg'))
+        }],
+        storageRoots: { ...roots, private_photo: linkedRoot }
+      }),
+      /privacy_recovery_physical_storage_root_unsafe:private_photo/
+    );
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test('physical attestation rejects malformed or unsupported obligations', async () => {
   await assert.rejects(
     verifyPhysicalPurgeAbsence({ obligations: [null] }),
