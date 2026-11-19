@@ -16,7 +16,7 @@ export RESTORE_COMPOSE_PROJECT=vow-restore-audit01
 export RESTORE_COMPOSE_FILE=/absolute/path/to/restore-compose.yaml
 export PRIVACY_RECOVERY_MEDIA_VOLUMES=vow-restore-audit01_private_photos,vow-restore-audit01_private_voice_intros,vow-restore-audit01_private_identity_l3
 export HOST_WRITER_ISOLATION_GATE_EXECUTABLE=/absolute/path/to/host-writer-isolation-gate
-scripts/privacy-recovery-stop-writers.sh
+bash scripts/privacy-recovery-stop-writers.sh
 ```
 
 The host-level executable is an independent, operator-supplied control; this repository does not pretend to implement a universal host process inspector. If a trustworthy host-level check is unavailable, the Docker gate fails closed because its required executable is absent, and the operator must keep the restore pending and must not activate it.
