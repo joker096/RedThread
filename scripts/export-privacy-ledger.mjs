@@ -9,7 +9,7 @@ function hmacHex(secret, value) {
   return createHmac('sha256', secret).update(value, 'utf8').digest('hex');
 }
 
-const EVENT_TYPES = new Set([
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;\n\nconst EVENT_TYPES = new Set([
   'account_erasure_requested',
   'voice_intro_consent_withdrawn',
   'voice_intro_erasure_requested',
