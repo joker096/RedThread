@@ -360,3 +360,40 @@ test('failed final sync plus failed bind-mount rollback remains explicitly block
     await rm(f.root, { recursive: true, force: true });
   }
 });
+
+
+test('termination during final directory sync restores the incomplete marker', async () => {
+  const f = await fixture();
+  try {
+    const realSync = spawnSync('bash', ['-c', 'command -v sync'], { encoding: 'utf8' }).stdout.trim();
+    assert.ok(realSync, 'sync executable must be available');
+    const countFile = path.join(f.root, 'sync-count');
+    const syncShim = path.join(f.bin, 'sync');
+    await writeFile(syncShim, [
+      '#!/usr/bin/env bash',
+      'set -eu',
+      'count=0',
+      'if [[ -f "$SYNC_COUNT_FILE" ]]; then read -r count < "$SYNC_COUNT_FILE"; fi',
+      'count=$((count + 1))',
+      'printf "%s\\n" "$count" > "$SYNC_COUNT_FILE"',
+      'if [[ "$count" -eq 5 ]]; then kill -TERM "$PPID"; exit 0; fi',
+      '"$REAL_SYNC" "$@"',
+      'exit 0',
+      ''
+    ].join('\\n'));
+    await chmod(syncShim, 0o700);
+
+    const result = run(f, {
+      REAL_SYNC: realSync,
+      SYNC_COUNT_FILE: countFile
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /activation interrupted by TERM; incomplete marker restored and activation remains blocked/);
+    const marker = await lstat(path.join(f.restore, '.vow-privacy-activation-incomplete'));
+    assert.equal(marker.mode & 0o777, 0o600);
+    await lstat(path.join(f.restore, '.vow-privacy-reconciled'));
+    await assert.rejects(lstat(path.join(f.restore, '.vow-restore-pending')), { code: 'ENOENT' });
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
