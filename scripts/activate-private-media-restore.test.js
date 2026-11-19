@@ -380,7 +380,7 @@ test('termination during final directory sync restores the incomplete marker', a
       '"$REAL_SYNC" "$@"',
       'exit 0',
       ''
-    ].join('\\n'));
+    ].join('\n'));
     await chmod(syncShim, 0o700);
 
     const result = run(f, {
