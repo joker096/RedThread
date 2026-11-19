@@ -33,6 +33,11 @@ async function main() {
     private_voice_intro: process.env.VOICE_INTRO_STORAGE_DIR,
     identity_l3_media: process.env.IDENTITY_L3_STORAGE_DIR
   };
+  for (const [name, root] of Object.entries(storageRoots)) {
+    if (typeof root !== 'string' || !root.trim()) {
+      throw new Error('privacy_recovery_verifier_storage_root_required:' + name);
+    }
+  }
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     max: 1,
