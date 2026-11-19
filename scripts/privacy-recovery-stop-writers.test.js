@@ -19,7 +19,7 @@ async function fixture(scenario = 'readonly') {
   await writeFile(hostGate, '#!/usr/bin/env bash\nset -eu\necho host-gate >> "$CALL_LOG"\n');
   await chmod(hostGate, 0o700);
   const docker = [
-    '#!/usr/bin/env bash','set -eu','printf "docker:%s\n" "$*" >> "$CALL_LOG"',
+    '#!/usr/bin/env bash','set -eu','printf "docker:%s\\n" "$*" >> "$CALL_LOG"',
     'if [[ "$1" == compose ]]; then',
     ' case "$*" in *"config --services"*) printf "db\napi\nworker\n" ;; *" stop "*) exit 0 ;; *) exit 2 ;; esac',
     'elif [[ "$1" == ps && "$*" != *"label=com.docker.compose.project="* ]]; then printf "db1\nforeign1\n"',
@@ -27,8 +27,8 @@ async function fixture(scenario = 'readonly') {
     'elif [[ "$1" == inspect && "$2" == --format ]]; then printf "db\n"',
     'elif [[ "$1" == inspect ]]; then',
     ' [[ "$SCENARIO" != inspect-error ]] || exit 9',
-    ' if [[ "$SCENARIO" == writable ]]; then printf \'%s\n\' \'[{"Mounts":[{"Type":"volume","Name":"vow-restore-test_private_photos","RW":true}]}]\'',
-    ' else printf \'%s\n\' \'[{"Mounts":[{"Type":"volume","Name":"vow-restore-test_private_photos","RW":false}]}]\'; fi',
+    ' if [[ "$SCENARIO" == writable ]]; then printf \'%s\\n\' \'[{"Mounts":[{"Type":"volume","Name":"vow-restore-test_private_photos","RW":true}]}]\'',
+    ' else printf \'%s\\n\' \'[{"Mounts":[{"Type":"volume","Name":"vow-restore-test_private_photos","RW":false}]}]\'; fi',
     'else exit 2; fi'
   ].join('\n') + '\n';
   await writeFile(path.join(bin, 'docker'), docker);
