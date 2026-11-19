@@ -166,6 +166,33 @@ test('L3 verification accepts zero retained media purge obligations', async () =
   assert.equal(calls.includes('COMMIT'), true);
 });
 
+test('L3 verification rejects an outstanding purge job even when obligation receipts exist', async () => {
+  const l3Event = makeL3Event(1);
+  const obligation = {
+    ledger_sequence: '7',
+    queue_name: 'identity_l3_media',
+    storage_path_sha256: 'c'.repeat(64)
+  };
+  const { pool, calls } = makePool({
+    receiptRows: [l3Event],
+    obligations: [obligation],
+    completionRows: [obligation],
+    profiles: [],
+    l3ConsentRows: [{ withdrawn_at: new Date('2026-11-18T00:00:00.000Z') }],
+    l3PurgeJobRows: [{ id: '123e4567-e89b-42d3-a456-426614174009' }]
+  });
+  await assert.rejects(
+    verifyPrivateMediaPrivacyRecovery({
+      pool, env: isolatedEnv,
+      storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp' },
+      snapshotLedgerSequence: 6, throughSequence: 7
+    }),
+    /privacy_recovery_verification_identity_l3_purge_incomplete/
+  );
+  assert.equal(calls.includes('ROLLBACK'), true);
+  assert.equal(calls.includes('COMMIT'), false);
+});
+
 test('L3 verification accepts multiple purge obligations and matching completion receipts', async () => {
   const l3Event = makeL3Event(2);
   const obligations = [
