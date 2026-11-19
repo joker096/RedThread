@@ -147,6 +147,18 @@ test('stages the new address-draft consent event without granting replay authori
   assert.equal(client.rows[0].event_type, 'gift_address_draft_consent_withdrawn');
 });
 
+test('rejects address-draft consent withdrawal without a resource reference before touching the database', async () => {
+  const client = fakeClient();
+  await assert.rejects(stage(client, {
+    snapshotLedgerSequence: 0,
+    events: [event(1, {
+      event_type: 'gift_address_draft_consent_withdrawn',
+      resource_ref: null
+    })]
+  }), /archive_invalid/);
+  assert.equal(client.calls.length, 0);
+});
+
 test('refuses to stage when the connected PostgreSQL database or role differs from the explicit isolated target', async () => {
   for (const client of [
     fakeClient([], { databaseName: 'vow_production' }),
