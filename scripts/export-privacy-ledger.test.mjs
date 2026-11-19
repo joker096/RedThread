@@ -66,6 +66,16 @@ test('export rejects non-v4 event identifiers', async () => {
   );
 });
 
+test('export rejects event schema versions outside the current contract', async () => {
+  const fetchImpl = async () => pageResponse([
+    event(1, { schema_version: 2 })
+  ], 1, 1);
+  await assert.rejects(
+    fetchCompleteLedger({ endpoint: 'https://ledger.example.workers.dev', authSecret: secret, fetchImpl }),
+    /sequence_gap_or_invalid_event/
+  );
+});
+
 test('export rejects a changing watermark between pages', async () => {
   let calls = 0;
   const fetchImpl = async () => {
