@@ -21,9 +21,9 @@ async function fixture() {
   await writeFile(path.join(restore, '.vow-restore-pending'), '');
   await writeFile(log, '');
   await writeFile(writerLock, '');
-  await writeFile(gate, '#!/usr/bin/env bash\nset -eu\nprintf "gate:%s\\n" "$RESTORE_DESTINATION" >> "$CALL_LOG"\nexit "${GATE_EXIT:-0}"\n');
+  await writeFile(gate, '#!/usr/bin/env bash\nset -eu\ntest "$PRIVACY_RECOVERY_WRITER_LOCK_FD" = 9\ntest -e "/proc/self/fd/$PRIVACY_RECOVERY_WRITER_LOCK_FD"\nif flock -n "$PRIVACY_RECOVERY_WRITER_LOCK_FILE" -c true; then echo "writer lock was not held during domain gate" >&2; exit 91; fi\nprintf "gate:%s\\n" "$RESTORE_DESTINATION" >> "$CALL_LOG"\nexit "${GATE_EXIT:-0}"\n');
   await chmod(gate, 0o700);
-  await writeFile(writerGate, '#!/usr/bin/env bash\nset -eu\nprintf "writer:%s\\n" "$RESTORE_DESTINATION" >> "$CALL_LOG"\nexit "${WRITER_GATE_EXIT:-0}"\n');
+  await writeFile(writerGate, '#!/usr/bin/env bash\nset -eu\ntest "$PRIVACY_RECOVERY_WRITER_LOCK_FD" = 9\ntest -e "/proc/self/fd/$PRIVACY_RECOVERY_WRITER_LOCK_FD"\nif flock -n "$PRIVACY_RECOVERY_WRITER_LOCK_FILE" -c true; then echo "writer lock was not held during writer gate" >&2; exit 92; fi\nprintf "writer:%s\\n" "$RESTORE_DESTINATION" >> "$CALL_LOG"\nexit "${WRITER_GATE_EXIT:-0}"\n');
   await writeFile(path.join(bin, 'mountpoint'), '#!/usr/bin/env bash\nexit 1\n');
   await chmod(path.join(bin, 'mountpoint'), 0o700);
   await writeFile(path.join(bin, 'mount'), '#!/usr/bin/env bash\nset -eu\nprintf "mount:%s\\n" "$*" >> "$CALL_LOG"\nexit "${MOUNT_EXIT:-0}"\n');
@@ -118,6 +118,22 @@ test('restored media cannot be activated when writer isolation fails', async () 
   }
 });
 
+
+test('activation rejects a symlink writer-admission lock file', async () => {
+  const f = await fixture();
+  const link = path.join(f.root, 'writer-admission-link');
+  try {
+    await rm(f.writerLock);
+    await import('node:fs/promises').then(({ symlink }) => symlink(path.join(f.root, 'target-lock'), link));
+    await writeFile(path.join(f.root, 'target-lock'), '');
+    const result = run(f, { PRIVACY_RECOVERY_WRITER_LOCK_FILE: link });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /pre-created regular non-symlink file/);
+    assert.equal(await readFile(f.log, 'utf8'), '');
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
 
 test('activation refuses a writer-admission lock already held by another process', async () => {
   const f = await fixture();
