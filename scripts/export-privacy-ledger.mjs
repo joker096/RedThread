@@ -25,7 +25,7 @@ const EVENT_TYPES = new Set([
 function validEvent(event) {
   if (!event || typeof event !== 'object' || Array.isArray(event)) return false;
   return Number.isSafeInteger(event.sequence) && event.sequence > 0 &&
-    typeof event.event_id === 'string' &&
+    typeof event.event_id === 'string' && UUID.test(event.event_id) &&
     Number.isSafeInteger(event.schema_version) &&
     EVENT_TYPES.has(event.event_type) &&
     /^[a-f0-9]{64}$/i.test(event.subject_ref) &&
