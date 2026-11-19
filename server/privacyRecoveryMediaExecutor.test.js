@@ -34,7 +34,8 @@ function fakePool({ receipt = null } = {}) {
     async query(sql, params = []) {
       calls.push({ sql, params });
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rowCount: null, rows: [] };
-      if (sql.includes('current_database()')) return { rowCount: 1, rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
+      if (sql.includes('SELECT current_database() AS database_name')) return { rowCount: 1, rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
+      if (sql.includes('FROM pg_roles r')) return { rows: [{ rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false, rolbypassrls: false, rolcanlogin: true, has_role_memberships: false, has_relation_write_privileges: false, has_sequence_write_privileges: false, has_schema_create_privileges: false, has_database_create_privilege: false }], rowCount: 1 };
       if (sql.includes('FROM privacy_recovery_replay_receipts')) {
         return { rowCount: receipt ? 1 : 0, rows: receipt ? [receipt] : [] };
       }
