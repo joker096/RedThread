@@ -54,6 +54,26 @@ test('rejects non-v4 event identifiers', async () => {
   )), /event_invalid/);
 });
 
+test('enforces archive event-count and decrypted-byte limits', async () => {
+  await assert.rejects(
+    verifyLedgerExportStream(streamOf(manifest(1), event(1)), { maxEventCount: 0 }),
+    /event_limit_exceeded|manifest_invalid/
+  );
+  await assert.rejects(
+    verifyLedgerExportStream(streamOf(manifest(1), event(1)), { maxPlaintextBytes: 10 }),
+    /plaintext_limit_exceeded/
+  );
+});
+
+test('returns validated events only when explicitly requested', async () => {
+  const result = await verifyLedgerExportStream(streamOf(manifest(1), event(1)), {
+    includeEvents: true,
+    maxEventCount: 1
+  });
+  assert.equal(result.events.length, 1);
+  assert.equal(result.events[0].sequence, 1);
+});
+
 test('rejects incomplete count, malformed manifest and invalid JSON', async () => {
   await assert.rejects(verifyLedgerExportStream(streamOf(manifest(2), event(1))), /incomplete/);
   await assert.rejects(verifyLedgerExportStream(streamOf({ ...manifest(0), last_sequence: 1 })), /manifest_invalid/);
