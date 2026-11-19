@@ -26,7 +26,7 @@ function validEvent(event) {
   if (!event || typeof event !== 'object' || Array.isArray(event)) return false;
   return Number.isSafeInteger(event.sequence) && event.sequence > 0 &&
     typeof event.event_id === 'string' && UUID.test(event.event_id) &&
-    Number.isSafeInteger(event.schema_version) &&
+    event.schema_version === 1 &&
     EVENT_TYPES.has(event.event_type) &&
     /^[a-f0-9]{64}$/i.test(event.subject_ref) &&
     (event.resource_ref === null || event.resource_ref === undefined || /^[a-f0-9]{64}$/i.test(event.resource_ref)) &&
