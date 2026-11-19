@@ -72,8 +72,8 @@ if [[ ! -d "$RESTORE_DESTINATION" || -L "$RESTORE_DESTINATION" ]]; then
 fi
 if [[ ! -f "$RESTORE_DESTINATION/.vow-restore-pending" ||
       -L "$RESTORE_DESTINATION/.vow-restore-pending" ||
-      -e "$RESTORE_DESTINATION/.vow-privacy-reconciled" ||
-      -e "$RESTORE_DESTINATION/.vow-privacy-activation-incomplete" ]]; then
+      ( -e "$RESTORE_DESTINATION/.vow-privacy-reconciled" || -L "$RESTORE_DESTINATION/.vow-privacy-reconciled" ) ||
+      ( -e "$RESTORE_DESTINATION/.vow-privacy-activation-incomplete" || -L "$RESTORE_DESTINATION/.vow-privacy-activation-incomplete" ) ]]; then
   echo "restore staging state is missing, incomplete, or has already been activated" >&2
   exit 1
 fi
@@ -109,7 +109,7 @@ sync -f "$incomplete_marker"
 sync -f "$RESTORE_DESTINATION"
 
 rm -- "$RESTORE_DESTINATION/.vow-restore-pending"
-: > "$RESTORE_DESTINATION/.vow-privacy-reconciled"
+( set -o noclobber; : > "$RESTORE_DESTINATION/.vow-privacy-reconciled" )
 chmod 600 "$RESTORE_DESTINATION/.vow-privacy-reconciled"
 sync -f "$RESTORE_DESTINATION/.vow-privacy-reconciled"
 sync -f "$RESTORE_DESTINATION"
