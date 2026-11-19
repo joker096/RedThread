@@ -19,8 +19,10 @@ async function fixture(scenario = 'readonly') {
   await writeFile(hostGate, '#!/usr/bin/env bash\nset -eu\necho host-gate >> "$CALL_LOG"\n');
   await chmod(hostGate, 0o700);
   const docker = [
-    '#!/usr/bin/env bash','set -eu','printf "docker:%s\\n" "$*" >> "$CALL_LOG"',
-    'if [[ "$1" == compose ]]; then',
+    '#!/usr/bin/env bash','set -eu','if [[ "$1" == --context ]]; then [[ "$2" == "$RESTORE_DOCKER_CONTEXT" ]] || exit 80; shift 2; fi','printf "docker:%s\\n" "$*" >> "$CALL_LOG"',
+    'if [[ "$1" == context && "$2" == inspect ]]; then printf \'%s\\n\' "$DOCKER_ENDPOINT_OUTPUT"',
+    'elif [[ "$1" == info ]]; then printf \'%s\\n\' "$DOCKER_DAEMON_ID_OUTPUT"',
+    'elif [[ "$1" == compose ]]; then',
     ' case "$*" in *"config --services"*) printf "db\napi\nworker\n" ;; *" stop "*) exit 0 ;; *) exit 2 ;; esac',
     'elif [[ "$1" == ps && "$*" != *"label=com.docker.compose.project="* ]]; then printf "db1\nforeign1\n"',
     'elif [[ "$1" == ps ]]; then printf "db1\n"',
@@ -50,7 +52,10 @@ function run(f, overrides = {}) {
     encoding: 'utf8',
     env: {
       ...process.env, PATH: f.bin + path.delimiter + (process.env.PATH || ''),
-      CALL_LOG: f.log, SCENARIO: f.scenario,
+      CALL_LOG: f.log, SCENARIO: f.scenario, RESTORE_DOCKER_CONTEXT: 'vow-restore-test-context',
+      RESTORE_DOCKER_ENDPOINT: 'unix:///run/vow-restore-test/docker.sock', DOCKER_ENDPOINT_OUTPUT: overrides.DOCKER_ENDPOINT_OUTPUT || 'unix:///run/vow-restore-test/docker.sock',
+      RESTORE_DOCKER_DAEMON_ID: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      DOCKER_DAEMON_ID_OUTPUT: overrides.DOCKER_DAEMON_ID_OUTPUT || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
       RESTORE_COMPOSE_PROJECT: 'vow-restore-test', RESTORE_COMPOSE_FILE: f.composeFile,
       PRIVACY_RECOVERY_MEDIA_VOLUMES: [
         'vow-restore-test_private_photos','vow-restore-test_private_voice_intros','vow-restore-test_private_identity_l3'
@@ -59,6 +64,24 @@ function run(f, overrides = {}) {
     }
   });
 }
+
+test('writer isolation refuses the default Docker context', async () => {
+  const f = await fixture();
+  try { const result = run(f, { RESTORE_DOCKER_CONTEXT: 'default' }); assert.notEqual(result.status, 0); assert.match(result.stderr, /non-default restore Docker context/); }
+  finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('writer isolation rejects an unexpected Docker daemon ID', async () => {
+  const f = await fixture();
+  try { const result = run(f, { DOCKER_DAEMON_ID_OUTPUT: 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' }); assert.notEqual(result.status, 0); assert.match(result.stderr, /daemon ID does not match/); assert.equal((await readFile(f.log, 'utf8')).includes('docker:compose'), false); }
+  finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('writer isolation rejects an unexpected Docker context endpoint', async () => {
+  const f = await fixture();
+  try { const result = run(f, { DOCKER_ENDPOINT_OUTPUT: 'unix:///var/run/docker.sock' }); assert.notEqual(result.status, 0); assert.match(result.stderr, /context endpoint does not match/); assert.equal((await readFile(f.log, 'utf8')).includes('docker:compose'), false); }
+  finally { await rm(f.root, { recursive: true, force: true }); }
+});
 
 test('writer isolation refuses to proceed without the mandatory host gate', async () => {
   const f = await fixture();
