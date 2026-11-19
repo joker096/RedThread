@@ -22,7 +22,6 @@ async function fixture() {
   await writeFile(gate, '#!/usr/bin/env bash\nset -eu\nprintf "gate:%s\\n" "$RESTORE_DESTINATION" >> "$CALL_LOG"\nexit "${GATE_EXIT:-0}"\n');
   await chmod(gate, 0o700);
   await writeFile(writerGate, '#!/usr/bin/env bash\nset -eu\nprintf "writer:%s\\n" "$RESTORE_DESTINATION" >> "$CALL_LOG"\nexit "${WRITER_GATE_EXIT:-0}"\n');
-  await chmod(writerGate, 0o700);
   await writeFile(path.join(bin, 'mountpoint'), '#!/usr/bin/env bash\nexit 1\n');
   await chmod(path.join(bin, 'mountpoint'), 0o700);
   await writeFile(path.join(bin, 'mount'), '#!/usr/bin/env bash\nset -eu\nprintf "mount:%s\\n" "$*" >> "$CALL_LOG"\nexit "${MOUNT_EXIT:-0}"\n');
