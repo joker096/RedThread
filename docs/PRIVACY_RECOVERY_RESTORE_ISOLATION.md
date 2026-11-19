@@ -19,8 +19,9 @@ export RESTORE_COMPOSE_FILE=/absolute/path/to/restore-compose.yaml
 export PRIVACY_RECOVERY_MEDIA_VOLUMES=vow-restore-audit01_private_photos,vow-restore-audit01_private_voice_intros,vow-restore-audit01_private_identity_l3
 export HOST_WRITER_ISOLATION_GATE_EXECUTABLE=/absolute/path/to/host-writer-isolation-gate
 # Pre-create this file with ownership/permissions restricted to the restore operator
-install -o root -g root -m 0600 /dev/null /run/lock/vow-restore-audit01-writers.lock
-export PRIVACY_RECOVERY_WRITER_LOCK_FILE=/run/lock/vow-restore-audit01-writers.lock
+install -d -o root -g root -m 0700 /run/vow-restore-audit01
+install -o root -g root -m 0600 /dev/null /run/vow-restore-audit01/writers.lock
+export PRIVACY_RECOVERY_WRITER_LOCK_FILE=/run/vow-restore-audit01/writers.lock
 export PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE=/absolute/path/to/scripts/privacy-recovery-stop-writers.sh
 export PRIVACY_RECOVERY_GATE_EXECUTABLE=/absolute/path/to/domain-reconciliation-gate
 export RESTORE_DESTINATION=/absolute/path/to/disposable-restore-staging
