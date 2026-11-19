@@ -26,14 +26,14 @@ const event = (sequence, overrides = {}) => ({
   ...overrides
 });
 
-function fakeClient(existingRows = []) {
+function fakeClient(existingRows = [], identity = {}) {
   const rows = [...existingRows];
   const calls = [];
   return {
     rows, calls,
     async query(sql, values = []) {
       calls.push({ sql, values });
-      if (sql.includes('current_database()')) return { rowCount: 1, rows: [{ database_name: targetEnv.PRIVACY_RECOVERY_RESTORE_DATABASE_NAME, database_role: targetEnv.PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE }] };
+      if (sql.includes('current_database()')) return { rowCount: 1, rows: [{ database_name: identity.databaseName || targetEnv.PRIVACY_RECOVERY_RESTORE_DATABASE_NAME, database_role: identity.databaseRole || targetEnv.PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE }] };
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rowCount: null, rows: [] };
       if (sql.includes('INSERT INTO privacy_recovery_events')) {
         const [sequence, eventId, schemaVersion, eventType, subjectRef, resourceRef, occurredAt, receivedAt] = values;
@@ -145,4 +145,29 @@ test('stages the new address-draft consent event without granting replay authori
   });
   assert.equal(result.stagedCount, 1);
   assert.equal(client.rows[0].event_type, 'gift_address_draft_consent_withdrawn');
+});
+
+test('refuses to stage when the connected PostgreSQL database or role differs from the explicit isolated target', async () => {
+  for (const client of [
+    fakeClient([], { databaseName: 'vow_production' }),
+    fakeClient([], { databaseRole: 'vow_api' })
+  ]) {
+    await assert.rejects(stage(client, {
+      snapshotLedgerSequence: 0,
+      events: [event(1)]
+    }), /database_identity_mismatch/);
+    assert.equal(client.rows.length, 0);
+    assert.equal(client.calls.some(call => call.sql.includes('INSERT INTO privacy_recovery_events')), false);
+    assert.equal(client.calls.some(call => call.sql === 'BEGIN'), false);
+  }
+});
+
+test('refuses to stage when isolated restore confirmation is absent', async () => {
+  const client = fakeClient();
+  await assert.rejects(stagePrivacyRecoveryEvents(client, {
+    snapshotLedgerSequence: 0,
+    events: [event(1)],
+    env: { ...targetEnv, PRIVACY_RECOVERY_RESTORE_CONFIRMATION: '' }
+  }), /target_not_explicitly_configured/);
+  assert.equal(client.calls.length, 0);
 });
