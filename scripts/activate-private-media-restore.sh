@@ -152,6 +152,13 @@ if ! mount --bind -- "$RESTORE_DESTINATION" "$PRIVATE_MEDIA_MOUNTPOINT"; then
   exit 1
 fi
 
+# A successful mount command is not sufficient evidence: verify that the requested
+# target is now an actual mountpoint before clearing the incomplete marker.
+if ! mountpoint -q -- "$PRIVATE_MEDIA_MOUNTPOINT"; then
+  echo "bind mount command returned success but the private media target is not mounted; activation remains blocked" >&2
+  exit 1
+fi
+
 # The mount succeeded; only now may a later invocation see a completed state.
 # Keep the final marker transition fail-closed even if the process is interrupted
 # between unlinking the incomplete marker and completing the directory sync.
