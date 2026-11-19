@@ -30,7 +30,7 @@ async function fixture() {
   await chmod(path.join(bin, 'mountpoint'), 0o700);
   await writeFile(path.join(bin, 'mount'), '#!/usr/bin/env bash\nset -eu\nprintf "mount:%s\\n" "$*" >> "$CALL_LOG"\nexit "${MOUNT_EXIT:-0}"\n');
   await chmod(path.join(bin, 'mount'), 0o700);
-  await writeFile(path.join(bin, 'umount'), '#!/usr/bin/env bash\\nset -eu\\nprintf "umount:%s\\\\n" "$*" >> "$CALL_LOG"\\nexit "${UMOUNT_EXIT:-0}"\\n');
+  await writeFile(path.join(bin, 'umount'), '#!/usr/bin/env bash\nset -eu\nprintf "umount:%s\\n" "$*" >> "$CALL_LOG"\nexit "${UMOUNT_EXIT:-0}"\n');
   await chmod(path.join(bin, 'umount'), 0o700);
   return { root, bin, restore, mountpoint, gate, writerGate, writerLock, log };
 }
