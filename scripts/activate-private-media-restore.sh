@@ -153,8 +153,28 @@ if ! mount --bind -- "$RESTORE_DESTINATION" "$PRIVATE_MEDIA_MOUNTPOINT"; then
 fi
 
 # The mount succeeded; only now may a later invocation see a completed state.
-# If the final directory sync fails after the unlink, restore the durable fail-closed
-# marker before returning. A failed durability barrier must never look like success.
+# Keep the final marker transition fail-closed even if the process is interrupted
+# between unlinking the incomplete marker and completing the directory sync.
+handle_finalization_signal() {
+  local signal_name="$1"
+  trap - TERM INT HUP
+  if [[ ! -e "$incomplete_marker" && ! -L "$incomplete_marker" ]]; then
+    ( set -o noclobber; : > "$incomplete_marker" ) 2>/dev/null || true
+  fi
+  chmod 600 "$incomplete_marker" 2>/dev/null || true
+  sync -f "$incomplete_marker" 2>/dev/null || true
+  sync -f "$RESTORE_DESTINATION" 2>/dev/null || true
+  if mountpoint -q -- "$PRIVATE_MEDIA_MOUNTPOINT"; then
+    if ! umount -- "$PRIVATE_MEDIA_MOUNTPOINT"; then
+      echo "activation signal $signal_name received and bind-mount rollback failed; manual isolation is required" >&2
+    fi
+  fi
+  echo "activation interrupted by $signal_name; incomplete marker restored and activation remains blocked" >&2
+  exit 1
+}
+trap 'handle_finalization_signal TERM' TERM
+trap 'handle_finalization_signal INT' INT
+trap 'handle_finalization_signal HUP' HUP
 rm -- "$incomplete_marker"
 if ! sync -f "$RESTORE_DESTINATION"; then
   # The bind mount is already live at this point. Roll it back before returning
@@ -169,5 +189,6 @@ if ! sync -f "$RESTORE_DESTINATION"; then
   echo "final restore-state sync failed; activation was rolled back where possible and remains blocked by the incomplete marker" >&2
   exit 1
 fi
+trap - TERM INT HUP
 
 printf 'Private media restore passed the privacy-recovery gate and was mounted.\\n'
