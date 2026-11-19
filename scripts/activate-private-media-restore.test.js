@@ -14,11 +14,13 @@ async function fixture() {
   const mountpoint = path.join(root, 'mountpoint');
   const gate = path.join(root, 'privacy-gate');
   const writerGate = path.join(root, 'writer-isolation-gate');
+  const writerLock = path.join(root, 'writer-admission.lock');
   const log = path.join(root, 'calls.log');
   await Promise.all([mkdir(bin), mkdir(restore), mkdir(mountpoint)]);
   await writeFile(path.join(restore, 'photo.fixture'), 'private');
   await writeFile(path.join(restore, '.vow-restore-pending'), '');
   await writeFile(log, '');
+  await writeFile(writerLock, '');
   await writeFile(gate, '#!/usr/bin/env bash\nset -eu\nprintf "gate:%s\\n" "$RESTORE_DESTINATION" >> "$CALL_LOG"\nexit "${GATE_EXIT:-0}"\n');
   await chmod(gate, 0o700);
   await writeFile(writerGate, '#!/usr/bin/env bash\nset -eu\nprintf "writer:%s\\n" "$RESTORE_DESTINATION" >> "$CALL_LOG"\nexit "${WRITER_GATE_EXIT:-0}"\n');
@@ -26,7 +28,7 @@ async function fixture() {
   await chmod(path.join(bin, 'mountpoint'), 0o700);
   await writeFile(path.join(bin, 'mount'), '#!/usr/bin/env bash\nset -eu\nprintf "mount:%s\\n" "$*" >> "$CALL_LOG"\nexit "${MOUNT_EXIT:-0}"\n');
   await chmod(path.join(bin, 'mount'), 0o700);
-  return { root, bin, restore, mountpoint, gate, writerGate, log };
+  return { root, bin, restore, mountpoint, gate, writerGate, writerLock, log };
 }
 
 function run(f, overrides = {}) {
@@ -39,6 +41,7 @@ function run(f, overrides = {}) {
       PRIVATE_MEDIA_MOUNTPOINT: f.mountpoint,
       PRIVACY_RECOVERY_GATE_EXECUTABLE: f.gate,
       PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE: f.writerGate,
+      PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.writerLock,
       CALL_LOG: f.log,
       ...overrides
     }
@@ -110,6 +113,31 @@ test('restored media cannot be activated when writer isolation fails', async () 
     assert.ok(calls.includes('writer:'));
     assert.equal(calls.includes('gate:'), false);
     assert.equal(calls.includes('mount:'), false);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+
+test('activation refuses a writer-admission lock already held by another process', async () => {
+  const f = await fixture();
+  try {
+    const result = spawnSync('flock', ['-n', f.writerLock, 'bash', script], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${f.bin}:${process.env.PATH || ''}`,
+        RESTORE_DESTINATION: f.restore,
+        PRIVATE_MEDIA_MOUNTPOINT: f.mountpoint,
+        PRIVACY_RECOVERY_GATE_EXECUTABLE: f.gate,
+        PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE: f.writerGate,
+        PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.writerLock,
+        CALL_LOG: f.log
+      }
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /another restore or media-writer admission operation holds the lock/);
+    assert.equal(await readFile(f.log, 'utf8'), '');
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
