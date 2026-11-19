@@ -73,7 +73,11 @@ for container in "${running_containers[@]}"; do
   inspect="$(docker inspect "$container")"
   for volume in "${media_volumes[@]}"; do
     if jq -e --arg volume "$volume" '
-      any(.[0].Mounts[]?; .Type == "volume" and .Name == $volume and .RW == true)
+      if type != "array" or length != 1 or (.[0] | type) != "object" or (.[0].Mounts | type) != "array" then
+        error("unexpected Docker inspect response shape")
+      else
+        any(.[0].Mounts[]; .Type == "volume" and .Name == $volume and .RW == true)
+      end
     ' <<< "$inspect" >/dev/null; then
       echo "writable private-media volume attachment remains: container=$container volume=$volume" >&2
       exit 1
