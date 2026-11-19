@@ -51,6 +51,7 @@ export PRIVACY_RECOVERY_WRITER_LOCK_FD=9
 
 command -v mount >/dev/null 2>&1 || { echo "mount is required" >&2; exit 1; }
 command -v mountpoint >/dev/null 2>&1 || { echo "mountpoint is required" >&2; exit 1; }
+command -v umount >/dev/null 2>&1 || { echo "umount is required for fail-closed rollback" >&2; exit 1; }
 
 if [[ ! "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE" = /* ||
       ! -f "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE" ||
@@ -156,11 +157,16 @@ fi
 # marker before returning. A failed durability barrier must never look like success.
 rm -- "$incomplete_marker"
 if ! sync -f "$RESTORE_DESTINATION"; then
+  # The bind mount is already live at this point. Roll it back before returning
+  # failure; keep the incomplete marker as a second, durable fail-closed signal.
+  if ! umount -- "$PRIVATE_MEDIA_MOUNTPOINT"; then
+    echo "final restore-state sync failed and bind-mount rollback also failed; manual isolation is required" >&2
+  fi
   ( set -o noclobber; : > "$incomplete_marker" ) 2>/dev/null || true
   chmod 600 "$incomplete_marker" || true
   sync -f "$incomplete_marker" || true
   sync -f "$RESTORE_DESTINATION" || true
-  echo "final restore-state sync failed; activation remains blocked by the incomplete marker" >&2
+  echo "final restore-state sync failed; activation was rolled back where possible and remains blocked by the incomplete marker" >&2
   exit 1
 fi
 
