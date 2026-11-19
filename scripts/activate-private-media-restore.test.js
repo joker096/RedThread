@@ -202,6 +202,7 @@ test('activation rejects a dangling reconciled-marker symlink', async () => {
     await rm(path.join(f.restore, '.vow-restore-pending'));
     await import('node:fs/promises').then(({ symlink }) => symlink(path.join(f.root, 'missing-target'), path.join(f.restore, '.vow-privacy-reconciled')));
     await writeFile(path.join(f.restore, '.vow-restore-pending'), '');
+    await chmod(path.join(f.restore, '.vow-restore-pending'), 0o600);
     const result = run(f);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /missing, incomplete, or has already been activated/);
