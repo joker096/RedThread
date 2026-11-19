@@ -291,7 +291,7 @@ test('sync failures at every activation durability barrier preserve a blocking m
         'if [[ "$count" -eq "$SYNC_FAIL_AT" ]]; then exit 77; fi',
         'exit 0',
         ''
-      ].join('\\n'));
+      ].join('\n'));
       await chmod(syncShim, 0o700);
       const result = run(f, {
         REAL_SYNC: realSync,
