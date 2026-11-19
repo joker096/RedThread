@@ -33,7 +33,7 @@ function fakeClient(existingRows = [], identity = {}) {
     rows, calls,
     async query(sql, values = []) {
       calls.push({ sql, values });
-      if (sql.includes('current_database()')) return { rowCount: 1, rows: [{ database_name: identity.databaseName || targetEnv.PRIVACY_RECOVERY_RESTORE_DATABASE_NAME, database_role: identity.databaseRole || targetEnv.PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE }] };
+      if (sql.includes('SELECT current_database() AS database_name')) return { rowCount: 1, rows: [{ database_name: identity.databaseName || targetEnv.PRIVACY_RECOVERY_RESTORE_DATABASE_NAME, database_role: identity.databaseRole || targetEnv.PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE }] };
       if (sql.includes('FROM pg_roles r')) return { rowCount: 1, rows: [{
         rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false,
         rolbypassrls: false, rolcanlogin: true, has_role_memberships: false,
