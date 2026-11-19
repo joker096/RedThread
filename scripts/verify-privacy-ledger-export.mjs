@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { spawn as nodeSpawn } from 'node:child_process';
 import { createReadStream } from 'node:fs';
+import { Transform } from 'node:stream';
 import { lstat, readFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import path from 'node:path';
@@ -38,14 +39,35 @@ async function sha256File(filePath) {
   return hash.digest('hex');
 }
 
-export async function verifyLedgerExportStream(stream) {
+export async function verifyLedgerExportStream(stream, {
+  maxEventCount = 100000,
+  maxPlaintextBytes = 512 * 1024 * 1024,
+  includeEvents = false
+} = {}) {
+  if (!Number.isSafeInteger(maxEventCount) || maxEventCount < 0 ||
+      !Number.isSafeInteger(maxPlaintextBytes) || maxPlaintextBytes < 1) {
+    throw new Error('privacy_ledger_archive_limits_invalid');
+  }
+  let plaintextBytes = 0;
+  const boundedStream = new Transform({
+    transform(chunk, encoding, callback) {
+      plaintextBytes += chunk.length;
+      if (plaintextBytes > maxPlaintextBytes) {
+        callback(new Error('privacy_ledger_archive_plaintext_limit_exceeded'));
+        return;
+      }
+      callback(null, chunk);
+    }
+  });
+  stream.pipe(boundedStream);
   const lines = createInterface({ input: stream, crlfDelay: Infinity });
   let manifest = null;
   let expectedSequence = 1;
   let eventCount = 0;
   const eventIds = new Set();
+  const events = includeEvents ? [] : null;
 
-  for await (const line of lines) {
+  for await (const line of createInterface({ input: boundedStream, crlfDelay: Infinity })) {
     if (!line.trim()) throw new Error('privacy_ledger_archive_blank_line');
     let record;
     try { record = JSON.parse(line); } catch { throw new Error('privacy_ledger_archive_invalid_json'); }
@@ -62,12 +84,14 @@ export async function verifyLedgerExportStream(stream) {
       manifest = record;
       continue;
     }
+    if (eventCount >= maxEventCount) throw new Error('privacy_ledger_archive_event_limit_exceeded');
     if (!validEvent(record, expectedSequence) || eventIds.has(record.event_id)) {
       throw new Error('privacy_ledger_archive_event_invalid_or_duplicate');
     }
     eventIds.add(record.event_id);
     expectedSequence += 1;
     eventCount += 1;
+    if (events) events.push(record);
     if (eventCount > manifest.event_count) throw new Error('privacy_ledger_archive_event_count_exceeded');
   }
 
@@ -79,14 +103,19 @@ export async function verifyLedgerExportStream(stream) {
     firstSequence: manifest.first_sequence,
     lastSequence: manifest.last_sequence,
     eventCount,
-    exportedAt: manifest.exported_at
+    exportedAt: manifest.exported_at,
+    ...(events ? { events } : {})
   };
 }
 
 export async function verifyEncryptedLedgerExport({
   archivePath,
   identityFile,
-  spawnImpl = nodeSpawn
+  spawnImpl = nodeSpawn,
+  maxArchiveBytes = 256 * 1024 * 1024,
+  maxEventCount = 100000,
+  maxPlaintextBytes = 512 * 1024 * 1024,
+  includeEvents = false
 }) {
   if (typeof archivePath !== 'string' || !archivePath || typeof identityFile !== 'string' || !identityFile) {
     throw new Error('privacy_ledger_verify_configuration_missing');
@@ -98,6 +127,7 @@ export async function verifyEncryptedLedgerExport({
     lstat(archive), lstat(identity), lstat(checksumPath)
   ]);
   if (!archiveInfo.isFile() || archiveInfo.isSymbolicLink() || archiveInfo.size === 0 ||
+      !Number.isSafeInteger(maxArchiveBytes) || maxArchiveBytes < 1 || archiveInfo.size > maxArchiveBytes ||
       !identityInfo.isFile() || identityInfo.isSymbolicLink() ||
       !checksumInfo.isFile() || checksumInfo.isSymbolicLink()) {
     throw new Error('privacy_ledger_verify_input_invalid');
@@ -123,7 +153,7 @@ export async function verifyEncryptedLedgerExport({
 
   let summary;
   try {
-    summary = await verifyLedgerExportStream(child.stdout);
+    summary = await verifyLedgerExportStream(child.stdout, { maxEventCount, maxPlaintextBytes, includeEvents });
     await closed;
   } catch (error) {
     child.kill?.();
