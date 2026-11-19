@@ -130,3 +130,20 @@ The private one-shot worker (`npm run privacy-ledger:outbox-worker`) claims rows
 The worker must be run by a trusted private scheduler, not exposed as a public API. No scheduler is configured by this code change. The operations health report includes pending, processing, retrying and dead-letter counts for this outbox. Alert on any dead row, sustained backlog or missing Ledger configuration.
 
 Before production use, apply migration 240, configure all three Ledger secrets through the deployment secret manager, and verify transaction rollback, retry, duplicate delivery, worker lease expiry, and dead-letter alerting against a staging Ledger.
+
+
+## Physical private-media verification command
+
+After replay has completed and every purge worker has finished, run the read-only verifier against the isolated restored database and its isolated private-media mounts:
+
+```sh
+PRIVACY_RECOVERY_RESTORE_ISOLATED=true \
+PHOTO_STORAGE_DIR=/isolated/restore/photos \
+VOICE_INTRO_STORAGE_DIR=/isolated/restore/voice-intros \
+IDENTITY_L3_STORAGE_DIR=/isolated/restore/identity-l3 \
+node scripts/verify-private-media-privacy-recovery.js <snapshot-ledger-sequence> <through-sequence>
+```
+
+The command also requires `NODE_ENV` to be non-production and a staging-only `DATABASE_URL`. It reads all three configured roots, even when a particular store has no purge obligations in the selected range. It checks immutable purge obligations/completions against the restored database and scans for matching generated UUID objects. The L3 scan also rejects abandoned `.tmp-<UUID>` encrypted-upload staging entries, including when there are zero L3 purge obligations. The command never deletes files or starts workers.
+
+Use only disposable isolated restore mounts. A successful result proves directory-entry absence for the covered generated object names; it does **not** prove physical block overwrite, removal from storage snapshots/replicas, or erasure from backup archives. Those require separately inventoried and verified retention/replication controls. Keep the restored environment isolated until the complete replay, backup/media reconciliation and independent restore attestation have passed.
