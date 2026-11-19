@@ -34,6 +34,12 @@ function fakeClient(existingRows = [], identity = {}) {
     async query(sql, values = []) {
       calls.push({ sql, values });
       if (sql.includes('current_database()')) return { rowCount: 1, rows: [{ database_name: identity.databaseName || targetEnv.PRIVACY_RECOVERY_RESTORE_DATABASE_NAME, database_role: identity.databaseRole || targetEnv.PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE }] };
+      if (sql.includes('FROM pg_roles r')) return { rowCount: 1, rows: [{
+        rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false,
+        rolbypassrls: false, rolcanlogin: true, has_role_memberships: false,
+        has_relation_write_privileges: false, has_sequence_write_privileges: false,
+        has_schema_create_privileges: false, has_database_create_privilege: false
+      }] };
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rowCount: null, rows: [] };
       if (sql.includes('INSERT INTO privacy_recovery_events')) {
         const [sequence, eventId, schemaVersion, eventType, subjectRef, resourceRef, occurredAt, receivedAt] = values;
