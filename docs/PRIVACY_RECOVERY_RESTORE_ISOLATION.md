@@ -16,6 +16,10 @@ Example environment for the Docker gate (replace the project suffix and Compose 
 ```sh
 export RESTORE_COMPOSE_PROJECT=vow-restore-audit01
 export RESTORE_COMPOSE_FILE=/absolute/path/to/restore-compose.yaml
+# Provision and pin a dedicated, restore-only Docker context and daemon.
+export RESTORE_DOCKER_CONTEXT=vow-restore-audit01
+export RESTORE_DOCKER_ENDPOINT=unix:///run/vow-restore-audit01/docker.sock
+export RESTORE_DOCKER_DAEMON_ID=<expected-hex-daemon-id>
 export PRIVACY_RECOVERY_MEDIA_VOLUMES=vow-restore-audit01_private_photos,vow-restore-audit01_private_voice_intros,vow-restore-audit01_private_identity_l3
 export HOST_WRITER_ISOLATION_GATE_EXECUTABLE=/absolute/path/to/host-writer-isolation-gate
 # Pre-create this file with ownership/permissions restricted to the restore operator
@@ -28,6 +32,10 @@ export RESTORE_DESTINATION=/absolute/path/to/disposable-restore-staging
 export PRIVATE_MEDIA_MOUNTPOINT=/absolute/path/to/empty-private-media-mountpoint
 bash scripts/activate-private-media-restore.sh
 ```
+
+
+
+The Docker gate now requires all three pinning values above. It rejects the default Docker context, clears ambient `DOCKER_HOST`, checks the selected context's configured endpoint, and checks the connected daemon's `docker info` ID before issuing any Compose, list, or inspect command. The expected daemon ID must be a 12–64 character hexadecimal value obtained during trusted restore-host provisioning. The endpoint and daemon ID are identity pins, not proof of exclusivity: the host gate must still prove that the daemon/socket is dedicated and that no other principal can admit workloads during the critical section. A context name or socket path alone is not a security boundary.
 
 The host-level executable is an independent, operator-supplied control; this repository does not pretend to implement a universal host process inspector. It must verify the inherited lock descriptor and the external admission policy, and must fail if any writer-launch path can bypass the lock. The `flock` only coordinates participants that honor it; it is not a kernel-enforced freeze and does not stop arbitrary root processes. A dedicated restore-only Docker daemon/socket and an independently enforced writer-admission policy are still required to close the Docker enumeration race. If these controls cannot be evidenced, the operator must keep the restore pending and must not activate it.
 
