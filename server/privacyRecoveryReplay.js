@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { assertPrivacyRecoveryRestoreTarget } from './privacyRecoveryTargetGuard.js';
 
 const EVENT_TYPES = new Set([
   'account_erasure_requested',
@@ -34,7 +34,8 @@ function canonicalEvent(event) {
 
 export async function stagePrivacyRecoveryEvents(client, {
   snapshotLedgerSequence,
-  events
+  events,
+  env = process.env
 }) {
   if (!client || typeof client.query !== 'function' ||
       !Number.isSafeInteger(snapshotLedgerSequence) || snapshotLedgerSequence < 0 ||
@@ -53,6 +54,9 @@ export async function stagePrivacyRecoveryEvents(client, {
   if (snapshotLedgerSequence > watermark) {
     throw new Error('privacy_recovery_snapshot_watermark_ahead_of_archive');
   }
+  // Verify the actual PostgreSQL session identity on the same client that will
+  // perform staging. Recovery staging is never permitted against an implicit target.
+  await assertPrivacyRecoveryRestoreTarget(client, env);
   const pending = events.filter(event => event.sequence > snapshotLedgerSequence);
   if (pending.length === 0) {
     return { snapshotLedgerSequence, stagedCount: 0, throughSequence: watermark };
