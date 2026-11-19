@@ -48,7 +48,7 @@ async function main() {
       throughSequence,
       storageRoots
     });
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\\n`);
+    process.stdout.write(JSON.stringify(result, null, 2) + String.fromCharCode(10));
     if (result.complete !== true) process.exitCode = 2;
   } finally {
     await pool.end();
@@ -56,6 +56,6 @@ async function main() {
 }
 
 main().catch(error => {
-  process.stderr.write(`${error.message || 'privacy_recovery_verification_failed'}\\n`);
+  process.stderr.write((error.message || 'privacy_recovery_verification_failed') + String.fromCharCode(10));
   process.exitCode = 1;
 });
