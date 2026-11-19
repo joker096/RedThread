@@ -27,7 +27,8 @@ async function fixture(scenario = 'readonly') {
     'elif [[ "$1" == inspect && "$2" == --format ]]; then printf "db\n"',
     'elif [[ "$1" == inspect ]]; then',
     ' [[ "$SCENARIO" != inspect-error ]] || exit 9',
-    ' if [[ "$SCENARIO" == writable ]]; then printf \'%s\\n\' \'[{"Mounts":[{"Type":"volume","Name":"vow-restore-test_private_photos","RW":true}]}]\'',
+    ' if [[ "$SCENARIO" == malformed-inspect ]]; then printf "%s\\n" "[]"',
+    ' elif [[ "$SCENARIO" == writable ]]; then printf \'%s\\n\' \'[{"Mounts":[{"Type":"volume","Name":"vow-restore-test_private_photos","RW":true}]}]\'',
     ' else printf \'%s\\n\' \'[{"Mounts":[{"Type":"volume","Name":"vow-restore-test_private_photos","RW":false}]}]\'; fi',
     'else exit 2; fi'
   ].join('\n') + '\n';
@@ -37,7 +38,7 @@ async function fixture(scenario = 'readonly') {
     '#!/usr/bin/env node',
     'let input = ""; for await (const chunk of process.stdin) input += chunk;',
     'const volume = process.argv[process.argv.indexOf("--arg") + 2];',
-    'try { const data = JSON.parse(input); const found = data.some(item => (item.Mounts || []).some(mount => mount.Type === "volume" && mount.Name === volume && mount.RW === true)); const expression = process.argv.at(-1) || ""; if (!found && expression.includes("select(")) process.exit(4); process.exit(found ? 0 : 1); } catch { process.exit(4); }'
+    'try { const data = JSON.parse(input); if (!Array.isArray(data) || data.length !== 1 || !data[0] || typeof data[0] !== "object" || !Array.isArray(data[0].Mounts)) process.exit(4); const found = data[0].Mounts.some(mount => mount && mount.Type === "volume" && mount.Name === volume && mount.RW === true); const expression = process.argv.at(-1) || ""; if (!found && expression.includes("select(")) process.exit(4); process.exit(found ? 0 : 1); } catch { process.exit(4); }'
   ].join('\n') + '\n';
   await writeFile(path.join(bin, 'jq'), jq);
   await chmod(path.join(bin, 'jq'), 0o700);
@@ -85,6 +86,12 @@ test('read-only Docker attachments pass only after project services stop and hos
 
 test('writer isolation fails closed when Docker inspect cannot verify a running container', async () => {
   const f = await fixture('inspect-error');
+  try { const result = run(f); assert.notEqual(result.status, 0); assert.equal((await readFile(f.log, 'utf8')).includes('host-gate'), false); }
+  finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('writer isolation fails closed when Docker inspect returns an unexpected JSON shape', async () => {
+  const f = await fixture('malformed-inspect');
   try { const result = run(f); assert.notEqual(result.status, 0); assert.equal((await readFile(f.log, 'utf8')).includes('host-gate'), false); }
   finally { await rm(f.root, { recursive: true, force: true }); }
 });
