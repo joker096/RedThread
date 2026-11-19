@@ -19,7 +19,7 @@ async function fixture(scenario = 'readonly') {
   await writeFile(hostGate, '#!/usr/bin/env bash\nset -eu\necho host-gate >> "$CALL_LOG"\n');
   await chmod(hostGate, 0o700);
   const docker = [
-    '#!/usr/bin/env bash','set -eu','if [[ "$1" == --context ]]; then [[ "$2" == "$RESTORE_DOCKER_CONTEXT" ]] || exit 80; shift 2; fi','printf "docker:%s\\n" "$*" >> "$CALL_LOG"',
+    '#!/usr/bin/env bash','set -eu','if [[ "$1" == --context ]]; then [[ "$2" == "$RESTORE_DOCKER_CONTEXT" ]] || exit 80; shift 2; fi','[[ -z "${DOCKER_HOST:-}" ]] || exit 81','printf "docker:%s\\n" "$*" >> "$CALL_LOG"',
     'if [[ "$1" == context && "$2" == inspect ]]; then printf \'%s\\n\' "$DOCKER_ENDPOINT_OUTPUT"',
     'elif [[ "$1" == info ]]; then printf \'%s\\n\' "$DOCKER_DAEMON_ID_OUTPUT"',
     'elif [[ "$1" == compose ]]; then',
@@ -68,6 +68,12 @@ function run(f, overrides = {}) {
 test('writer isolation refuses the default Docker context', async () => {
   const f = await fixture();
   try { const result = run(f, { RESTORE_DOCKER_CONTEXT: 'default' }); assert.notEqual(result.status, 0); assert.match(result.stderr, /non-default restore Docker context/); }
+  finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('writer isolation ignores an ambient DOCKER_HOST and uses the pinned context', async () => {
+  const f = await fixture();
+  try { const result = run(f, { DOCKER_HOST: 'tcp://untrusted-shared-daemon:2375' }); assert.equal(result.status, 0, result.stderr || result.stdout); }
   finally { await rm(f.root, { recursive: true, force: true }); }
 });
 
