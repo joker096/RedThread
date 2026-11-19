@@ -10,12 +10,19 @@ umask 077
 command -v mount >/dev/null 2>&1 || { echo "mount is required" >&2; exit 1; }
 command -v mountpoint >/dev/null 2>&1 || { echo "mountpoint is required" >&2; exit 1; }
 
-for gate in "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE" "$PRIVACY_RECOVERY_GATE_EXECUTABLE"; do
-  if [[ ! "$gate" = /* || ! -f "$gate" || -L "$gate" || ! -x "$gate" ]]; then
-    echo "privacy recovery gates must be absolute, regular, executable, non-symlink files" >&2
-    exit 1
-  fi
-done
+if [[ ! "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE" = /* ||
+      ! -f "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE" ||
+      -L "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE" ]]; then
+  echo "writer-isolation gate must be an absolute, regular, non-symlink script" >&2
+  exit 1
+fi
+if [[ ! "$PRIVACY_RECOVERY_GATE_EXECUTABLE" = /* ||
+      ! -f "$PRIVACY_RECOVERY_GATE_EXECUTABLE" ||
+      -L "$PRIVACY_RECOVERY_GATE_EXECUTABLE" ||
+      ! -x "$PRIVACY_RECOVERY_GATE_EXECUTABLE" ]]; then
+  echo "privacy recovery gate must be an absolute, regular, executable, non-symlink file" >&2
+  exit 1
+fi
 
 if [[ ! -d "$RESTORE_DESTINATION" || -L "$RESTORE_DESTINATION" ]]; then
   echo "restore destination must be a real staging directory" >&2
@@ -42,7 +49,7 @@ fi
 
 # Stop and audit writers before domain reconciliation. This gate must target a dedicated restore-only environment.
 # A non-zero result leaves the restore pending and prevents activation.
-RESTORE_DESTINATION="$RESTORE_DESTINATION" "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE"
+RESTORE_DESTINATION="$RESTORE_DESTINATION" bash "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE"
 
 # The verifier owns the domain-specific sequence: inventory, supported replay,
 # receipt/queue verification, consent checks, and account/gift reconciliation.
