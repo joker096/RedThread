@@ -64,7 +64,11 @@ fi
 # attachment to any of the exact restore media volumes. Read-only verifier
 # attachments are permitted; containers outside this restore project are never
 # stopped automatically.
-mapfile -t running_containers < <(docker ps -q)
+running_output="$(docker ps -q)"
+mapfile -t running_containers <<< "$running_output"
+if [[ -z "$running_output" ]]; then
+  running_containers=()
+fi
 for container in "${running_containers[@]}"; do
   inspect="$(docker inspect "$container")"
   for volume in "${media_volumes[@]}"; do
@@ -73,12 +77,22 @@ for container in "${running_containers[@]}"; do
     ' <<< "$inspect" >/dev/null; then
       echo "writable private-media volume attachment remains: container=$container volume=$volume" >&2
       exit 1
+    else
+      jq_status=$?
+      if [[ "$jq_status" -ne 1 ]]; then
+        echo "Docker mount inspection failed; refusing to continue" >&2
+        exit 1
+      fi
     fi
   done
 done
 
 # Confirm the only running service in this project is the dedicated DB.
-mapfile -t project_containers < <(docker ps -q --filter "label=com.docker.compose.project=$RESTORE_COMPOSE_PROJECT")
+project_output="$(docker ps -q --filter "label=com.docker.compose.project=$RESTORE_COMPOSE_PROJECT")"
+mapfile -t project_containers <<< "$project_output"
+if [[ -z "$project_output" ]]; then
+  project_containers=()
+fi
 if [[ "${#project_containers[@]}" -ne 1 ]]; then
   echo "expected exactly one running restore database container" >&2
   exit 1
