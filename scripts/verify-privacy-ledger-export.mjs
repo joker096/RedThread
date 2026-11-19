@@ -21,7 +21,7 @@ function validEvent(event, expectedSequence) {
   return Boolean(event && typeof event === 'object' && !Array.isArray(event) &&
     event.sequence === expectedSequence &&
     typeof event.event_id === 'string' &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(event.event_id) &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(event.event_id) &&
     event.schema_version === 1 &&
     EVENT_TYPES.has(event.event_type) &&
     typeof event.subject_ref === 'string' && /^[a-f0-9]{64}$/i.test(event.subject_ref) &&
