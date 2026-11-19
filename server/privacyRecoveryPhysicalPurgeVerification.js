@@ -87,7 +87,8 @@ export async function verifyPhysicalPurgeAbsence({ obligations, storageRoots } =
   ]);
   for (const obligation of obligations) {
     const target = grouped.get(obligation?.queue_name);
-    if (!target || typeof obligation.storage_path_sha256 !== 'string' ||
+    if (!obligation || typeof obligation !== 'object' || Array.isArray(obligation) ||
+        !target || typeof obligation.storage_path_sha256 !== 'string' ||
         !/^[a-f0-9]{64}$/.test(obligation.storage_path_sha256)) {
       throw new Error('privacy_recovery_physical_obligation_invalid');
     }
