@@ -2,6 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { stagePrivacyRecoveryEvents } from './privacyRecoveryReplay.js';
 
+const targetEnv = {
+  NODE_ENV: 'test',
+  PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true',
+  PRIVACY_RECOVERY_RESTORE_DATABASE_NAME: 'vow_restore_test',
+  PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner',
+  PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY'
+};
+
+async function stage(client, options) {
+  return stage(client, { ...options, env: targetEnv });
+}
+
 const event = (sequence, overrides = {}) => ({
   sequence,
   event_id: `123e4567-e89b-42d3-a456-42661417400${sequence}`,
@@ -21,6 +33,7 @@ function fakeClient(existingRows = []) {
     rows, calls,
     async query(sql, values = []) {
       calls.push({ sql, values });
+      if (sql.includes('current_database()')) return { rowCount: 1, rows: [{ database_name: targetEnv.PRIVACY_RECOVERY_RESTORE_DATABASE_NAME, database_role: targetEnv.PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE }] };
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rowCount: null, rows: [] };
       if (sql.includes('INSERT INTO privacy_recovery_events')) {
         const [sequence, eventId, schemaVersion, eventType, subjectRef, resourceRef, occurredAt, receivedAt] = values;
@@ -45,12 +58,13 @@ function fakeClient(existingRows = []) {
 
 test('stages only events newer than the restored snapshot watermark', async () => {
   const client = fakeClient();
-  const result = await stagePrivacyRecoveryEvents(client, {
+  const result = await stage(client, {
     snapshotLedgerSequence: 1, events: [event(1), event(2), event(3)]
   });
   assert.deepEqual(result, { snapshotLedgerSequence: 1, stagedCount: 2, alreadyPresentCount: 0, throughSequence: 3 });
   assert.deepEqual(client.rows.map(row => row.ledger_sequence), [2, 3]);
-  assert.equal(client.calls[0].sql, 'BEGIN');
+  assert.match(client.calls[0].sql, /current_database\(\)/);
+  assert.equal(client.calls[1].sql, 'BEGIN');
   assert.equal(client.calls.at(-1).sql, 'COMMIT');
 });
 
@@ -62,7 +76,7 @@ test('repeated staging is idempotent when existing rows match exactly', async ()
     received_at: new Date(event(2).received_at)
   }];
   const client = fakeClient(existing);
-  const result = await stagePrivacyRecoveryEvents(client, {
+  const result = await stage(client, {
     snapshotLedgerSequence: 1, events: [event(1), event(2)]
   });
   assert.equal(result.stagedCount, 0);
@@ -72,13 +86,13 @@ test('repeated staging is idempotent when existing rows match exactly', async ()
 
 test('rejects invalid sequence, duplicate IDs and snapshot watermark ahead of export', async () => {
   const client = fakeClient();
-  await assert.rejects(stagePrivacyRecoveryEvents(client, {
+  await assert.rejects(stage(client, {
     snapshotLedgerSequence: 0, events: [event(2)]
   }), /archive_invalid/);
-  await assert.rejects(stagePrivacyRecoveryEvents(client, {
+  await assert.rejects(stage(client, {
     snapshotLedgerSequence: 0, events: [event(1), event(2, { event_id: event(1).event_id })]
   }), /archive_invalid/);
-  await assert.rejects(stagePrivacyRecoveryEvents(client, {
+  await assert.rejects(stage(client, {
     snapshotLedgerSequence: 2, events: [event(1)]
   }), /watermark_ahead/);
   assert.equal(client.calls.length, 0);
@@ -91,7 +105,7 @@ test('rolls back when an existing sequence or event ID conflicts', async () => {
     resource_ref: null, occurred_at: new Date(event(2).occurred_at),
     received_at: new Date(event(2).received_at)
   }]);
-  await assert.rejects(stagePrivacyRecoveryEvents(client, {
+  await assert.rejects(stage(client, {
     snapshotLedgerSequence: 1, events: [event(1), event(2)]
   }), /conflicting_existing_event/);
   assert.equal(client.calls.at(-1).sql, 'ROLLBACK');
@@ -104,7 +118,7 @@ test('stages gift consent withdrawal as an auditable event but rejects unapprove
     resource_ref: 'e'.repeat(64)
   });
   const client = fakeClient();
-  const result = await stagePrivacyRecoveryEvents(client, {
+  const result = await stage(client, {
     snapshotLedgerSequence: 0,
     events: [giftWithdrawal]
   });
@@ -113,7 +127,7 @@ test('stages gift consent withdrawal as an auditable event but rejects unapprove
   assert.equal(client.rows[0].resource_ref, 'e'.repeat(64));
 
   const unsupportedClient = fakeClient();
-  await assert.rejects(stagePrivacyRecoveryEvents(unsupportedClient, {
+  await assert.rejects(stage(unsupportedClient, {
     snapshotLedgerSequence: 0,
     events: [event(1, { event_type: 'gift_address_draft_submitted' })]
   }), /archive_invalid/);
@@ -122,7 +136,7 @@ test('stages gift consent withdrawal as an auditable event but rejects unapprove
 
 test('stages the new address-draft consent event without granting replay authority', async () => {
   const client = fakeClient();
-  const result = await stagePrivacyRecoveryEvents(client, {
+  const result = await stage(client, {
     snapshotLedgerSequence: 0,
     events: [event(1, {
       event_type: 'gift_address_draft_consent_withdrawn',
