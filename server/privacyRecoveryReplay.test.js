@@ -11,7 +11,7 @@ const targetEnv = {
 };
 
 async function stage(client, options) {
-  return stage(client, { ...options, env: targetEnv });
+  return stagePrivacyRecoveryEvents(client, { ...options, env: targetEnv });
 }
 
 const event = (sequence, overrides = {}) => ({
