@@ -99,3 +99,20 @@ test('physical attestation rejects malformed or unsupported obligations', async 
     /privacy_recovery_physical_obligation_invalid/
   );
 });
+
+
+test('physical attestation rejects abandoned encrypted L3 staging objects', async () => {
+  const { base, roots } = await fixture();
+  try {
+    await writeFile(path.join(roots.identity_l3_media, '.tmp-' + ids.l3), 'partial encrypted upload');
+    await assert.rejects(
+      verifyPhysicalPurgeAbsence({
+        obligations: [{ queue_name: 'identity_l3_media', storage_path_sha256: sha(ids.l3) }],
+        storageRoots: roots
+      }),
+      /privacy_recovery_physical_temporary_object_remains:identity_l3_media/
+    );
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
