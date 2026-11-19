@@ -19,6 +19,7 @@ async function fixture() {
   await Promise.all([mkdir(bin), mkdir(restore), mkdir(mountpoint)]);
   await writeFile(path.join(restore, 'photo.fixture'), 'private');
   await writeFile(path.join(restore, '.vow-restore-pending'), '');
+  await chmod(path.join(restore, '.vow-restore-pending'), 0o600);
   await writeFile(log, '');
   await writeFile(writerLock, '');
   await chmod(writerLock, 0o600);
@@ -225,3 +226,46 @@ test('activation rejects a dangling incomplete-marker symlink', async () => {
   }
 });
 
+
+
+test('activation rejects a staging directory reached through a symlinked parent', async () => {
+  const f = await fixture();
+  const parentLink = path.join(f.root, 'restore-parent-link');
+  try {
+    await import('node:fs/promises').then(({ symlink }) => symlink(f.root, parentLink, 'dir'));
+    const linkedDestination = path.join(parentLink, 'restored');
+    const result = run(f, { RESTORE_DESTINATION: linkedDestination });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /symlinked or non-canonical path components/);
+    assert.equal(await readFile(f.log, 'utf8'), '');
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('activation rejects a pending marker with multiple hard links', async () => {
+  const f = await fixture();
+  const alias = path.join(f.root, 'pending-marker-alias');
+  try {
+    await import('node:fs/promises').then(({ link }) => link(path.join(f.restore, '.vow-restore-pending'), alias));
+    const result = run(f);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /exactly one hard link/);
+    assert.equal(await readFile(f.log, 'utf8'), '');
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('activation rejects a pending marker with permissive mode', async () => {
+  const f = await fixture();
+  try {
+    await chmod(path.join(f.restore, '.vow-restore-pending'), 0o644);
+    const result = run(f);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /mode 0600/);
+    assert.equal(await readFile(f.log, 'utf8'), '');
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
