@@ -177,7 +177,7 @@ test('interrupted bind activation leaves a durable incomplete marker and cannot 
   const f = await fixture();
   try {
     const mountScript = path.join(f.bin, 'mount');
-    await writeFile(mountScript, '#!/usr/bin/env bash\\nkill -TERM "$PPID"\\nsleep 1\\nexit 0\\n');
+    await writeFile(mountScript, '#!/usr/bin/env bash\nkill -TERM "$PPID"\nsleep 1\nexit 0\n');
     await chmod(mountScript, 0o700);
     const interrupted = run(f);
     assert.equal(interrupted.signal, 'SIGTERM');
