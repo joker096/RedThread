@@ -5,6 +5,7 @@ umask 077
 : "${RESTORE_COMPOSE_PROJECT:?Set a dedicated restore-only Compose project name}"
 : "${RESTORE_COMPOSE_FILE:?Set the restore-only Compose file}"
 : "${PRIVACY_RECOVERY_MEDIA_VOLUMES:?Set exact comma-separated Docker volume names for the three restored media roots}"
+: "${HOST_WRITER_ISOLATION_GATE_EXECUTABLE:?Set an executable host-level process/mount isolation gate}"
 
 if [[ ! "$RESTORE_COMPOSE_PROJECT" =~ ^vow-restore-[a-z0-9][a-z0-9-]*$ ]]; then
   echo "refusing non-dedicated Compose project; expected vow-restore-* name" >&2
@@ -16,6 +17,10 @@ if [[ ! -f "$RESTORE_COMPOSE_FILE" || -L "$RESTORE_COMPOSE_FILE" ]]; then
 fi
 command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required for fail-closed Docker mount inspection" >&2; exit 1; }
+if [[ ! "$HOST_WRITER_ISOLATION_GATE_EXECUTABLE" = /* || ! -f "$HOST_WRITER_ISOLATION_GATE_EXECUTABLE" || -L "$HOST_WRITER_ISOLATION_GATE_EXECUTABLE" || ! -x "$HOST_WRITER_ISOLATION_GATE_EXECUTABLE" ]]; then
+  echo "host writer-isolation gate must be an absolute, regular, executable, non-symlink file" >&2
+  exit 1
+fi
 
 IFS=',' read -r -a media_volumes <<< "$PRIVACY_RECOVERY_MEDIA_VOLUMES"
 if [[ "${#media_volumes[@]}" -ne 3 ]]; then
@@ -34,7 +39,7 @@ if [[ "$(printf '%s\n' "${media_volumes[@]}" | sort -u | wc -l | tr -d ' ')" -ne
 fi
 
 compose=(docker compose --profile '*' -p "$RESTORE_COMPOSE_PROJECT" -f "$RESTORE_COMPOSE_FILE")
-services_output="$(${compose[@]} config --services)"
+services_output="$("${compose[@]}" config --services)"
 mapfile -t services <<< "$services_output"
 if [[ -z "$services_output" || "${#services[@]}" -eq 0 ]]; then
   echo "restore Compose project has no services" >&2
