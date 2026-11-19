@@ -66,19 +66,46 @@ if [[ ! "$PRIVACY_RECOVERY_GATE_EXECUTABLE" = /* ||
   exit 1
 fi
 
-if [[ ! -d "$RESTORE_DESTINATION" || -L "$RESTORE_DESTINATION" ]]; then
-  echo "restore destination must be a real staging directory" >&2
+command -v realpath >/dev/null 2>&1 || { echo "realpath is required to validate restore and mountpoint paths" >&2; exit 1; }
+if [[ "$RESTORE_DESTINATION" != /* || ! -d "$RESTORE_DESTINATION" || -L "$RESTORE_DESTINATION" ]]; then
+  echo "restore destination must be an absolute real staging directory" >&2
   exit 1
 fi
-if [[ ! -f "$RESTORE_DESTINATION/.vow-restore-pending" ||
-      -L "$RESTORE_DESTINATION/.vow-restore-pending" ||
-      ( -e "$RESTORE_DESTINATION/.vow-privacy-reconciled" || -L "$RESTORE_DESTINATION/.vow-privacy-reconciled" ) ||
+canonical_restore_destination="$(realpath -e -- "$RESTORE_DESTINATION")"
+if [[ "$canonical_restore_destination" != "$RESTORE_DESTINATION" ]]; then
+  echo "restore destination must not contain symlinked or non-canonical path components" >&2
+  exit 1
+fi
+restore_owner="$(stat -c '%u' -- "$RESTORE_DESTINATION")"
+restore_mode="$(stat -c '%a' -- "$RESTORE_DESTINATION")"
+if [[ "$restore_owner" != "$(id -u)" ]] || (( (8#$restore_mode & 8#022) != 0 )); then
+  echo "restore destination must be owned by the activating user and not group- or world-writable" >&2
+  exit 1
+fi
+pending_marker="$RESTORE_DESTINATION/.vow-restore-pending"
+if [[ ! -f "$pending_marker" || -L "$pending_marker" ]]; then
+  echo "restore staging state is missing, incomplete, or has already been activated" >&2
+  exit 1
+fi
+pending_owner="$(stat -c '%u' -- "$pending_marker")"
+pending_mode="$(stat -c '%a' -- "$pending_marker")"
+pending_links="$(stat -c '%h' -- "$pending_marker")"
+if [[ "$pending_owner" != "$(id -u)" || "$pending_mode" != "600" || "$pending_links" != "1" ]]; then
+  echo "pending marker must be owned by the activating user, mode 0600, and have exactly one hard link" >&2
+  exit 1
+fi
+if [[ ( -e "$RESTORE_DESTINATION/.vow-privacy-reconciled" || -L "$RESTORE_DESTINATION/.vow-privacy-reconciled" ) ||
       ( -e "$RESTORE_DESTINATION/.vow-privacy-activation-incomplete" || -L "$RESTORE_DESTINATION/.vow-privacy-activation-incomplete" ) ]]; then
   echo "restore staging state is missing, incomplete, or has already been activated" >&2
   exit 1
 fi
-if [[ ! -d "$PRIVATE_MEDIA_MOUNTPOINT" || -L "$PRIVATE_MEDIA_MOUNTPOINT" ]]; then
-  echo "private media mountpoint must be an existing real directory" >&2
+if [[ "$PRIVATE_MEDIA_MOUNTPOINT" != /* || ! -d "$PRIVATE_MEDIA_MOUNTPOINT" || -L "$PRIVATE_MEDIA_MOUNTPOINT" ]]; then
+  echo "private media mountpoint must be an absolute existing real directory" >&2
+  exit 1
+fi
+canonical_mountpoint="$(realpath -e -- "$PRIVATE_MEDIA_MOUNTPOINT")"
+if [[ "$canonical_mountpoint" != "$PRIVATE_MEDIA_MOUNTPOINT" ]]; then
+  echo "private media mountpoint must not contain symlinked or non-canonical path components" >&2
   exit 1
 fi
 if mountpoint -q -- "$PRIVATE_MEDIA_MOUNTPOINT"; then
