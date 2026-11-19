@@ -74,8 +74,11 @@ export async function verifyPhysicalPurgeAbsence({ obligations, storageRoots } =
 
   const roots = storageRoots || {};
   for (const [queueName, expectedDigests] of grouped) {
-    if (expectedDigests.size === 0) continue;
     const root = roots[queueName];
+    // When a root is explicitly supplied, scan it even if this recovery range
+    // has no purge obligations for that store. In particular, L3 .tmp-UUID
+    // entries are not represented by a completed purge obligation.
+    if (expectedDigests.size === 0 && (typeof root !== 'string' || !root.trim())) continue;
     const entries = await readPrivateRoot(root, queueName);
     const pattern = CANDIDATE_NAMES[queueName];
     for (const entry of entries) {
