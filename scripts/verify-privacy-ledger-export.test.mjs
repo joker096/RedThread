@@ -48,7 +48,13 @@ test('rejects sequence gaps, duplicate event IDs and unsupported event types', a
   await assert.rejects(verifyLedgerExportStream(streamOf(manifest(1), event(1, { event_type: 'unknown_event' }))), /event_invalid/);
 });
 
-test('rejects non-v4 event identifiers', async () => {\n  await assert.rejects(verifyLedgerExportStream(streamOf(\n    manifest(1), event(1, { event_id: '123e4567-e89b-12d3-a456-426614174001' })\n  )), /event_invalid/);\n});\n\ntest('rejects incomplete count, malformed manifest and invalid JSON', async () => {
+test('rejects non-v4 event identifiers', async () => {
+  await assert.rejects(verifyLedgerExportStream(streamOf(
+    manifest(1), event(1, { event_id: '123e4567-e89b-12d3-a456-426614174001' })
+  )), /event_invalid/);
+});
+
+test('rejects incomplete count, malformed manifest and invalid JSON', async () => {
   await assert.rejects(verifyLedgerExportStream(streamOf(manifest(2), event(1))), /incomplete/);
   await assert.rejects(verifyLedgerExportStream(streamOf({ ...manifest(0), last_sequence: 1 })), /manifest_invalid/);
   await assert.rejects(verifyLedgerExportStream(Readable.from(['not-json\n'])), /invalid_json/);
