@@ -136,6 +136,19 @@ test('activation rejects a symlink writer-admission lock file', async () => {
   }
 });
 
+test('activation rejects a writer lock accessible to group or others', async () => {
+  const f = await fixture();
+  try {
+    await chmod(f.writerLock, 0o640);
+    const result = run(f);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /owned by the activating user and inaccessible to group\/others/);
+    assert.equal(await readFile(f.log, 'utf8'), '');
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
 test('activation refuses a writer-admission lock already held by another process', async () => {
   const f = await fixture();
   try {
