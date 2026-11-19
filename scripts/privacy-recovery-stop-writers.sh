@@ -34,8 +34,9 @@ if [[ "$(printf '%s\n' "${media_volumes[@]}" | sort -u | wc -l | tr -d ' ')" -ne
 fi
 
 compose=(docker compose --profile '*' -p "$RESTORE_COMPOSE_PROJECT" -f "$RESTORE_COMPOSE_FILE")
-mapfile -t services < <("${compose[@]}" config --services)
-if [[ "${#services[@]}" -eq 0 ]]; then
+services_output="$(${compose[@]} config --services)"
+mapfile -t services <<< "$services_output"
+if [[ -z "$services_output" || "${#services[@]}" -eq 0 ]]; then
   echo "restore Compose project has no services" >&2
   exit 1
 fi
@@ -73,6 +74,10 @@ done
 
 # Confirm the only running service in this project is the dedicated DB.
 mapfile -t project_containers < <(docker ps -q --filter "label=com.docker.compose.project=$RESTORE_COMPOSE_PROJECT")
+if [[ "${#project_containers[@]}" -ne 1 ]]; then
+  echo "expected exactly one running restore database container" >&2
+  exit 1
+fi
 for container in "${project_containers[@]}"; do
   service="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' "$container")"
   if [[ "$service" != "db" ]]; then
