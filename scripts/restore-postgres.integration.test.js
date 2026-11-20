@@ -62,8 +62,8 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
     run('age-keygen', ['-o', identityFile]);
     // Provision a real root-owned lock just as the host bootstrap does. The
     // backup itself runs as the ordinary CI UID with only the writer GID added.
-    run('sudo', ['-n', 'chown', `0:${writerGid}`, temporaryRoot]);
-    run('sudo', ['-n', 'chmod', '2750', temporaryRoot]);
+    // Keep the test's private parent owned by the runner; only the lock
+    // directory itself is root-owned and group-traversable by the writer.
     run('sudo', ['-n', 'install', '-d', '-o', '0', '-g', String(writerGid), '-m', '2750', admissionDir]);
     run('sudo', ['-n', 'install', '-o', '0', '-g', String(writerGid), '-m', '0640', '/dev/null', lockFile]);
     await mkdir(backupDir);
