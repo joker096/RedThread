@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 
 const script = new URL('./activate-private-media-restore.sh', import.meta.url).pathname;
 
@@ -15,6 +15,8 @@ async function fixture() {
   const gate = path.join(root, 'privacy-gate');
   const writerGate = path.join(root, 'writer-isolation-gate');
   const writerLock = path.join(root, 'writer-admission.lock');
+  const drain = path.join(root, 'drain-writers');
+  const admission = new URL('./privacy-recovery-admission.sh', import.meta.url).pathname;
   const log = path.join(root, 'calls.log');
   await Promise.all([mkdir(bin), mkdir(restore), mkdir(mountpoint)]);
   await writeFile(path.join(restore, 'photo.fixture'), 'private');
@@ -23,6 +25,8 @@ async function fixture() {
   await writeFile(log, '');
   await writeFile(writerLock, '');
   await chmod(writerLock, 0o600);
+  await writeFile(drain, '#!/usr/bin/env bash\\nset -eu\\nprintf "drain\\\\n" >> "$CALL_LOG"\\nif bash "$ADMISSION_HELPER" writer -- true; then exit 93; else status=$?; fi\\ntest "$status" -eq 75\\n');
+  await chmod(drain, 0o700);
   await writeFile(gate, '#!/usr/bin/env bash\nset -eu\ntest "$PRIVACY_RECOVERY_WRITER_LOCK_FD" = 9\ntest -e "/proc/self/fd/$PRIVACY_RECOVERY_WRITER_LOCK_FD"\nif flock -n "$PRIVACY_RECOVERY_WRITER_LOCK_FILE" -c true; then echo "writer lock was not held during domain gate" >&2; exit 91; fi\nprintf "gate:%s\\n" "$RESTORE_DESTINATION" >> "$CALL_LOG"\nexit "${GATE_EXIT:-0}"\n');
   await chmod(gate, 0o700);
   await writeFile(writerGate, '#!/usr/bin/env bash\nset -eu\ntest "$PRIVACY_RECOVERY_WRITER_LOCK_FD" = 9\ntest -e "/proc/self/fd/$PRIVACY_RECOVERY_WRITER_LOCK_FD"\nif flock -n "$PRIVACY_RECOVERY_WRITER_LOCK_FILE" -c true; then echo "writer lock was not held during writer gate" >&2; exit 92; fi\nprintf "writer:%s\\n" "$RESTORE_DESTINATION" >> "$CALL_LOG"\nexit "${WRITER_GATE_EXIT:-0}"\n');
@@ -32,7 +36,7 @@ async function fixture() {
   await chmod(path.join(bin, 'mount'), 0o700);
   await writeFile(path.join(bin, 'umount'), '#!/usr/bin/env bash\nset -eu\nprintf "umount:%s\\n" "$*" >> "$CALL_LOG"\nexit "${UMOUNT_EXIT:-0}"\n');
   await chmod(path.join(bin, 'umount'), 0o700);
-  return { root, bin, restore, mountpoint, gate, writerGate, writerLock, log, mountState: path.join(root, 'mounted.state') };
+  return { root, bin, restore, mountpoint, gate, writerGate, writerLock, drain, admission, log, mountState: path.join(root, 'mounted.state') };
 }
 
 function run(f, overrides = {}) {
@@ -46,6 +50,10 @@ function run(f, overrides = {}) {
       PRIVACY_RECOVERY_GATE_EXECUTABLE: f.gate,
       PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE: f.writerGate,
       PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.writerLock,
+      PRIVACY_RECOVERY_ADMISSION_EXECUTABLE: f.admission,
+      PRIVACY_RECOVERY_DRAIN_EXECUTABLE: f.drain,
+      PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '0.2',
+      ADMISSION_HELPER: f.admission,
       CALL_LOG: f.log,
       MOUNT_STATE: f.mountState,
       ...overrides
@@ -72,7 +80,8 @@ test('restored media is mounted only after the gate succeeds and receives a reco
     const result = run(f);
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const calls = await readFile(f.log, 'utf8');
-    assert.ok(calls.indexOf('writer:') >= 0);
+    assert.ok(calls.indexOf('drain\\n') >= 0);
+    assert.ok(calls.indexOf('writer:') > calls.indexOf('drain\\n'));
     assert.ok(calls.indexOf('gate:') > calls.indexOf('writer:'));
     assert.ok(calls.indexOf('mount:') > calls.indexOf('gate:'));
     await assert.rejects(lstat(path.join(f.restore, '.vow-restore-pending')), { code: 'ENOENT' });
@@ -170,7 +179,7 @@ test('activation refuses a writer-admission lock already held by another process
       }
     });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /another restore or media-writer admission operation holds the lock/);
+    assert.match(result.stderr, /writer admission locks did not drain/);
     assert.equal(await readFile(f.log, 'utf8'), '');
   } finally {
     await rm(f.root, { recursive: true, force: true });
@@ -287,6 +296,7 @@ test('sync failures at every activation durability barrier preserve a blocking m
         '#!/usr/bin/env bash',
         'set -eu',
         '"$REAL_SYNC" "$@"',
+        'case "$*" in *"$RESTORE_DESTINATION"*) ;; *) exit 0 ;; esac',
         'count=0',
         'if [[ -f "$SYNC_COUNT_FILE" ]]; then read -r count < "$SYNC_COUNT_FILE"; fi',
         'count=$((count + 1))',
@@ -330,6 +340,7 @@ test('failed final sync plus failed bind-mount rollback remains explicitly block
       '#!/usr/bin/env bash',
       'set -eu',
       '"$REAL_SYNC" "$@"',
+      'case "$*" in *"$RESTORE_DESTINATION"*) ;; *) exit 0 ;; esac',
       'count=0',
       'if [[ -f "$SYNC_COUNT_FILE" ]]; then read -r count < "$SYNC_COUNT_FILE"; fi',
       'count=$((count + 1))',
@@ -410,3 +421,38 @@ test('activation refuses a mount command that exits successfully without mountin
     await assert.rejects(lstat(path.join(f.restore, '.vow-restore-pending')), { code: 'ENOENT' });
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
+
+
+test('activation closes writer admission before draining and waits for an already admitted writer', async () => {
+  const f = await fixture();
+  let writer;
+  try {
+    const ready = path.join(f.root, 'admitted-writer.ready');
+    writer = spawn('bash', [f.admission, 'writer', '--', 'bash', '-c', 'printf ready > "$READY_FILE"; sleep 0.35'], {
+      env: { ...process.env, PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.writerLock, READY_FILE: ready },
+      stdio: 'ignore'
+    });
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      try { await lstat(ready); break; }
+      catch (error) { if (error.code !== 'ENOENT') throw error; await new Promise(resolve => setTimeout(resolve, 10)); }
+    }
+    await lstat(ready);
+    const result = run(f);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const calls = await readFile(f.log, 'utf8');
+    assert.ok(calls.indexOf('drain\\n') >= 0);
+    assert.ok(calls.indexOf('writer:') > calls.indexOf('drain\\n'));
+    assert.ok(calls.indexOf('mount:') > calls.indexOf('writer:'));
+    await lstat(f.writerLock + '.maintenance');
+    const denied = spawnSync('bash', [f.admission, 'writer', '--', 'true'], {
+      encoding: 'utf8',
+      env: { ...process.env, PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.writerLock }
+    });
+    assert.equal(denied.status, 75, denied.stderr);
+  } finally {
+    if (writer && writer.exitCode === null) writer.kill('SIGKILL');
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
