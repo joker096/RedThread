@@ -74,6 +74,28 @@ test('restored media cannot be mounted when privacy reconciliation gate fails', 
   }
 });
 
+test('activation keeps admission closed when the drain controller fails', async () => {
+  const f = await fixture();
+  try {
+    await writeFile(f.drain, '#!/usr/bin/env bash\nexit 44\n');
+    await chmod(f.drain, 0o700);
+    const result = run(f);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /drain|44/i);
+    await lstat(f.writerLock + '.maintenance');
+    await lstat(path.join(f.restore, '.vow-restore-pending'));
+    assert.equal((await readFile(f.log, 'utf8')).includes('writer:'), false);
+    assert.equal((await readFile(f.log, 'utf8')).includes('mount:'), false);
+    const denied = spawnSync('bash', [f.admission, 'writer', '--', 'true'], {
+      encoding: 'utf8',
+      env: { ...process.env, PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.writerLock }
+    });
+    assert.equal(denied.status, 75, denied.stderr);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
 test('restored media is mounted only after the gate succeeds and receives a reconciliation marker', async () => {
   const f = await fixture();
   try {
