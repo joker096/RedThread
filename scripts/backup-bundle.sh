@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
+
+# The bundle includes private media and must hold the same admitted shared
+# lock from before the database dump until the encrypted media archive closes.
+: "${PRIVACY_RECOVERY_WRITER_LOCK_FILE:?Run through privacy-recovery-admission.sh writer}"
+if [[ ! -e /proc/self/fd/9 || ! -r /proc/self/fdinfo/9 ]]; then
+  echo "backup bundle requires the inherited admission lock on FD 9" >&2
+  exit 1
+fi
+lock_real="$(realpath -e -- "$PRIVACY_RECOVERY_WRITER_LOCK_FILE")"
+fd_real="$(readlink -f -- /proc/self/fd/9)"
+if [[ "$fd_real" != "$lock_real" ]] ||
+   ! grep -Eq '^lock:[[:space:]]*[0-9]+:[[:space:]]+FLOCK[[:space:]]+ADVISORY[[:space:]]+READ[[:space:]]' /proc/self/fdinfo/9; then
+  echo "backup bundle requires the configured live shared admission lock on FD 9" >&2
+  exit 1
+fi
+if [[ -e "$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance" || -L "$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance" ]]; then
+  echo "backup bundle admission is closed for privacy-recovery maintenance" >&2
+  exit 75
+fi
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 : "${DATABASE_URL:?Set DATABASE_URL through your deployment secret manager}"
 : "${PRIVATE_MEDIA_DIR:?Set PRIVATE_MEDIA_DIR to the mounted private media directory}"
