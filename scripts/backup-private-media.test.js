@@ -72,7 +72,10 @@ rm -f "$input"
     const rootMode = rootRun(['chmod', '0711', temporaryRoot]);
     assert.equal(rootMode.status, 0, rootMode.stderr);
   }
-  await writeFile(drain, '#!/usr/bin/env bash\\nset -eu\\nexit 0\\n');
+  await writeFile(drain, `#!/usr/bin/env bash
+set -eu
+exit 0
+`);
   const lockDirCreate = rootRun(['install', '-d', '-o', '0', '-g', String(sharedGid), '-m', '2750', lockDir]);
   assert.equal(lockDirCreate.status, 0, lockDirCreate.stderr);
   const lockCreate = rootRun(['install', '-o', '0', '-g', String(sharedGid), '-m', '0640', '/dev/null', lock]);
