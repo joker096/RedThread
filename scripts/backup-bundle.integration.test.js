@@ -120,10 +120,12 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
       const rootMode = rootRun(['chmod', '0711', temporaryRoot]);
       assert.equal(rootMode.status, 0, rootMode.stderr);
     }
-    for (const target of [backupRoot, mediaRoot, restoredMediaParent]) {
+    for (const target of [backupRoot, restoredMediaParent]) {
       const owner = rootRun(['chown', `${writerUid}:${sharedGid}`, target]);
       assert.equal(owner.status, 0, owner.stderr);
     }
+    const mediaOwner = rootRun(['chown', '-R', `${writerUid}:${sharedGid}`, mediaRoot]);
+    assert.equal(mediaOwner.status, 0, mediaOwner.stderr);
     const photoFixture = Buffer.from('synthetic-private-photo-fixture');
     const voiceFixture = Buffer.from([0, 1, 2, 3, 127, 128, 254, 255]);
     await writeFile(path.join(mediaRoot, 'photo-fixture.bin'), photoFixture, { mode: 0o600 });
