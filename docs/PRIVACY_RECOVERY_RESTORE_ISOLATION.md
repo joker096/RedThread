@@ -4,7 +4,7 @@ This runbook applies only to a disposable, isolated restore target. It is not a 
 
 ## Required isolation before verification
 
-The activation wrapper now requires a pre-created `PRIVACY_RECOVERY_WRITER_LOCK_FILE` and holds its non-blocking `flock` lock from before writer isolation through domain reconciliation and bind activation. The lock file must be an absolute regular non-symlink file. The wrapper exports its path and descriptor (`PRIVACY_RECOVERY_WRITER_LOCK_FD=9`) to the gates. Every process manager, container launcher, scheduled job, and operator action capable of starting a media writer must participate in the same admission lock; otherwise the lock alone does not prevent a non-cooperating writer from starting.
+The activation wrapper currently requires a pre-created `PRIVACY_RECOVERY_WRITER_LOCK_FILE` and takes a non-blocking exclusive `flock` before invoking writer isolation, domain reconciliation, and bind activation. It exports its path and descriptor (`PRIVACY_RECOVERY_WRITER_LOCK_FD=9`) to the gates. **This is the legacy lock ordering, not the marker-first maintenance protocol described below.** It can deadlock once long-running writers hold shared locks, because activation cannot reach the drain gate until it acquires the exclusive lock. Do not wire long-lived shared-lock writers into this wrapper until activation has been refactored to close admission with a durable marker first, drain admitted writers, and only then acquire the exclusive lock. Every process manager, container launcher, scheduled job, and operator action capable of starting a media writer must participate in the same admission policy; otherwise a cooperative lock does not prevent a non-cooperating writer from starting.
 
 The activation wrapper also requires two independent executables:
 - `PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE`: a fail-closed writer isolation gate.
@@ -43,7 +43,7 @@ The host-level executable is an independent, operator-supplied control; this rep
 2. Connect with a dedicated login role whose name matches `vow_restore_<suffix>`. Do not reuse the API, migration, owner, or administrator role.
 3. The restore role must have no role memberships, no superuser/createdb/createrole/replication/bypass-RLS attributes, no write privileges on user relations or sequences, and no CREATE privilege on user schemas or the database. The verifier checks these properties at runtime.
 4. Mount each restored media root into the verifier's own mount namespace as read-only. The CLI reads `/proc/self/mountinfo` and rejects a missing or writable covering mount for photo, voice-intro, or L3 storage.
-5. Pre-create a root-owned, mode-0600 lock file on a trusted local filesystem. Ensure all writer-launch paths use the same lock/admission policy. The activation wrapper holds this lock continuously across the writer gate, domain reconciliation, and bind mount. The lock is cooperative and does not itself block uncooperative privileged processes.
+5. Pre-create a root-owned, mode-0600 lock file on a trusted local filesystem. The current activation wrapper takes its exclusive lock before the writer gate; this legacy order is not compatible with long-lived shared-lock writers and must not be mistaken for marker-first draining. Before integrating shared locks into services, refactor activation to create and durably sync the maintenance marker, drain already-admitted writers, then acquire the exclusive lock and retain it through reconciliation and bind activation. The lock is cooperative and does not itself block uncooperative privileged processes.
 6. Before running the verifier, invoke the writer-isolation gate. Its Docker portion stops every service in the dedicated restore project except the isolated DB and rejects any running container anywhere on the daemon with a writable attachment to the restore media volumes. The gate must additionally prove host-level isolation for processes outside Docker, alternate namespaces, writable file descriptors and aliases; otherwise activation is blocked.
 7. Keep the restored media roots read-only after verification. Do not remount them writable or attach them to a writable service until a separately reviewed activation procedure authorizes it.
 
@@ -123,3 +123,17 @@ The current repository does not yet contain this privileged host gate or these h
 - If a writer checked for the marker before it was created, it is an already-admitted writer and must be stopped/drained before the exclusive lock can be acquired. If it checks after marker creation, it must reject startup.
 
 This primitive is currently a standalone building block only. It is **not yet mounted into Compose, used by the API entrypoint, or applied to purge/migration/manual launch paths**. It therefore does not currently protect any running Vow service and must not be treated as satisfying the host writer-isolation gate. Do not run restore activation on the assumption that this helper alone provides isolation. Integration requires a provisioned shared lock inode and marker path visible identically to host and every relevant container, an enforced launch policy that prevents bypass, a real drain controller, and the host-level attestation/evidence contract above.
+
+
+## Explicit unresolved activation-order blocker
+
+The current `scripts/activate-private-media-restore.sh` does **not** call `scripts/privacy-recovery-admission.sh`. It opens FD 9 and requests a non-blocking exclusive lock before running `PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE`. The standalone admission helper uses the opposite, marker-first order. These are not interchangeable implementations.
+
+Required follow-up before service integration:
+1. Refactor activation to use the marker-first maintenance state machine (or an equivalently reviewed implementation) without acquiring the exclusive lock before drain.
+2. Ensure the drain controller can stop every admitted writer while the durable marker prevents new admissions.
+3. Acquire and retain the exclusive lock only after drain completes; keep the marker sticky on all failures, signals, and reboot.
+4. Define and test an explicit, audited reopening procedure. No automatic marker deletion is permitted.
+5. Add integration tests that exercise the actual activation script with a long-lived admitted writer and prove that activation drains it without deadlock.
+
+Until those changes and the independent host-level gate are implemented, the activation script remains blocked for real restored private media. The standalone helper's passing unit tests do not validate the activation path.
