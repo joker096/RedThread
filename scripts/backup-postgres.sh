@@ -2,6 +2,27 @@
 set -Eeuo pipefail
 umask 077
 
+# A PostgreSQL dump is part of the privacy-recovery snapshot and must hold
+# the same shared admission lock for the entire pg_dump/age stream. Direct
+# invocation without the helper is rejected; FD 9 must be the configured inode
+# with a live shared flock, and maintenance must not have closed admission.
+: "${PRIVACY_RECOVERY_WRITER_LOCK_FILE:?Run through privacy-recovery-admission.sh writer}"
+if [[ ! -e /proc/self/fd/9 || ! -r /proc/self/fdinfo/9 ]]; then
+  echo "PostgreSQL backup requires the inherited admission lock on FD 9" >&2
+  exit 1
+fi
+lock_real="$(realpath -e -- "$PRIVACY_RECOVERY_WRITER_LOCK_FILE")"
+fd_real="$(readlink -f -- /proc/self/fd/9)"
+if [[ "$fd_real" != "$lock_real" ]] ||
+   ! grep -Eq '^lock:[[:space:]]*[0-9]+:[[:space:]]+FLOCK[[:space:]]+ADVISORY[[:space:]]+READ[[:space:]]' /proc/self/fdinfo/9; then
+  echo "PostgreSQL backup requires the configured live shared admission lock on FD 9" >&2
+  exit 1
+fi
+if [[ -e "$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance" || -L "$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance" ]]; then
+  echo "PostgreSQL backup admission is closed for privacy-recovery maintenance" >&2
+  exit 75
+fi
+
 : "${DATABASE_URL:?Set DATABASE_URL through your deployment secret manager}"
 : "${BACKUP_AGE_RECIPIENT:?Set BACKUP_AGE_RECIPIENT to an age public recipient; plaintext backups are disabled}"
 command -v pg_dump >/dev/null 2>&1 || { echo "pg_dump is required" >&2; exit 1; }
