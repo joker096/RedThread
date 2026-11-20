@@ -1,11 +1,15 @@
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 
-export function assertPrivacyRecoveryAdmission(env = process.env) {
+export function assertPrivacyRecoveryAdmission(env = process.env, expectedLockFile = '/run/vow-privacy/writers.lock') {
   if (env.PRIVACY_RECOVERY_REQUIRE_ADMISSION !== 'true') return false;
 
   const lockFile = env.PRIVACY_RECOVERY_WRITER_LOCK_FILE;
   if (typeof lockFile !== 'string' || !lockFile.startsWith('/')) {
     throw new Error('privacy recovery admission requires an absolute writer lock path');
+  }
+
+  if (lockFile !== expectedLockFile) {
+    throw new Error('privacy recovery admission refuses a lock path outside the pinned host mount');
   }
 
   let expectedPath;
