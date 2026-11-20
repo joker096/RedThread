@@ -6,6 +6,11 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 
 const script = new URL('./activate-private-media-restore.sh', import.meta.url).pathname;
+const sudo = process.getuid?.() === 0 ? [] : ['sudo', '-n'];
+
+function rootRun(args) {
+  return spawnSync(sudo.length ? 'sudo' : args[0], sudo.length ? ['-n', ...args] : args.slice(1), { encoding: 'utf8' });
+}
 
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'vow-private-media-activation-'));
@@ -45,7 +50,10 @@ if ! flock -x -w "$timeout" 9; then
 fi
 exec "$@"
 `);
-  await chmod(activationAdmission, 0o700);
+  const helperOwner = rootRun(['chown', '0:0', activationAdmission]);
+  assert.equal(helperOwner.status, 0, helperOwner.stderr);
+  const helperMode = rootRun(['chmod', '0755', activationAdmission]);
+  assert.equal(helperMode.status, 0, helperMode.stderr);
   await writeFile(writerLock, '');
   await chmod(writerLock, 0o600);
   await writeFile(drain, '#!/usr/bin/env bash\nset -eu\nprintf "drain\\n" >> "$CALL_LOG"\ntest -d "$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance"\n');
