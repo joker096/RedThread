@@ -7483,7 +7483,8 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
       : Boolean(current &&
           current.consent_version === expectedConsent.consent_version &&
           current.granted_at === expectedConsent.granted_at &&
-          current.withdrawn_at === expectedConsent.withdrawn_at);
+          (current.withdrawn_at === expectedConsent.withdrawn_at ||
+            (!expectedActive && Boolean(current.withdrawn_at))));
     if (!sameLifecycle || Boolean(current && !current.withdrawn_at) !== expectedActive) {
       throw new Error('identity_l3_consent_state_changed_retry');
     }
@@ -7650,7 +7651,8 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
         pool,
         operationId,
         event: { eventType: 'identity_l3_consent_withdrawn', userId },
-        apply: transactionClient => applyWithdrawal(transactionClient, expectedConsent, wasActive)
+        apply: transactionClient => applyWithdrawal(transactionClient, expectedConsent, wasActive),
+        applyDuplicate: transactionClient => applyWithdrawal(transactionClient, expectedConsent, false)
       });
       result = operation.result;
       if (!result) {
