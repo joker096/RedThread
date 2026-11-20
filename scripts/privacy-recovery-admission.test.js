@@ -306,3 +306,36 @@ fi
   });
 
 });
+
+  await t.test('SIGKILL during the maintenance critical command releases the flock but preserves the sticky marker', async () => {
+    const f = await fixture();
+    let maintenance;
+    const criticalReady = path.join(f.root, 'critical-ready');
+    try {
+      const args = commandFor(f, 'maintenance', [
+        'bash', '-c',
+        'printf ready > "$CRITICAL_READY"; while :; do sleep 1; done'
+      ], { CRITICAL_READY: criticalReady });
+      maintenance = spawn(args[0], args.slice(1), { stdio: 'ignore' });
+      await waitForPath(f.marker);
+      await waitForPath(criticalReady);
+      maintenance.kill('SIGKILL');
+      await new Promise((resolve, reject) => {
+        maintenance.once('error', reject);
+        maintenance.once('exit', (code, signal) => {
+          if (signal === 'SIGKILL') resolve();
+          else reject(new Error(`maintenance exited unexpectedly: code=${code} signal=${signal}`));
+        });
+      });
+
+      assert.equal(runRoot(['test', '-d', f.marker]).status, 0, 'SIGKILL must not remove the durable maintenance marker');
+      const writer = run(f, 'writer', ['true']);
+      assert.equal(writer.status, 75, writer.stderr);
+
+      const released = runRoot(['flock', '-n', '-x', f.lock, '-c', 'true']);
+      assert.equal(released.status, 0, released.stderr || 'kernel must release the exclusive flock after process death');
+    } finally {
+      if (maintenance && maintenance.exitCode === null) maintenance.kill('SIGKILL');
+      await cleanup(f);
+    }
+  });
