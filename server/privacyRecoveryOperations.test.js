@@ -403,3 +403,27 @@ test('a client with an unsuccessful rollback is destroyed instead of returned to
   assert.equal(releasedWith?.message, 'domain_transaction_failed',
     'failed transaction clients must be released with an error so pg destroys them');
 });
+
+
+test('L3 withdrawal retries and inactive-consent cleanup remain behind the lifecycle ACK', () => {
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  const start = source.indexOf("app.delete('/api/identity/l3/consent'");
+  const end = source.indexOf("app.get('/api/ads/consent'", start);
+  assert.ok(start >= 0 && end > start, 'L3 consent withdrawal route boundaries must exist');
+  const route = source.slice(start, end);
+  const missingLifecycleGuard = route.indexOf('if (!expectedConsent)');
+  const residualCheck = route.indexOf('has_residual_l3_state');
+  const ackGate = route.indexOf('runAckGatedPrivacyRecoveryOperation({');
+  const apply = route.indexOf('applyWithdrawal(transactionClient, expectedConsent, wasActive)');
+  assert.ok(missingLifecycleGuard >= 0 && residualCheck > missingLifecycleGuard,
+    'a missing consent lifecycle must be checked for orphaned L3 state before any mutation');
+  assert.ok(ackGate > residualCheck && apply > ackGate,
+    'cleanup for both active and already-withdrawn consent must execute only inside the ACK-gated operation');
+  assert.ok(route.includes("eventType: 'identity_l3_consent_withdrawn'"));
+  assert.ok(route.includes("resourceId: 'identity-l3-consent'"));
+  assert.ok(route.includes('generation: `${expectedConsent.consent_version}:${expectedConsent.granted_at}`'));
+  assert.equal(route.includes('applyWithdrawal(client, expectedConsent, false)'), false,
+    'there must be no direct PostgreSQL cleanup path outside the ACK gate');
+  assert.ok(route.includes('identity_l3_consent_lifecycle_reconciliation_required'),
+    'orphaned state without a lifecycle must fail closed for reconciliation');
+});
