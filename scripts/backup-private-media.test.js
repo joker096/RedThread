@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access, chmod, chown, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -66,12 +66,8 @@ rm -f "$input"
   await chmod(age, 0o750);
   await chmod(fakeBin, 0o750);
   await chmod(mediaRoot, 0o750);
-  await chown(fakeBin, writerUid, sharedGid);
-  await chown(mediaRoot, writerUid, sharedGid);
-  await chown(path.join(mediaRoot, 'private-photo.jpg'), writerUid, sharedGid);
-  await chown(tar, writerUid, sharedGid);
-  await chown(age, writerUid, sharedGid);
-  await chown(backupDir, writerUid, sharedGid);
+  const fixtureOwner = rootRun(['chown', '-R', `${writerUid}:${sharedGid}`, fakeBin, mediaRoot, backupDir]);
+  assert.equal(fixtureOwner.status, 0, fixtureOwner.stderr);
   if (process.getuid?.() === 0) {
     const rootMode = rootRun(['chmod', '0711', temporaryRoot]);
     assert.equal(rootMode.status, 0, rootMode.stderr);
