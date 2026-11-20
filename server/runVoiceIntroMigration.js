@@ -1,3 +1,5 @@
+import { assertPrivacyRecoveryAdmission } from './privacyRecoveryAdmissionGuard.js';
+assertPrivacyRecoveryAdmission();
 import { hostname } from 'node:os';
 import pg from 'pg';
 import { parseVoiceIntroEncryptionKeyring } from './voiceIntroStorage.js';
