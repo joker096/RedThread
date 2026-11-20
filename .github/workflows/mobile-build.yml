@@ -2,7 +2,7 @@ name: Mobile platform builds
 
 on:
   push:
-    branches: ["feat/**"]
+    branches: ["feat/**", "fix/**"]
     paths:
       - "src/**"
       - "capacitor.config.ts"
@@ -19,7 +19,7 @@ on:
       - ".github/workflows/mobile-build.yml"
       - ".github/workflows/mobile-device-smoke.yml"
   pull_request:
-    branches: [main, feat/compatibility-explanations]
+    branches: [main, "feat/**", "fix/**"]
     paths:
       - "src/**"
       - "capacitor.config.ts"
