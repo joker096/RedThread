@@ -167,7 +167,7 @@ test('private media backup refuses FIFOs and other special filesystem entries', 
     assert.match(result.stderr, /special filesystem entries/);
     assert.deepEqual(await readdir(f.backupDir).catch(() => []), []);
   } finally {
-    await rm(f.temporaryRoot, { recursive: true, force: true });
+    await cleanup(f);
   }
 });
 
@@ -185,7 +185,7 @@ test('private media backup fails closed when encryption recipient is absent', as
     assert.notEqual(result.status, 0);
     assert.deepEqual(await readdir(f.backupDir).catch(() => []), []);
   } finally {
-    await rm(f.temporaryRoot, { recursive: true, force: true });
+    await cleanup(f);
   }
 });
 
@@ -204,7 +204,7 @@ test('private media backup rejects direct invocation without an admitted shared 
     assert.match(result.stderr, /requires the inherited admission lock/);
     assert.deepEqual(await readdir(f.backupDir).catch(() => []), []);
   } finally {
-    await rm(f.temporaryRoot, { recursive: true, force: true });
+    await cleanup(f);
   }
 });
 
@@ -265,6 +265,6 @@ printf 'fixture-archive-with-private-photo-content'
     assert.ok(files.some(name => name.endsWith('.tar.age')));
   } finally {
     if (backup && backup.exitCode === null) backup.kill('SIGKILL');
-    await rm(f.temporaryRoot, { recursive: true, force: true });
+    await cleanup(f);
   }
 });
