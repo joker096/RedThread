@@ -25,7 +25,7 @@ async function fixture() {
   await writeFile(log, '');
   await writeFile(writerLock, '');
   await chmod(writerLock, 0o600);
-  await writeFile(drain, '#!/usr/bin/env bash\nset -eu\nprintf "drain\\n" >> "$CALL_LOG"\nif bash "$ADMISSION_HELPER" writer -- true; then exit 93; else status=$?; fi\ntest "$status" -eq 75\n');
+  await writeFile(drain, '#!/usr/bin/env bash\nset -eu\nprintf "drain\\n" >> "$CALL_LOG"\ntest -d "$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance"\n');
   await chmod(drain, 0o700);
   await writeFile(gate, '#!/usr/bin/env bash\nset -eu\ntest "$PRIVACY_RECOVERY_WRITER_LOCK_FD" = 9\ntest -e "/proc/self/fd/$PRIVACY_RECOVERY_WRITER_LOCK_FD"\nif flock -n "$PRIVACY_RECOVERY_WRITER_LOCK_FILE" -c true; then echo "writer lock was not held during domain gate" >&2; exit 91; fi\nprintf "gate:%s\\n" "$RESTORE_DESTINATION" >> "$CALL_LOG"\nexit "${GATE_EXIT:-0}"\n');
   await chmod(gate, 0o700);
