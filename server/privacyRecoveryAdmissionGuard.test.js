@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -73,5 +73,29 @@ test('production entrypoint guard refuses a durable maintenance marker', async (
     assert.match(result.stderr, /admission is closed for maintenance/);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test('every production database-writing entrypoint imports the fail-closed admission guard', async () => {
+  const guarded = [
+    'server/index.js',
+    'server/process-identity-l3-queue.js',
+    'server/expire-identity-l3-approvals.js',
+    'server/process-private-photo-purge.js',
+    'server/process-private-voice-intro-purge.js',
+    'server/runVoiceIntroMigration.js',
+    'server/expire-gift-requests.js',
+    'server/process-privacy-recovery-outbox.js',
+    'server/process-privacy-recovery-acks.js',
+    'server/process-gift-address-draft-purge.js',
+    'scripts/migrate.js',
+    'scripts/cleanup-ad-events.js',
+    'scripts/cleanup-female-profile-exposures.js',
+    'scripts/cleanup-account-reuse-restrictions.js'
+  ];
+  for (const relative of guarded) {
+    const source = await readFile(path.resolve(root, '..', relative), 'utf8');
+    assert.match(source, /assertPrivacyRecoveryAdmission/,
+      relative + ' must reject direct production invocation without FD 9');
   }
 });
