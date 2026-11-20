@@ -27,6 +27,33 @@ function run(command, args, env, timeout = 150_000) {
   return result;
 }
 
+const sharedGid = 65534;
+const writerUid = process.getuid?.() === 0 ? sharedGid : process.getuid();
+const writerPrimaryGid = process.getgid?.() === 0 ? sharedGid : process.getgid();
+const sudo = process.getuid?.() === 0 ? [] : ['sudo', '-n'];
+
+function rootRun(args) {
+  return spawnSync(sudo.length ? 'sudo' : args[0], sudo.length ? ['-n', ...args] : args.slice(1), { encoding: 'utf8' });
+}
+
+function runAsWriter(command, args, env = {}, timeout = 150_000) {
+  const vars = Object.entries({
+    ...env,
+    PRIVACY_RECOVERY_WRITER_GID: String(sharedGid)
+  }).map(([key, value]) => `${key}=${value}`);
+  const argv = [...sudo, 'setpriv', '--reuid', String(writerUid), '--regid', String(writerPrimaryGid),
+    '--groups', String(sharedGid), '--', 'env', ...vars, command, ...args];
+  const result = spawnSync(argv[0], argv.slice(1), {
+    encoding: 'utf8',
+    timeout,
+    maxBuffer: 4 * 1024 * 1024,
+    env: { ...process.env, PATH: '/usr/lib/postgresql/16/bin:' + (process.env.PATH || '') }
+  });
+  assert.equal(result.status, 0,
+    result.stderr || result.stdout || (command + ' exited with ' + result.status + ' (signal ' + result.signal + ')'));
+  return result;
+}
+
 function databaseUrl(databaseName) {
   const url = new URL(process.env.DATABASE_URL);
   url.pathname = '/' + databaseName;
@@ -56,7 +83,8 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
   const restoredMediaParent = path.join(temporaryRoot, 'restored');
   const restoredMedia = path.join(restoredMediaParent, 'private-media');
   const identityFile = path.join(temporaryRoot, 'age-identity.txt');
-  const lockFile = path.join(temporaryRoot, 'writers.lock');
+  const lockDir = path.join(temporaryRoot, 'admission');
+  const lockFile = path.join(lockDir, 'writers.lock');
   const drainFile = path.join(temporaryRoot, 'drain');
   const admin = new Client({ connectionString: process.env.DATABASE_URL });
   let adminConnected = false;
@@ -79,6 +107,23 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
     await mkdir(mediaRoot, { mode: 0o700 });
     await mkdir(path.join(mediaRoot, 'voice'), { recursive: true, mode: 0o700 });
     await mkdir(restoredMediaParent, { mode: 0o700 });
+    const lockDirCreate = rootRun(['install', '-d', '-o', '0', '-g', String(sharedGid), '-m', '2750', lockDir]);
+    assert.equal(lockDirCreate.status, 0, lockDirCreate.stderr);
+    const lockCreate = rootRun(['install', '-o', '0', '-g', String(sharedGid), '-m', '0640', '/dev/null', lockFile]);
+    assert.equal(lockCreate.status, 0, lockCreate.stderr);
+    await writeFile(drainFile, '#!/usr/bin/env bash\\nset -eu\\nexit 0\\n');
+    const drainOwner = rootRun(['chown', '0:0', drainFile]);
+    assert.equal(drainOwner.status, 0, drainOwner.stderr);
+    const drainMode = rootRun(['chmod', '0755', drainFile]);
+    assert.equal(drainMode.status, 0, drainMode.stderr);
+    if (process.getuid?.() === 0) {
+      const rootMode = rootRun(['chmod', '0711', temporaryRoot]);
+      assert.equal(rootMode.status, 0, rootMode.stderr);
+    }
+    for (const target of [backupRoot, mediaRoot, restoredMediaParent]) {
+      const owner = rootRun(['chown', `${writerUid}:${sharedGid}`, target]);
+      assert.equal(owner.status, 0, owner.stderr);
+    }
     const photoFixture = Buffer.from('synthetic-private-photo-fixture');
     const voiceFixture = Buffer.from([0, 1, 2, 3, 127, 128, 254, 255]);
     await writeFile(path.join(mediaRoot, 'photo-fixture.bin'), photoFixture, { mode: 0o600 });
@@ -101,7 +146,7 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
     await source.end();
     source = undefined;
 
-    run('bash', [admissionScript, 'writer', '--', 'bash', backupBundleScript], {
+    runAsWriter('bash', [admissionScript, 'writer', '--', 'bash', backupBundleScript], {
       DATABASE_URL: sourceUrl,
       PRIVATE_MEDIA_DIR: mediaRoot,
       BACKUP_AGE_RECIPIENT: recipient,
@@ -149,7 +194,7 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
       if (sourceCreated) await admin.query('DROP DATABASE IF EXISTS "' + sourceDatabase + '" WITH (FORCE)').catch(() => {});
       await admin.end().catch(() => {});
     }
-    await rm(temporaryRoot, { recursive: true, force: true });
+    rootRun(['rm', '-rf', '--', temporaryRoot]);
   }
 });
 
