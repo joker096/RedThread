@@ -76,12 +76,12 @@ test('private media backup and restore round-trip with real age encryption and t
       const rootMode = rootRun(['chmod', '0711', temporaryRoot]);
       assert.equal(rootMode.status, 0, rootMode.stderr);
     }
+    await writeFile(path.join(source, 'photo-fixture.bin'), fixture, { mode: 0o600 });
+    await writeFile(path.join(source, 'nested', 'voice-fixture.bin'), nestedFixture, { mode: 0o600 });
     for (const target of [source, backupDir, path.dirname(destination)]) {
       const owner = rootRun(['chown', '-R', `${writerUid}:${sharedGid}`, target]);
       assert.equal(owner.status, 0, owner.stderr);
     }
-    await writeFile(path.join(source, 'photo-fixture.bin'), fixture, { mode: 0o600 });
-    await writeFile(path.join(source, 'nested', 'voice-fixture.bin'), nestedFixture, { mode: 0o600 });
 
     run('age-keygen', ['-o', identityFile]);
     await chmod(identityFile, 0o600);
