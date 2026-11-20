@@ -100,10 +100,9 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
     const recipient = identity.match(/^# public key: (age1[0-9a-z]+)$/m)?.[1];
     assert.ok(recipient, 'age-keygen must produce an age recipient');
 
-    await writeFile(lockFile, '');
-    await chmod(lockFile, 0o600);
     await writeFile(drainFile, '#!/usr/bin/env bash\nset -eu\nexit 0\n');
     await chmod(drainFile, 0o700);
+    await mkdir(backupRoot, { mode: 0o700 });
     await mkdir(mediaRoot, { mode: 0o700 });
     await mkdir(path.join(mediaRoot, 'voice'), { recursive: true, mode: 0o700 });
     await mkdir(restoredMediaParent, { mode: 0o700 });
@@ -111,7 +110,6 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
     assert.equal(lockDirCreate.status, 0, lockDirCreate.stderr);
     const lockCreate = rootRun(['install', '-o', '0', '-g', String(sharedGid), '-m', '0640', '/dev/null', lockFile]);
     assert.equal(lockCreate.status, 0, lockCreate.stderr);
-    await writeFile(drainFile, '#!/usr/bin/env bash\\nset -eu\\nexit 0\\n');
     const drainOwner = rootRun(['chown', '0:0', drainFile]);
     assert.equal(drainOwner.status, 0, drainOwner.stderr);
     const drainMode = rootRun(['chmod', '0755', drainFile]);
@@ -120,16 +118,16 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
       const rootMode = rootRun(['chmod', '0711', temporaryRoot]);
       assert.equal(rootMode.status, 0, rootMode.stderr);
     }
+    const photoFixture = Buffer.from('synthetic-private-photo-fixture');
+    const voiceFixture = Buffer.from([0, 1, 2, 3, 127, 128, 254, 255]);
+    await writeFile(path.join(mediaRoot, 'photo-fixture.bin'), photoFixture, { mode: 0o600 });
+    await writeFile(path.join(mediaRoot, 'voice', 'voice-fixture.bin'), voiceFixture, { mode: 0o600 });
     for (const target of [backupRoot, restoredMediaParent]) {
       const owner = rootRun(['chown', `${writerUid}:${sharedGid}`, target]);
       assert.equal(owner.status, 0, owner.stderr);
     }
     const mediaOwner = rootRun(['chown', '-R', `${writerUid}:${sharedGid}`, mediaRoot]);
     assert.equal(mediaOwner.status, 0, mediaOwner.stderr);
-    const photoFixture = Buffer.from('synthetic-private-photo-fixture');
-    const voiceFixture = Buffer.from([0, 1, 2, 3, 127, 128, 254, 255]);
-    await writeFile(path.join(mediaRoot, 'photo-fixture.bin'), photoFixture, { mode: 0o600 });
-    await writeFile(path.join(mediaRoot, 'voice', 'voice-fixture.bin'), voiceFixture, { mode: 0o600 });
 
     await admin.connect();
     adminConnected = true;
