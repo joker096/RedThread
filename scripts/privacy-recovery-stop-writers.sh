@@ -50,6 +50,11 @@ if [[ "$fd_gate_identity" != "$path_gate_identity" ]]; then
   echo "host writer-isolation gate changed while opening; refusing to continue" >&2
   exit 1
 fi
+IFS=: read -r fd_gate_owner fd_gate_mode fd_gate_links _ _ <<< "$fd_gate_identity"
+if [[ "$fd_gate_owner" != "0" || "$fd_gate_links" != "1" ]] || (( (8#$fd_gate_mode & 8#022) != 0 )); then
+  echo "opened host writer-isolation gate is not a trusted root-owned executable" >&2
+  exit 1
+fi
 
 IFS=',' read -r -a media_volumes <<< "$PRIVACY_RECOVERY_MEDIA_VOLUMES"
 if [[ "${#media_volumes[@]}" -ne 3 ]]; then
