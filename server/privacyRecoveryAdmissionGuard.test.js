@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.dirname(fileURLToPath(import.meta.url));
 const guard = path.join(root, 'privacyRecoveryAdmissionGuard.js');
 
-function run(env, shell = 'node --input-type=module -e "import(process.env.GUARD_MODULE).then(m => m.assertPrivacyRecoveryAdmission())"') {
+function run(env, shell = 'node --input-type=module -e "import(process.env.GUARD_MODULE).then(m => m.assertPrivacyRecoveryAdmission(process.env, process.env.GUARD_EXPECTED_LOCK_FILE))"') {
   return spawnSync('bash', ['-c', shell], {
     encoding: 'utf8',
     env: { ...process.env, GUARD_MODULE: guard, ...env }
@@ -32,8 +32,9 @@ test('production entrypoint guard accepts only the configured live shared lock d
     await writeFile(lock, '');
     const result = run({
       PRIVACY_RECOVERY_REQUIRE_ADMISSION: 'true',
-      PRIVACY_RECOVERY_WRITER_LOCK_FILE: lock
-    }, 'exec 9< "$PRIVACY_RECOVERY_WRITER_LOCK_FILE"; flock -s 9; node --input-type=module -e "import(process.env.GUARD_MODULE).then(m => { if (!m.assertPrivacyRecoveryAdmission()) process.exit(2) })"');
+      PRIVACY_RECOVERY_WRITER_LOCK_FILE: lock,
+      GUARD_EXPECTED_LOCK_FILE: lock
+    }, 'exec 9< "$PRIVACY_RECOVERY_WRITER_LOCK_FILE"; flock -s 9; node --input-type=module -e "import(process.env.GUARD_MODULE).then(m => { if (!m.assertPrivacyRecoveryAdmission(process.env, process.env.GUARD_EXPECTED_LOCK_FILE)) process.exit(2) })"');
     assert.equal(result.status, 0, result.stderr || result.stdout);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
@@ -50,8 +51,9 @@ test('production entrypoint guard rejects a different lock descriptor', async ()
     const result = run({
       PRIVACY_RECOVERY_REQUIRE_ADMISSION: 'true',
       PRIVACY_RECOVERY_WRITER_LOCK_FILE: lock,
+      GUARD_EXPECTED_LOCK_FILE: lock,
       OTHER_LOCK: other
-    }, 'exec 9< "$OTHER_LOCK"; flock -s 9; node --input-type=module -e "import(process.env.GUARD_MODULE).then(m => m.assertPrivacyRecoveryAdmission())"');
+    }, 'exec 9< "$OTHER_LOCK"; flock -s 9; node --input-type=module -e "import(process.env.GUARD_MODULE).then(m => m.assertPrivacyRecoveryAdmission(process.env, process.env.GUARD_EXPECTED_LOCK_FILE))"');
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /does not reference the configured lock inode/);
   } finally {
@@ -67,8 +69,9 @@ test('production entrypoint guard refuses a durable maintenance marker', async (
     await writeFile(lock + '.maintenance', '');
     const result = run({
       PRIVACY_RECOVERY_REQUIRE_ADMISSION: 'true',
-      PRIVACY_RECOVERY_WRITER_LOCK_FILE: lock
-    }, 'exec 9< "$PRIVACY_RECOVERY_WRITER_LOCK_FILE"; flock -s 9; node --input-type=module -e "import(process.env.GUARD_MODULE).then(m => m.assertPrivacyRecoveryAdmission())"');
+      PRIVACY_RECOVERY_WRITER_LOCK_FILE: lock,
+      GUARD_EXPECTED_LOCK_FILE: lock
+    }, 'exec 9< "$PRIVACY_RECOVERY_WRITER_LOCK_FILE"; flock -s 9; node --input-type=module -e "import(process.env.GUARD_MODULE).then(m => m.assertPrivacyRecoveryAdmission(process.env, process.env.GUARD_EXPECTED_LOCK_FILE))"');
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /admission is closed for maintenance/);
   } finally {
