@@ -147,7 +147,7 @@ test("ledger appends a valid event and returns a durable sequence", async () => 
   const request = await signedRequest("POST", "https://ledger.test/v1/events", body);
   const response = await handleRequest(request, { ...env, LEDGER_DB: db });
   assert.equal(response.status, 201);
-  assert.deepEqual(await response.json(), { accepted: true, duplicate: false, sequence: 1 });
+  assert.deepEqual(await response.json(), { accepted: true, duplicate: false, event_id: "123e4567-e89b-42d3-a456-426614174000", sequence: 1 });
   assert.equal(db.rows.length, 1);
 });
 
@@ -204,4 +204,24 @@ test("ledger rejects a requested watermark that is not yet available", async () 
   const url = "https://ledger.test/v1/events?after=0&limit=10&through=2";
   const response = await handleRequest(await signedRequest("GET", url), { ...env, LEDGER_DB: db });
   assert.equal(response.status, 409);
+});
+
+test("ledger accepts address-draft consent withdrawal events", async () => {
+  const db = new FakeLedgerDb();
+  const body = eventPayload({ event_type: "gift_address_draft_consent_withdrawn", resource_ref: "b".repeat(64) });
+  const response = await handleRequest(await signedRequest("POST", "https://ledger.test/v1/events", body), { ...env, LEDGER_DB: db });
+  assert.equal(response.status, 201);
+  assert.deepEqual(await response.json(), { accepted: true, duplicate: false, event_id: '123e4567-e89b-42d3-a456-426614174000', sequence: 1 });
+  assert.equal(db.rows[0].event_type, "gift_address_draft_consent_withdrawn");
+});
+
+test("ledger requires a resource reference for address-draft consent withdrawal", async () => {
+  const db = new FakeLedgerDb();
+  const body = eventPayload({ event_type: "gift_address_draft_consent_withdrawn" });
+  const response = await handleRequest(await signedRequest("POST", "https://ledger.test/v1/events", body), { ...env, LEDGER_DB: db });
+  assert.equal(response.status, 400);
+  const nullResource = eventPayload({ event_type: "gift_address_draft_consent_withdrawn", resource_ref: null });
+  const nullResponse = await handleRequest(await signedRequest("POST", "https://ledger.test/v1/events", nullResource), { ...env, LEDGER_DB: db });
+  assert.equal(nullResponse.status, 400, "null resource references must fail at ingress too");
+  assert.deepEqual(db.rows, []);
 });

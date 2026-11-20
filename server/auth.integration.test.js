@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { ASSESSMENT_OPTIONS } from './relationshipAssessment.js';
 import { createAccountReuseDigest, hashSessionToken } from './security.js';
+import { startTestPrivacyRecoveryLedger } from './testPrivacyRecoveryLedger.js';
 
 const { Pool } = pg;
 
@@ -107,6 +108,7 @@ test('auth API supports registration, session lookup, logout and login', {
   timeout: 60_000
 }, async () => {
   const port = await findFreePort();
+  const ledger = await startTestPrivacyRecoveryLedger();
   const origin = 'http://localhost:3000';
   const api = `http://127.0.0.1:${port}`;
   const accountReuseTestKey = 'a'.repeat(64);
@@ -118,6 +120,10 @@ test('auth API supports registration, session lookup, logout and login', {
       API_PORT: String(port),
       APP_ORIGIN: origin,
       NODE_ENV: 'test',
+      PRIVACY_RECOVERY_LEDGER_REQUIRED: 'true',
+      PRIVACY_RECOVERY_LEDGER_URL: ledger.url,
+      PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: 'test-ledger-hmac-secret-'.padEnd(40, 'x'),
+      PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: 'test-ledger-pseudonym-key-'.padEnd(40, 'y'),
       GOOGLE_CLIENT_ID: '   ',
       AUTH_RATE_LIMIT: '1000',
       DATABASE_URL: serverDatabaseUrl.toString(),
@@ -961,8 +967,12 @@ test('auth API supports registration, session lookup, logout and login', {
         `/api/gifts/orders/${giftReference}/withdraw-consent`,
         { method: 'POST', headers: { Cookie: giftRecipient.cookie } }
       );
-      assert.equal(repeatedWithdrawal.status, 409,
-        'a second withdrawal must not create another transition or audit event');
+      assert.equal(repeatedWithdrawal.status, 200,
+        'a repeated withdrawal must return the prior completed result without another transition');
+      assert.deepEqual(await repeatedWithdrawal.json(), {
+        order: { id: giftReference, status: 'cancelled', consentWithdrawn: true },
+        duplicate: true
+      });
 
       // Race two recipient requests against a separate order. Row/advisory locks must
       // allow only one transition and exactly one consent-withdrawal audit event.
@@ -990,9 +1000,12 @@ test('auth API supports registration, session lookup, logout and login', {
         ]);
         assert.deepEqual(
           concurrentResponses.map(response => response.status).sort((a, b) => a - b),
-          [200, 409],
-          'exactly one concurrent withdrawal may win; the other must see the terminal state'
+          [200, 200],
+          'concurrent retries of the same withdrawal lifecycle must both resolve successfully'
         );
+        const concurrentBodies = await Promise.all(concurrentResponses.map(response => response.json()));
+        assert.equal(concurrentBodies.filter(body => body.duplicate === true).length, 1,
+          'exactly one concurrent retry must observe the already-applied operation');
         const concurrentState = await giftTestDb.query(
           `SELECT status, consent_withdrawn_at, address_vault_ref, address_verified_at
            FROM gift_delivery_orders WHERE id = $1`,
@@ -1650,6 +1663,31 @@ test('auth API supports registration, session lookup, logout and login', {
       if (giftOrderId) {
         await preserveGiftOrderFixture(giftTestDb, giftOrderId);
       }
+      // Use the real safety workflow before tombstoning fixture accounts.
+      // A direct status update is intentionally rejected while any in-flight
+      // gift still retains a private address pointer.
+      if (giftMatchCreated) {
+        const cleanupBlock = await request(`/api/blocks/${giftRecipient.user.id}`, {
+          method: 'POST',
+          headers: { Cookie: giftSender.cookie }
+        });
+        assert.equal(cleanupBlock.status, 204,
+          'fixture cleanup must safety-hold any remaining in-flight gift orders');
+        await giftTestDb.query(
+          'DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2',
+          [giftSender.user.id, giftRecipient.user.id]
+        );
+      }
+      const unsafeGiftAddressRefs = await giftTestDb.query(
+        `SELECT id, status FROM gift_delivery_orders
+         WHERE (sender_id = $1 OR recipient_id = $1 OR sender_id = $2 OR recipient_id = $2)
+           AND address_vault_ref IS NOT NULL
+           AND status IN ('address_verified', 'fulfilment_authorized', 'dispatched', 'delivery_failed')`,
+        [giftSender.user.id, giftRecipient.user.id]
+      );
+      assert.equal(unsafeGiftAddressRefs.rowCount, 0,
+        'all in-flight gift address pointers must be revoked through the safety workflow before tombstoning');
+
       // Gift orders and their match remain as immutable evidence. Tombstone the
       // disposable fixture accounts so account erasure scrubs profiles while
       // preserving order/event provenance.
@@ -1864,16 +1902,42 @@ test('auth API supports registration, session lookup, logout and login', {
       categoryConsents: {}
     }, 'a separate account must not read another account\'s consent preferences');
 
+    identityGateDb = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 8_000,
+      query_timeout: 10_000
+    });
+    const revocationPayload = {
+      adsConsent: false,
+      dateOffersConsent: true,
+      weddingOffersConsent: true,
+      marriagePlanningOptIn: true,
+      categoryConsents: { travel: true, fashion: true }
+    };
+    ledger.failNext();
+    const rejectedAdRevocation = await request('/api/ads/consent', {
+      method: 'PUT',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify(revocationPayload)
+    });
+    assert.equal(rejectedAdRevocation.status, 503,
+      'advertising consent must remain unchanged when the independent Ledger rejects the revocation');
+    const consentBeforeRetry = await identityGateDb.query(
+      'SELECT ads_consent, date_offers_consent, wedding_offers_consent, marriage_planning_opt_in FROM ad_consent_preferences WHERE user_id = $1',
+      [registered.user.id]
+    );
+    assert.deepEqual(consentBeforeRetry.rows[0], {
+      ads_consent: true,
+      date_offers_consent: true,
+      wedding_offers_consent: true,
+      marriage_planning_opt_in: true
+    });
+
     const revokeAdConsent = await request('/api/ads/consent', {
       method: 'PUT',
       headers: { Cookie: secondCookie },
-      body: JSON.stringify({
-        adsConsent: false,
-        dateOffersConsent: true,
-        weddingOffersConsent: true,
-        marriagePlanningOptIn: true,
-        categoryConsents: { travel: true, fashion: true }
-      })
+      body: JSON.stringify(revocationPayload)
     });
     assert.equal(revokeAdConsent.status, 200);
     assert.deepEqual((await revokeAdConsent.json()).preferences, {
@@ -1910,6 +1974,21 @@ test('auth API supports registration, session lookup, logout and login', {
       body: JSON.stringify({ photoUrls: [uploadedPhoto.photoUrl, uploadedPhoto.photoUrl] })
     });
     assert.equal(duplicatePhotoReferences.status, 400, 'the same private photo cannot be attached more than once');
+
+    ledger.failNext();
+    const rejectedPhotoRemoval = await request('/api/profiles/me', {
+      method: 'PATCH',
+      headers: { Cookie: secondCookie },
+      body: JSON.stringify({ photoUrls: [] })
+    });
+    assert.equal(rejectedPhotoRemoval.status, 503,
+      'photo metadata and assets must remain unchanged until every erasure event is ACKed');
+    const photoBeforeRetry = await identityGateDb.query(
+      'SELECT p.photo_urls, COUNT(a.id)::int AS asset_count FROM profiles p LEFT JOIN photo_assets a ON a.user_id = p.user_id WHERE p.user_id = $1 GROUP BY p.photo_urls',
+      [registered.user.id]
+    );
+    assert.deepEqual(photoBeforeRetry.rows[0].photo_urls, [uploadedPhoto.photoUrl]);
+    assert.equal(photoBeforeRetry.rows[0].asset_count, 1);
 
     const removePhoto = await request('/api/profiles/me', {
       method: 'PATCH',
@@ -1981,8 +2060,8 @@ test('auth API supports registration, session lookup, logout and login', {
     try {
       const [removeRace, staleAttachRace] = await Promise.all([removeRacePromise, staleAttachRacePromise]);
       assert.equal(removeRace.status, 200);
-      assert.equal(staleAttachRace.status, 400,
-        'a photo attach whose asset was removed while waiting for the lock must be rejected');
+      assert.equal(staleAttachRace.status, 409,
+        'a photo attach whose asset set changed while waiting for the Ledger ACK must be rejected as a conflict');
       const photoRaceProfile = await request('/api/profiles/me', { headers: { Cookie: secondCookie } });
       assert.deepEqual((await photoRaceProfile.json()).profile.photoUrls, []);
       const photoRaceAssetCount = await photoRaceDb.query(
@@ -1994,12 +2073,6 @@ test('auth API supports registration, session lookup, logout and login', {
       // The lock client was already released by the transaction cleanup above.
       await photoRaceDb.end();
     }
-    identityGateDb = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      connectionTimeoutMillis: 5_000,
-      statement_timeout: 8_000,
-      query_timeout: 10_000
-    });
     const weeklyQuotaIndexes = await identityGateDb.query(
       `SELECT indexname FROM pg_indexes
        WHERE schemaname = current_schema() AND tablename = 'matches'
@@ -5054,6 +5127,7 @@ test('auth API supports registration, session lookup, logout and login', {
       await identityGateDb.query('DELETE FROM users WHERE id = $1', [concurrentQuotaMaleUserId]).catch(() => {});
     }
     await identityGateDb?.end().catch(() => {});
+    await ledger.close().catch(() => {});
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
       let exitTimer;

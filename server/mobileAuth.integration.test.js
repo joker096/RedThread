@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { createSessionToken, hashPassword, hashSessionToken } from './security.js';
 import { hashMobileToken } from './mobileTokens.js';
+import { startTestPrivacyRecoveryLedger } from './testPrivacyRecoveryLedger.js';
 
 const { Pool } = pg;
 
@@ -477,6 +478,7 @@ test('mobile account deletion validates the authenticated mobile session and rev
   timeout: 60_000
 }, async () => {
   const port = await findFreePort();
+  const ledger = await startTestPrivacyRecoveryLedger();
   const api = `http://127.0.0.1:${port}`;
   const db = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
   const userId = randomUUID();
@@ -494,6 +496,10 @@ test('mobile account deletion validates the authenticated mobile session and rev
       API_PORT: String(port),
       APP_ORIGIN: 'http://localhost:3000',
       NODE_ENV: 'test',
+      PRIVACY_RECOVERY_LEDGER_REQUIRED: 'true',
+      PRIVACY_RECOVERY_LEDGER_URL: ledger.url,
+      PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: 'test-ledger-hmac-secret-'.padEnd(40, 'x'),
+      PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: 'test-ledger-pseudonym-key-'.padEnd(40, 'y'),
       EMAIL_VERIFICATION_REQUIRED: 'false',
       AUTH_RATE_LIMIT: '1000',
       ACCOUNT_REUSE_HMAC_KEY: 'c'.repeat(64),
@@ -551,6 +557,45 @@ test('mobile account deletion validates the authenticated mobile session and rev
     const secondSession = await secondLogin.json();
     assert.match(secondSession.accessToken, /^vow_access_/);
 
+    // A transient Ledger rejection must leave the account fail-closed but
+    // allow the same authenticated DELETE request to resume the same operation.
+    ledger.failNext();
+    const rejectedDeletion = await fetch(`${api}/api/account`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${session.accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ password }),
+      signal: AbortSignal.timeout(15_000)
+    });
+    const rejectedDeletionBody = await rejectedDeletion.json();
+    assert.equal(rejectedDeletion.status, 503,
+      `Ledger rejection must prevent account tombstoning\n${JSON.stringify(rejectedDeletionBody)}\n${logs}`);
+    assert.deepEqual(rejectedDeletionBody, { error: 'privacy_recovery_ledger_unavailable' });
+    const pendingAccount = await db.query(
+      'SELECT status, deletion_pending_at FROM users WHERE id = $1',
+      [userId]
+    );
+    assert.equal(pendingAccount.rows[0]?.status, 'suspended');
+    assert.ok(pendingAccount.rows[0]?.deletion_pending_at,
+      'the account remains fail-closed after a Ledger outage');
+    const pendingSessions = await db.query(
+      'SELECT revoked_at, revoked_reason, access_expires_at FROM mobile_sessions WHERE user_id = $1 ORDER BY created_at',
+      [userId]
+    );
+    assert.equal(pendingSessions.rowCount, 2,
+      'Ledger failure must not delete or revoke either mobile session needed for retry');
+    assert.ok(pendingSessions.rows.every(row =>
+      row.access_expires_at > new Date() &&
+      (row.revoked_at === null || row.revoked_reason === 'account_unavailable')),
+      'mobile sessions may be revoked by the pending-state guard but must remain eligible for password-confirmed deletion retry');
+    const blockedBillingRead = await fetch(`${api}/api/billing/status`, {
+      headers: { Authorization: `Bearer ${session.accessToken}` }
+    });
+    assert.equal(blockedBillingRead.status, 409,
+      'ordinary mobile API requests must be blocked while deletion is pending');
+
     const deletion = await fetch(`${api}/api/account`, {
       method: 'DELETE',
       headers: {
@@ -560,13 +605,16 @@ test('mobile account deletion validates the authenticated mobile session and rev
       body: JSON.stringify({ password }),
       signal: AbortSignal.timeout(15_000)
     });
-    assert.equal(deletion.status, 204, `mobile session should authorize account deletion\n${await deletion.text()}\n${logs}`);
+    assert.equal(deletion.status, 204, `same mobile session must resume account deletion\n${await deletion.text()}\n${logs}`);
+    assert.equal(ledger.events.length, 1,
+      'retry must deliver the original immutable event once after the transient rejection');
 
     const deleted = await db.query(
-      "SELECT status, password_hash, email FROM users WHERE id = $1",
+      "SELECT status, password_hash, email, deletion_pending_at FROM users WHERE id = $1",
       [userId]
     );
     assert.equal(deleted.rows[0]?.status, 'deleted');
+    assert.ok(deleted.rows[0]?.deletion_pending_at);
     assert.equal(deleted.rows[0]?.password_hash, null);
     assert.equal(deleted.rows[0]?.email, `deleted+${userId}@deleted.invalid`);
 
@@ -597,5 +645,6 @@ test('mobile account deletion validates the authenticated mobile session and rev
     ]);
     if (child.exitCode === null) child.kill('SIGKILL');
     await db.end();
+    await ledger.close().catch(() => {});
   }
 });

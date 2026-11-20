@@ -8,6 +8,7 @@ import pg from 'pg';
 import { pathToFileURL } from 'node:url';
 import { readAndDeleteNativeRecordingFile } from '../src/utils/nativeRecordingFile.ts';
 import { validateVoiceIntroRecording } from '../src/utils/nativeVoiceRecording.ts';
+import { startTestPrivacyRecoveryLedger } from './testPrivacyRecoveryLedger.js';
 
 const { Pool } = pg;
 
@@ -29,6 +30,7 @@ test('voice intro HTTP API enforces consent, authentication and withdrawal histo
   timeout: 45_000
 }, async () => {
   const port = await findFreePort();
+  const ledger = await startTestPrivacyRecoveryLedger();
   const origin = 'http://localhost:3000';
   const api = 'http://127.0.0.1:' + port;
   const serverDatabaseUrl = new URL(process.env.DATABASE_URL);
@@ -40,6 +42,10 @@ test('voice intro HTTP API enforces consent, authentication and withdrawal histo
       API_PORT: String(port),
       APP_ORIGIN: origin,
       NODE_ENV: 'test',
+      PRIVACY_RECOVERY_LEDGER_REQUIRED: 'true',
+      PRIVACY_RECOVERY_LEDGER_URL: ledger.url,
+      PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: 'test-ledger-hmac-secret-'.padEnd(40, 'x'),
+      PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: 'test-ledger-pseudonym-key-'.padEnd(40, 'y'),
       GOOGLE_CLIENT_ID: '   ',
       AUTH_RATE_LIMIT: '1000',
       USER_DATA_EXPORT_RATE_LIMIT: '100',
@@ -156,6 +162,19 @@ test('voice intro HTTP API enforces consent, authentication and withdrawal histo
       client.release();
     }
 
+    ledger.failNext();
+    const rejectedWithdrawal = await request('/api/profiles/me/voice-intro', {
+      method: 'DELETE',
+      headers: { Cookie: cookie }
+    });
+    assert.equal(rejectedWithdrawal.status, 503,
+      'voice clip and consent state must not change before the Ledger ACK');
+    const consentBeforeRetry = await db.query(
+      'SELECT withdrawn_at FROM profile_voice_intro_consents WHERE user_id = $1',
+      [userId]
+    );
+    assert.equal(consentBeforeRetry.rows[0]?.withdrawn_at, null);
+
     const withdrawn = await request('/api/profiles/me/voice-intro', {
       method: 'DELETE',
       headers: { Cookie: cookie }
@@ -195,6 +214,7 @@ test('voice intro HTTP API enforces consent, authentication and withdrawal histo
       await db.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
     }
     await db.end().catch(() => {});
+    await ledger.close().catch(() => {});
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
       let exitTimer;
@@ -221,6 +241,7 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
   const { join } = await import('node:path');
   const { spawnSync } = await import('node:child_process');
   const port = await findFreePort();
+  const ledger = await startTestPrivacyRecoveryLedger();
   const origin = 'http://localhost:3000';
   const api = 'http://127.0.0.1:' + port;
   const storageDir = await mkdtemp(join(tmpdir(), 'vow-voice-intro-api-'));
@@ -233,6 +254,10 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       API_PORT: String(port),
       APP_ORIGIN: origin,
       NODE_ENV: 'test',
+      PRIVACY_RECOVERY_LEDGER_REQUIRED: 'true',
+      PRIVACY_RECOVERY_LEDGER_URL: ledger.url,
+      PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: 'test-ledger-hmac-secret-'.padEnd(40, 'x'),
+      PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: 'test-ledger-pseudonym-key-'.padEnd(40, 'y'),
       GOOGLE_CLIENT_ID: '   ',
       AUTH_RATE_LIMIT: '1000',
       DATABASE_URL: serverDatabaseUrl.toString(),
@@ -464,6 +489,20 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       assert.equal(unverifiedPublicViewer.status, 403);
       assert.equal((await unverifiedPublicViewer.json()).error, 'identity_verification_required');
 
+      ledger.failNext();
+      const rejectedWithdrawal = await request('/api/profiles/me/voice-intro', {
+        method: 'DELETE',
+        headers: { Cookie: owner.cookie }
+      });
+      assert.equal(rejectedWithdrawal.status, 503,
+        'a Ledger outage must not remove the encrypted voice clip or withdraw its consent');
+      const voiceStateBeforeRetry = await db.query(
+        'SELECT c.withdrawn_at, COUNT(v.user_id)::int AS clip_count FROM profile_voice_intro_consents c LEFT JOIN profile_voice_intros v ON v.user_id = c.user_id WHERE c.user_id = $1 GROUP BY c.withdrawn_at',
+        [owner.id]
+      );
+      assert.equal(voiceStateBeforeRetry.rows[0]?.withdrawn_at, null);
+      assert.equal(voiceStateBeforeRetry.rows[0]?.clip_count, 1);
+
       const withdrawn = await request('/api/profiles/me/voice-intro', {
         method: 'DELETE',
         headers: { Cookie: owner.cookie }
@@ -504,6 +543,7 @@ test('voice intro HTTP API covers encrypted upload, moderator review, owner play
       await db.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
     }
     await db.end().catch(() => {});
+    await ledger.close().catch(() => {});
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
       let exitTimer;

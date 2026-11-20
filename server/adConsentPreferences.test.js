@@ -4,6 +4,9 @@ import { readFileSync } from 'node:fs';
 import {
   AD_CONSENT_CATEGORIES,
   AD_CONSENT_VERSION,
+  getAdConsentLifecycleGeneration,
+  hasAdConsentRevocation,
+  isSameAdConsentLifecycle,
   normalizeAdConsentPreferences,
   serializeAdConsentPreferences
 } from './adConsentPreferences.js';
@@ -219,4 +222,88 @@ test('persisted consent from an older policy version fails closed', () => {
     marriagePlanningOptIn: false,
     categoryConsents: {}
   });
+});
+
+
+test('revocation detection covers master, dependent, and category consent withdrawals', () => {
+  const previous = {
+    ads_consent: true,
+    date_offers_consent: true,
+    wedding_offers_consent: true,
+    marriage_planning_opt_in: true,
+    category_consents: { fashion: true, travel: true }
+  };
+  assert.equal(hasAdConsentRevocation(previous, {
+    adsConsent: true, dateOffersConsent: false, weddingOffersConsent: true,
+    marriagePlanningOptIn: true, categoryConsents: { fashion: true, travel: true }
+  }), true);
+  assert.equal(hasAdConsentRevocation(previous, {
+    adsConsent: true, dateOffersConsent: true, weddingOffersConsent: true,
+    marriagePlanningOptIn: true, categoryConsents: { fashion: true }
+  }), true);
+  assert.equal(hasAdConsentRevocation(previous, {
+    adsConsent: true, dateOffersConsent: true, weddingOffersConsent: true,
+    marriagePlanningOptIn: true, categoryConsents: { fashion: true, travel: true }
+  }), false);
+  assert.equal(hasAdConsentRevocation(null, {
+    adsConsent: false, dateOffersConsent: false, weddingOffersConsent: false,
+    marriagePlanningOptIn: false, categoryConsents: {}
+  }), false);
+});
+
+test('ad-consent lifecycle generation is stable and changes on re-consent', () => {
+  const first = {
+    consent_version: 1,
+    updated_at: '2026-11-18T08:00:00.000Z',
+    ads_consent: true,
+    date_offers_consent: true,
+    wedding_offers_consent: false,
+    marriage_planning_opt_in: false,
+    category_consents: { travel: true }
+  };
+  assert.equal(getAdConsentLifecycleGeneration(first), '1:2026-11-18T08:00:00.000Z');
+  assert.notEqual(getAdConsentLifecycleGeneration({ ...first, updated_at: '2026-11-18 08:00:00.000123+00' }), getAdConsentLifecycleGeneration({ ...first, updated_at: '2026-11-18 08:00:00.000456+00' }));
+  assert.equal(isSameAdConsentLifecycle(first, { ...first, updated_at: '2026-11-18T08:00:00.000Z' }), true);
+  assert.equal(isSameAdConsentLifecycle({ ...first, category_consents: { travel: true, fashion: true } }, { ...first, category_consents: { fashion: true, travel: true } }), true);
+  assert.equal(isSameAdConsentLifecycle(first, { ...first, updated_at: '2026-11-18T08:01:00.000Z' }), false);
+  assert.equal(isSameAdConsentLifecycle(first, { ...first, category_consents: {} }), false);
+  assert.throws(() => getAdConsentLifecycleGeneration({ consent_version: 0, updated_at: first.updated_at }), /ad_consent_lifecycle_generation_invalid/);
+});
+
+
+test('ad consent route cannot apply a revocation before Ledger ACK or reuse a stale lifecycle', () => {
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  const start = source.indexOf("app.put('/api/ads/consent'");
+  const end = source.indexOf("app.post('/api/ads/events'", start);
+  assert.ok(start >= 0 && end > start, 'ad consent route boundaries must exist');
+  const route = source.slice(start, end);
+  const preflight = route.indexOf('const preflight = await pool.query');
+  const coordinator = route.indexOf('runAckGatedPrivacyRecoveryOperation({');
+  const mutation = route.indexOf('persistPreferencesAndHistory(transactionClient)');
+  assert.ok(preflight >= 0 && coordinator > preflight && mutation > coordinator);
+  assert.equal(route.includes('enqueuePrivacyRecoveryEvent'), false, 'ad revocation must not use the legacy outbox path');
+  assert.ok(route.includes('isSameAdConsentLifecycle(previous, current)'), 'the exact preflight lifecycle must be revalidated after ACK');
+  assert.ok(route.includes("throw new Error('ad_consent_state_changed_retry')"));
+  assert.ok(route.includes('updated_at::text AS updated_at'), 'PostgreSQL timestamp precision must be retained');
+});
+
+
+test('ad-consent revocation persists no database lock across Ledger ACK and revalidates the exact grant', () => {
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  const start = source.indexOf("app.put('/api/ads/consent'");
+  const end = source.indexOf("app.post('/api/ads/events'", start);
+  assert.ok(start >= 0 && end > start, 'ad-consent route boundaries must exist');
+  const route = source.slice(start, end);
+  const preflight = route.indexOf('const preflight = await pool.query');
+  const ack = route.indexOf('runAckGatedPrivacyRecoveryOperation({');
+  const callback = route.indexOf('apply: async transactionClient =>');
+  const lifecycleCheck = route.indexOf('isSameAdConsentLifecycle(previous, current)');
+  const applyCall = route.indexOf('return persistPreferencesAndHistory(transactionClient);');
+  assert.ok(preflight >= 0 && ack > preflight && callback > ack && lifecycleCheck > callback,
+    'revocation must capture a lock-free snapshot, obtain ACK, then revalidate the same lifecycle');
+  assert.ok(applyCall > lifecycleCheck,
+    'the preference/history persistence callback must run only after lifecycle revalidation');
+  assert.ok(route.includes('getAdConsentLifecycleGeneration(previous)'));
+  assert.ok(route.includes('ad_consent_state_changed_retry'));
+  assert.equal(route.includes('enqueuePrivacyRecoveryEvent'), false);
 });

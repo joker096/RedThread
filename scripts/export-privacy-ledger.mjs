@@ -9,14 +9,26 @@ function hmacHex(secret, value) {
   return createHmac('sha256', secret).update(value, 'utf8').digest('hex');
 }
 
+const EVENT_TYPES = new Set([
+  'account_erasure_requested',
+  'voice_intro_consent_withdrawn',
+  'voice_intro_erasure_requested',
+  'private_photo_erasure_requested',
+  'identity_l3_consent_withdrawn',
+  'ad_consent_revoked',
+  'gift_order_consent_withdrawn',
+  'gift_address_draft_consent_withdrawn'
+]);
+
 function validEvent(event) {
   if (!event || typeof event !== 'object' || Array.isArray(event)) return false;
   return Number.isSafeInteger(event.sequence) && event.sequence > 0 &&
     typeof event.event_id === 'string' &&
     Number.isSafeInteger(event.schema_version) &&
-    typeof event.event_type === 'string' &&
+    EVENT_TYPES.has(event.event_type) &&
     /^[a-f0-9]{64}$/i.test(event.subject_ref) &&
     (event.resource_ref === null || event.resource_ref === undefined || /^[a-f0-9]{64}$/i.test(event.resource_ref)) &&
+    (event.event_type !== 'gift_address_draft_consent_withdrawn' || typeof event.resource_ref === 'string') &&
     typeof event.occurred_at === 'string' && Number.isFinite(Date.parse(event.occurred_at)) &&
     typeof event.received_at === 'string' && Number.isFinite(Date.parse(event.received_at));
 }

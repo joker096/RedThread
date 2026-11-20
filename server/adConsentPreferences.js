@@ -113,3 +113,49 @@ export function serializeAdConsentPreferences(row) {
     categoryConsents
   };
 }
+
+
+/** True when any previously granted ad purpose is removed by the next choice. */
+export function hasAdConsentRevocation(previous, next) {
+  if (!previous || !next) return false;
+  const previousCategories = previous.category_consents && typeof previous.category_consents === 'object' &&
+    !Array.isArray(previous.category_consents) ? previous.category_consents : {};
+  const categoryRevoked = Object.entries(previousCategories).some(([key, enabled]) =>
+    enabled === true && next.categoryConsents?.[key] !== true
+  );
+  return Boolean(
+    (previous.ads_consent === true && next.adsConsent !== true) ||
+    (previous.date_offers_consent === true && next.dateOffersConsent !== true) ||
+    (previous.wedding_offers_consent === true && next.weddingOffersConsent !== true) ||
+    (previous.marriage_planning_opt_in === true && next.marriagePlanningOptIn !== true) ||
+    categoryRevoked
+  );
+}
+
+/** Stable generation for the exact stored consent row, not the HTTP attempt. */
+export function getAdConsentLifecycleGeneration(previous) {
+  if (!previous || !previous.updated_at) throw new TypeError('ad_consent_lifecycle_generation_invalid');
+  const updatedAt = String(previous.updated_at);
+  if (!Number.isFinite(new Date(updatedAt).getTime())) throw new TypeError('ad_consent_lifecycle_generation_invalid');
+  const version = Number(previous.consent_version);
+  if (!Number.isSafeInteger(version) || version < 1) throw new TypeError('ad_consent_lifecycle_generation_invalid');
+  // Preserve PostgreSQL timestamp precision; converting through JS Date would
+  // truncate microseconds and could collapse two distinct consent generations.
+  return `${version}:${updatedAt}`;
+}
+
+/** Compare the consent lifecycle snapshot captured before the remote Ledger call. */
+export function isSameAdConsentLifecycle(previous, current) {
+  if (!previous || !current) return previous == null && current == null;
+  try {
+    return getAdConsentLifecycleGeneration(previous) === getAdConsentLifecycleGeneration(current) &&
+      previous.ads_consent === current.ads_consent &&
+      previous.date_offers_consent === current.date_offers_consent &&
+      previous.wedding_offers_consent === current.wedding_offers_consent &&
+      previous.marriage_planning_opt_in === current.marriage_planning_opt_in &&
+      JSON.stringify(Object.entries(previous.category_consents ?? {}).sort(([a], [b]) => a.localeCompare(b))) ===
+        JSON.stringify(Object.entries(current.category_consents ?? {}).sort(([a], [b]) => a.localeCompare(b)));
+  } catch {
+    return false;
+  }
+}

@@ -3,7 +3,8 @@ import { createHmac } from 'node:crypto';
 const RESOURCE_COLLECTION_BY_EVENT = Object.freeze({
   voice_intro_erasure_requested: 'voiceIntros',
   private_photo_erasure_requested: 'photos',
-  gift_order_consent_withdrawn: 'giftOrders'
+  gift_order_consent_withdrawn: 'giftOrders',
+  gift_address_draft_consent_withdrawn: 'giftOrders'
 });
 
 const EVENT_TYPES = new Set([
@@ -13,7 +14,8 @@ const EVENT_TYPES = new Set([
   'private_photo_erasure_requested',
   'identity_l3_consent_withdrawn',
   'ad_consent_revoked',
-  'gift_order_consent_withdrawn'
+  'gift_order_consent_withdrawn',
+  'gift_address_draft_consent_withdrawn'
 ]);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -47,11 +49,12 @@ export function resolvePrivacyRecoveryMappings({
   users = [],
   voiceIntros = [],
   photos = [],
-  giftOrders = []
+  giftOrders = [],
+  giftAddressDrafts = []
 }) {
   if (!Array.isArray(events) || typeof pseudonymKey !== 'string' || pseudonymKey.length < 32 ||
       !Array.isArray(users) || !Array.isArray(voiceIntros) ||
-      !Array.isArray(photos) || !Array.isArray(giftOrders)) {
+      !Array.isArray(photos) || !Array.isArray(giftOrders) || !Array.isArray(giftAddressDrafts)) {
     throw new TypeError('privacy_recovery_mapping_input_invalid');
   }
 
@@ -59,7 +62,8 @@ export function resolvePrivacyRecoveryMappings({
     users: indexCandidates(users, pseudonymKey),
     voiceIntros: indexCandidates(voiceIntros, pseudonymKey),
     photos: indexCandidates(photos, pseudonymKey),
-    giftOrders: indexCandidates(giftOrders, pseudonymKey)
+    giftOrders: indexCandidates(giftOrders, pseudonymKey),
+    giftAddressDrafts: indexCandidates(giftAddressDrafts, pseudonymKey)
   };
 
   return events.map(event => {

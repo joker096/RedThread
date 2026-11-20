@@ -17,8 +17,9 @@ import { projectGiftOrderStatus } from './giftOrderStatusProjection.js';
 import { normalizeGiftRequestInput } from './giftRequestInput.js';
 import { createGiftOrderRequest, listGiftCatalogForMatch, acquireGiftOrderRateLocks, acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks, recipientGiftAcceptanceLimitReached, expireStaleGiftRequestsForPair, enqueueExpiredGiftPaymentReconciliation, notifyGiftRequestUpdate, hasPendingRecipientDecline } from './giftOrderCreationService.js';
 import { evaluateGiftConsentWithdrawalEligibility, normalizeGiftSafetyAuditReason } from './giftDeliveryPolicy.js';
-import { normalizeAdConsentPreferences, serializeAdConsentPreferences, AD_CONSENT_VERSION } from './adConsentPreferences.js';
-import { enqueuePrivacyRecoveryEvent } from './privacyRecoveryOutbox.js';
+import { normalizeAdConsentPreferences, serializeAdConsentPreferences, hasAdConsentRevocation, getAdConsentLifecycleGeneration, isSameAdConsentLifecycle, AD_CONSENT_VERSION } from './adConsentPreferences.js';
+import { derivePrivacyRecoveryOperationId, runAckGatedPrivacyRecoveryOperation, runAckGatedPrivacyRecoveryBatch } from './privacyRecoveryOperations.js';
+import { resumePendingPrivacyRecoveryLedgerAcks } from './privacyRecoveryAckResumer.js';
 import { consumeIdentityL3UploadCapability, IDENTITY_L3_CONSENT_NOTICE, IDENTITY_L3_CONSENT_VERSION, IdentityL3UploadTokenError, issueIdentityL3UploadCapability } from './identityL3UploadTokens.js';
 import { assertIdentityL3StorageReady, assertIdentityL3TemporaryStorageReady, clearIdentityL3TemporaryFiles, deleteIdentityL3Object, IDENTITY_L3_MAX_MEDIA_BYTES, IdentityL3StorageError, openIdentityL3Stream, parseIdentityL3EncryptionKey, storeIdentityL3Stream } from './identityL3Storage.js';
 import { sanitizeProfileImage } from './photoSecurity.js';
@@ -807,6 +808,17 @@ function requireDatabase(_req, res, next) {
 }
 
 async function validateRequestOrigin(req, res, next) {
+  // Only the original session may retry its own pending account deletion.
+  const originalRequestPath = String(req.originalUrl || req.url || '').split('?')[0];
+  const requestPath = String(req.path || '').split('?')[0];
+  const mountedRequestPath = String(req.baseUrl || '').replace(/\/+$/, '') + '/' + requestPath.replace(/^\/+/, '');
+  const accountDeletionRetry = req.method === 'DELETE' && (
+    req.route?.path === '/api/account' ||
+    (req.baseUrl === '/api' && req.route?.path === '/account') ||
+    originalRequestPath === '/api/account' ||
+    requestPath === '/api/account' ||
+    mountedRequestPath === '/api/account'
+  );
   const origin = req.get('origin');
   if (origin) {
     try {
@@ -834,11 +846,19 @@ async function validateRequestOrigin(req, res, next) {
        JOIN users u ON u.id = s.user_id
        WHERE s.access_token_hash = $1
          AND s.access_expires_at > NOW()
-         AND s.revoked_at IS NULL
-         AND u.status = 'active'
+         AND (
+           s.revoked_at IS NULL
+           OR ($3::boolean AND u.status = 'suspended'
+               AND u.deletion_pending_at IS NOT NULL
+               AND s.revoked_reason = 'account_unavailable')
+         )
+         AND (
+           (u.status = 'active' AND u.deletion_pending_at IS NULL)
+           OR ($3::boolean AND u.status = 'suspended' AND u.deletion_pending_at IS NOT NULL)
+         )
          AND ($2::boolean = FALSE OR u.email_verified_at IS NOT NULL)
        LIMIT 1`,
-      [hashMobileToken(mobileToken, 'access'), emailVerificationRequired]
+      [hashMobileToken(mobileToken, 'access'), emailVerificationRequired, accountDeletionRetry]
     );
     if (!authenticated.rowCount) return res.status(401).json({ error: 'not_authenticated' });
     if (origin) applyMobileCorsHeaders(origin, res);
@@ -885,6 +905,25 @@ function publicUser(row) {
 }
 
 async function requireSession(req, res, next) {
+  // Express exposes the matched route path once this middleware runs inside
+  // the route stack. Prefer it, while retaining the normalized request path
+  // for compatible middleware/test adapters. Only the exact DELETE endpoint
+  // may authenticate a fail-closed deletion retry.
+  // req.path may be router-relative when this middleware is mounted below
+  // /api; originalUrl preserves the full endpoint path used by the retry guard.
+  const originalRequestPath = String(req.originalUrl || req.url || '').split('?')[0];
+  // At the application router level req.path is the canonical pathname. Keep
+  // it as an independent exact-match fallback: adapters and mounted middleware
+  // can expose an absolute or rewritten originalUrl while preserving req.path.
+  const requestPath = String(req.path || '').split('?')[0];
+  const mountedRequestPath = `${String(req.baseUrl || '').replace(/\/+$/, '')}/${requestPath.replace(/^\/+/, '')}`;
+  const accountDeletionRetry = req.method === 'DELETE' && (
+    req.route?.path === '/api/account' ||
+    (req.baseUrl === '/api' && req.route?.path === '/account') ||
+    originalRequestPath === '/api/account' ||
+    requestPath === '/api/account' ||
+    mountedRequestPath === '/api/account'
+  );
   if (!pool) return res.status(503).json({ error: 'database_not_configured' });
 
   const authorization = req.get('authorization');
@@ -893,32 +932,43 @@ async function requireSession(req, res, next) {
     if (!mobileToken) return res.status(401).json({ error: 'not_authenticated' });
     try {
       const mobileResult = await pool.query(
-        `SELECT u.id, u.email, u.status, u.role, u.email_verified_at,
+        `SELECT u.id, u.email, u.status, u.deletion_pending_at, u.role, u.email_verified_at,
                 'mobile'::text AS auth_source,
                 u.female_trial_ends_at, u.premium_until, u.premium_lifetime,
                 u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status,
                 pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan,
                 u.phone_verified_at, p.display_name, p.gender, p.country, p.city,
-                p.relationship_intent, s.id AS session_id
+                p.relationship_intent, s.id AS session_id, s.revoked_at AS session_revoked_at
          FROM mobile_sessions s
          JOIN users u ON u.id = s.user_id
          JOIN profiles p ON p.user_id = u.id
          LEFT JOIN paddle_checkout_attempts pca ON pca.user_id = u.id
          WHERE s.access_token_hash = $1
            AND s.access_expires_at > NOW()
-           AND s.revoked_at IS NULL
+           AND (
+             s.revoked_at IS NULL
+             OR ($2::boolean AND u.status = 'suspended'
+                 AND u.deletion_pending_at IS NOT NULL
+                 AND s.revoked_reason = 'account_unavailable')
+           )
          LIMIT 1`,
-        [hashMobileToken(mobileToken, 'access')]
+        [hashMobileToken(mobileToken, 'access'), accountDeletionRetry]
       );
       const mobileUser = mobileResult.rows[0];
-      if (!mobileUser || mobileUser.status !== 'active') {
+      const pendingDeletionRetry = accountDeletionRetry && mobileUser?.status === 'suspended' && Boolean(mobileUser.deletion_pending_at);
+      if (mobileUser?.deletion_pending_at && !accountDeletionRetry) {
+        return res.status(409).json({ error: 'account_deletion_pending' });
+      }
+      if (!mobileUser || (!(mobileUser.status === 'active' && !mobileUser.deletion_pending_at) && !pendingDeletionRetry)) {
         return res.status(401).json({ error: 'not_authenticated' });
       }
       if (emailVerificationRequired && !mobileUser.email_verified_at) {
         return res.status(403).json({ error: 'email_verification_required' });
       }
       req.authUser = mobileUser;
-      await pool.query('UPDATE mobile_sessions SET last_seen_at = NOW() WHERE id = $1', [mobileUser.session_id]);
+      if (!mobileUser.session_revoked_at) {
+        await pool.query('UPDATE mobile_sessions SET last_seen_at = NOW() WHERE id = $1', [mobileUser.session_id]);
+      }
       return next();
     } catch (error) {
       console.error('Mobile session authentication failed:', error?.message || 'unknown error');
@@ -931,7 +981,7 @@ async function requireSession(req, res, next) {
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.status, u.role, u.email_verified_at, 'web'::text AS auth_source, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status, pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan, u.phone_verified_at,
+      `SELECT u.id, u.email, u.status, u.deletion_pending_at, u.role, u.email_verified_at, 'web'::text AS auth_source, u.female_trial_ends_at, u.premium_until, u.premium_lifetime, u.paddle_customer_id, u.paddle_subscription_id, u.paddle_subscription_status, pca.status AS paddle_checkout_status, pca.plan AS paddle_checkout_plan, u.phone_verified_at,
               p.display_name, p.gender, p.country, p.city, p.relationship_intent, s.id AS session_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
@@ -942,7 +992,11 @@ async function requireSession(req, res, next) {
       [hashSessionToken(token)]
     );
     const user = result.rows[0];
-    if (!user || user.status !== 'active') {
+    const pendingDeletionRetry = accountDeletionRetry && user?.status === 'suspended' && Boolean(user.deletion_pending_at);
+    if (user?.deletion_pending_at && !accountDeletionRetry) {
+      return res.status(409).json({ error: 'account_deletion_pending' });
+    }
+    if (!user || (!(user.status === 'active' && !user.deletion_pending_at) && !pendingDeletionRetry)) {
       clearSessionCookie(res);
       return res.status(401).json({ error: 'not_authenticated' });
     }
@@ -1063,6 +1117,8 @@ function requirePaidFeatures(req, res, next) {
 }
 
 async function createSession(client, userId) {
+  const account = await client.query('SELECT deletion_pending_at FROM users WHERE id = $1 FOR SHARE', [userId]);
+  if (!account.rows[0] || account.rows[0].deletion_pending_at) throw new Error('account_deletion_pending');
   const token = createSessionToken();
   const tokenHash = hashSessionToken(token);
   await client.query(
@@ -1118,6 +1174,29 @@ app.get('/api/auth/google/config', (_req, res) => {
 // Google challenge rows contain only nonce hashes; abandoned registration tickets
 // also contain verified email/display-name data. Expire both continuously rather
 // than relying only on the next user opening the Google sign-in flow.
+// The ACK repair worker is opt-in. It repairs only Ledger delivery state;
+// route-specific domain mutations remain gated by their authenticated retry or
+// reconciliation path. It never holds PostgreSQL locks during Ledger HTTP calls.
+let privacyRecoveryAckResumerRunning = false;
+const privacyRecoveryAckResumerEnabled =
+  process.env.PRIVACY_RECOVERY_ACK_RESUMER_ENABLED === 'true' &&
+  process.env.PRIVACY_RECOVERY_LEDGER_REQUIRED === 'true';
+const privacyRecoveryAckResumerInterval = privacyRecoveryAckResumerEnabled
+  ? setInterval(async () => {
+      if (!pool || privacyRecoveryAckResumerRunning) return;
+      privacyRecoveryAckResumerRunning = true;
+      try {
+        const summary = await resumePendingPrivacyRecoveryLedgerAcks({ pool, limit: 25 });
+        if (summary.claimed > 0) console.info('Privacy recovery Ledger ACK repair:', summary);
+      } catch (error) {
+        console.error('Privacy recovery Ledger ACK repair failed:', error?.message || 'unknown error');
+      } finally {
+        privacyRecoveryAckResumerRunning = false;
+      }
+    }, 15_000)
+  : null;
+privacyRecoveryAckResumerInterval?.unref?.();
+
 const googleAuthArtifactCleanupInterval = setInterval(() => {
   if (!pool) return;
   Promise.all([
@@ -1651,7 +1730,7 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
 
   try {
     const result = await pool.query(
-      `SELECT u.id, u.email, u.password_hash, u.status, u.email_verified_at, p.display_name, p.gender, p.country, p.city, p.relationship_intent
+      `SELECT u.id, u.email, u.password_hash, u.status, u.deletion_pending_at, u.email_verified_at, p.display_name, p.gender, p.country, p.city, p.relationship_intent
        FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.email = $1 LIMIT 1`,
       [email]
     );
@@ -1663,7 +1742,7 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
     if (!user || !passwordMatches) {
       return res.status(401).json({ error: 'email_or_password_incorrect' });
     }
-    if (user.status !== 'active') {
+    if (user.status !== 'active' || user.deletion_pending_at) {
       return res.status(403).json({ error: user.status === 'pending' ? 'email_verification_required' : 'account_unavailable' });
     }
     if (emailVerificationRequired && !user.email_verified_at) {
@@ -1678,10 +1757,10 @@ app.post('/api/auth/login', authLimiter, validateRequestOrigin, requireDatabase,
       // credentials before deletion must not create a fresh session afterward.
       await acquireGiftSafetyUserLocks(client, user.id);
       const currentAccount = await client.query(
-        'SELECT status, email_verified_at, password_hash FROM users WHERE id = $1 FOR SHARE',
+        'SELECT status, deletion_pending_at, email_verified_at, password_hash FROM users WHERE id = $1 FOR SHARE',
         [user.id]
       );
-      if (currentAccount.rows[0]?.status !== 'active') {
+      if (currentAccount.rows[0]?.status !== 'active' || currentAccount.rows[0]?.deletion_pending_at) {
         await client.query('ROLLBACK');
         return res.status(403).json({ error: 'account_unavailable' });
       }
@@ -1892,24 +1971,29 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
   try {
     client = await pool.connect();
     // Keep the same lock order as checkout creation: provider checkout first,
-    // then the account-safety lock. The session-level safety lock stays held
-    // across Paddle calls so a concurrent password reset cannot invalidate the
-    // session after confirmation but before the destructive delete transaction.
+    // then the account-safety lock. Hold both through Paddle reconciliation;
+    // a durable deletion-pending guard is written before releasing them for
+    // the remote privacy Ledger ACK.
     checkoutLockAcquired = true;
     await client.query('SELECT pg_advisory_lock(hashtext($1))', [checkoutLockKey]);
     await client.query('SELECT pg_advisory_lock(hashtext($1))', [safetyLockKey]);
     safetyLockAcquired = true;
 
     const account = await client.query(
-      `SELECT u.password_hash, u.email
+      `SELECT u.password_hash, u.email, u.created_at::text AS account_created_at
        FROM users u
-       WHERE u.id = $1 AND u.status = 'active'
+       WHERE u.id = $1
+         AND (u.status = 'active' OR (u.status = 'suspended' AND u.deletion_pending_at IS NOT NULL))
          AND (
            ( $3 = 'mobile' AND EXISTS (
              SELECT 1 FROM mobile_sessions ms
              WHERE ms.id = $2 AND ms.user_id = u.id
                AND ms.access_expires_at > statement_timestamp()
-               AND ms.revoked_at IS NULL
+               AND (
+                 ms.revoked_at IS NULL
+                 OR (u.status = 'suspended' AND u.deletion_pending_at IS NOT NULL
+                     AND ms.revoked_reason = 'account_unavailable')
+               )
            ))
            OR
            ( $3 = 'web' AND EXISTS (
@@ -1943,7 +2027,8 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
     const billingStateResult = await client.query(
       `SELECT paddle_customer_id, paddle_subscription_id, paddle_subscription_status,
               premium_until, premium_lifetime, statement_timestamp() AS billing_snapshot_at
-       FROM users WHERE id = $1 AND status = 'active'`,
+       FROM users WHERE id = $1
+         AND (status = 'active' OR (status = 'suspended' AND deletion_pending_at IS NOT NULL))`,
       [req.authUser.id]
     );
     const billingState = billingStateResult.rows[0];
@@ -2033,7 +2118,7 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
 
     // Stop recurring Paddle billing before deleting the account. A local account
     // deletion must never leave an active external subscription renewing silently.
-    if (typeof subscriptionId === 'string') {
+    if (typeof subscriptionId === 'string' && !['canceled', 'completed'].includes(subscriptionStatus)) {
       if (typeof customerId !== 'string' || !/^ctm_[A-Za-z0-9]+$/.test(customerId)) {
         return res.status(409).json({ error: 'paddle_subscription_reconciliation_required' });
       }
@@ -2080,120 +2165,200 @@ app.delete('/api/account', validateRequestOrigin, requireSession, async (req, re
       }
     }
 
-    await client.query('BEGIN');
-    // Serialize deletion with registration for the same normalized email. This
-    // prevents a concurrent registration from slipping between the tombstone
-    // check and the account anonymization commit.
-    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`account-reuse:${accountReuseDigest}`]);
-    // The session-level account-safety lock acquired before Paddle calls is
-    // still held by this connection, excluding concurrent account mutations.
-    const l3Media = await client.query(
-      'SELECT id FROM identity_l3_submissions WHERE user_id = $1 AND storage_object_key IS NOT NULL FOR UPDATE',
+    // Persist a fail-closed deletion guard before releasing the account
+    // locks. All ordinary authenticated routes reject this account while the
+    // ACK is pending; only DELETE /api/account may retry the same lifecycle.
+    const pendingDeletion = await client.query(
+      `UPDATE users
+          SET status = 'suspended',
+              deletion_pending_at = COALESCE(deletion_pending_at, statement_timestamp()),
+              updated_at = statement_timestamp()
+        WHERE id = $1
+          AND (status = 'active' OR (status = 'suspended' AND deletion_pending_at IS NOT NULL))
+        RETURNING id`,
       [req.authUser.id]
     );
-    if (l3Media.rowCount) {
-      // Never discard the only object key while no private-media deletion
-      // worker is configured; otherwise account deletion would orphan video.
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'identity_l3_media_purge_unavailable' });
+    if (pendingDeletion.rowCount !== 1) {
+      return res.status(409).json({ error: 'account_deletion_identity_changed_retry' });
     }
 
-    try {
-      await enqueuePrivacyRecoveryEvent(client, {
+    // The external Ledger ACK must not be awaited while either session-level
+    // advisory lock is held. Paddle reconciliation above is complete; release
+    // both locks, then reacquire transaction-scoped locks and revalidate every
+    // destructive precondition inside the ACK-gated apply transaction.
+    await client.query('SELECT pg_advisory_unlock(hashtext($1))', [safetyLockKey]);
+    safetyLockAcquired = false;
+    await client.query('SELECT pg_advisory_unlock(hashtext($1))', [checkoutLockKey]);
+    checkoutLockAcquired = false;
+    client.release();
+    client = null;
+
+    const accountOperationId = derivePrivacyRecoveryOperationId({
+      eventType: 'account_erasure_requested',
+      userId: req.authUser.id,
+      generation: account.rows[0].account_created_at
+    });
+    await runAckGatedPrivacyRecoveryOperation({
+      pool,
+      operationId: accountOperationId,
+      event: {
         eventType: 'account_erasure_requested',
         userId: req.authUser.id
-      });
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('Privacy recovery outbox rejected account erasure:', error?.message || 'unknown error');
-      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
-    }
+      },
+      apply: async transactionClient => {
+        await transactionClient.query('SELECT pg_advisory_xact_lock(hashtext($1))', [checkoutLockKey]);
+        await transactionClient.query('SELECT pg_advisory_xact_lock(hashtext($1))', [safetyLockKey]);
+        await transactionClient.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+          `account-reuse:${accountReuseDigest}`
+        ]);
 
-    await client.query('DELETE FROM identity_l3_submissions WHERE user_id = $1', [req.authUser.id]);
-    await suspendGiftOrdersForUser(client, req.authUser.id, { reason: 'account_deleted' });
-    const photoFiles = await client.query('SELECT storage_path FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
-    await queuePrivatePhotoPurges(client, photoFiles.rows.map(row => row.storage_path));
-    await client.query('DELETE FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
-    const voiceIntroFiles = await client.query('SELECT storage_path FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
-    await queuePrivateVoiceIntroPurges(client, voiceIntroFiles.rows.map(row => row.storage_path));
-    await client.query('DELETE FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM sessions WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM identity_verification_consents WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM identity_verification_session_reservations WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM identity_verification_events WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM identity_verifications WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM likes WHERE sender_id = $1 OR target_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM profile_passes WHERE passer_id = $1 OR passed_user_id = $1', [req.authUser.id]);
-    // Remove the deleted account's own discovery history. Keep same-day rows
-    // owned by other women: deleting a viewed profile must not refund their
-    // already-consumed daily slots. Those short-lived rows expire at UTC cleanup.
-    await client.query('DELETE FROM female_profile_exposures WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM profile_preferences WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM user_notifications WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM account_action_tokens WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM user_blocks WHERE blocker_id = $1 OR blocked_id = $1', [req.authUser.id]);
-    await client.query(
-      "UPDATE messages SET body = '[сообщение удалено]', deleted_at = COALESCE(deleted_at, statement_timestamp()) WHERE sender_id = $1",
-      [req.authUser.id]
-    );
-    await client.query(
-      `UPDATE profiles SET
-         display_name = 'Удалённый пользователь', birth_date = NULL,
-         country = '—', city = '—', bio = '',
-         photo_urls = '{}', occupation = '', education = '', languages = '{}',
-         is_visible = FALSE, has_children = NULL, children_disclosure_confirmed_at = NULL,
-         family_format = 'open_to_both', wants_children = 'discuss',
-         children_living_arrangement = 'not_applicable', updated_at = statement_timestamp()
-       WHERE user_id = $1`,
-      [req.authUser.id]
-    );
-    await client.query(
-      `UPDATE mobile_sessions
-       SET revoked_at = NOW(), revoked_reason = 'account_unavailable'
-       WHERE user_id = $1 AND revoked_at IS NULL`,
-      [req.authUser.id]
-    );
-    await client.query(
-      `UPDATE users SET status = 'deleted', email = $2, password_hash = NULL,
-         phone_e164 = NULL, phone_verified_at = NULL, female_trial_ends_at = NULL,
-         premium_until = NULL, premium_lifetime = FALSE, updated_at = statement_timestamp()
-       WHERE id = $1`,
-      [req.authUser.id, 'deleted+' + req.authUser.id + '@deleted.invalid']
-    );
-    // Voice consent history is append-only while the account is active and may
-    // be purged only after the account has been tombstoned as deleted.
-    await client.query('DELETE FROM profile_voice_intro_consent_events WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM profile_voice_intro_consents WHERE user_id = $1', [req.authUser.id]);
-    // Account deletion removes both the current consent state and its history.
-    // Migration 104 permits history purge only after the account is marked deleted.
-    await client.query('DELETE FROM identity_l3_consent_events WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM identity_l3_consents WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM ad_consent_preferences WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM ad_consent_history WHERE user_id = $1', [req.authUser.id]);
-    await client.query('DELETE FROM gift_receiving_preferences WHERE user_id = $1', [req.authUser.id]);
-    // Engagement events are user-linked frequency signals, not billing records;
-    // remove any retained rows immediately when the account is deleted.
-    await client.query('DELETE FROM ad_events WHERE user_id = $1', [req.authUser.id]);
-    await client.query(
-      "UPDATE matches SET status = 'closed' WHERE user_a_id = $1 OR user_b_id = $1",
-      [req.authUser.id]
-    );
-    // Start the full 90-day period at the end of deletion, not before the
-    // potentially long cleanup work above. The per-email transaction lock has
-    // remained held since BEGIN, so registration cannot slip into this gap.
-    await client.query(
-      `INSERT INTO account_reuse_restrictions (email_hmac, expires_at)
-       VALUES ($1, clock_timestamp() + INTERVAL '90 days')
-       ON CONFLICT (email_hmac) DO UPDATE
-       SET expires_at = GREATEST(account_reuse_restrictions.expires_at, EXCLUDED.expires_at)`,
-      [accountReuseDigest]
-    );
-    await client.query('COMMIT');
+        const currentAccount = await transactionClient.query(
+          `SELECT email, status, deletion_pending_at, created_at::text AS account_created_at,
+                  paddle_subscription_id, paddle_subscription_status, premium_until, premium_lifetime
+             FROM users
+            WHERE id = $1
+            FOR UPDATE`,
+          [req.authUser.id]
+        );
+        const current = currentAccount.rows[0];
+        const currentReuseDigest = current?.email
+          ? createAccountReuseDigest(current.email, process.env.ACCOUNT_REUSE_HMAC_KEY)
+          : null;
+        if (!current || current.status !== 'suspended' || !current.deletion_pending_at ||
+            current.account_created_at !== account.rows[0].account_created_at ||
+            currentReuseDigest !== accountReuseDigest) {
+          throw new Error('account_deletion_identity_changed_retry');
+        }
+
+        const unresolvedCheckout = await transactionClient.query(
+          `SELECT status, plan FROM paddle_checkout_attempts
+            WHERE user_id = $1
+              AND (
+                status IN ('creating', 'pending', 'reconciliation_required')
+                OR (status = 'completed' AND plan <> 'lifetime')
+                OR (status = 'linked' AND plan <> 'lifetime' AND NOT EXISTS (
+                  SELECT 1 FROM users u
+                   WHERE u.id = $1 AND u.paddle_subscription_id IS NOT NULL
+                ))
+              )
+            LIMIT 1`,
+          [req.authUser.id]
+        );
+        if (unresolvedCheckout.rowCount) {
+          throw new Error('account_deletion_billing_state_changed_retry');
+        }
+        const currentSubscriptionStatus = String(current.paddle_subscription_status || '').toLowerCase();
+        const currentPremiumUntil = current.premium_until == null
+          ? null : new Date(current.premium_until).getTime();
+        if ((current.paddle_subscription_id &&
+              !['canceled', 'completed'].includes(currentSubscriptionStatus)) ||
+            (currentSubscriptionStatus && !['canceled', 'completed'].includes(currentSubscriptionStatus)) ||
+            (current.premium_lifetime !== true && currentPremiumUntil !== null &&
+              (!Number.isFinite(currentPremiumUntil) || currentPremiumUntil > Date.now()))) {
+          throw new Error('account_deletion_billing_state_changed_retry');
+        }
+
+        const l3Media = await transactionClient.query(
+          'SELECT id FROM identity_l3_submissions WHERE user_id = $1 AND storage_object_key IS NOT NULL FOR UPDATE',
+          [req.authUser.id]
+        );
+        if (l3Media.rowCount) throw new Error('identity_l3_media_purge_unavailable');
+
+        await transactionClient.query('DELETE FROM identity_l3_submissions WHERE user_id = $1', [req.authUser.id]);
+        await suspendGiftOrdersForUser(transactionClient, req.authUser.id, { reason: 'account_deleted' });
+        const photoFiles = await transactionClient.query(
+          'SELECT storage_path FROM photo_assets WHERE user_id = $1 ORDER BY id FOR UPDATE',
+          [req.authUser.id]
+        );
+        await queuePrivatePhotoPurges(transactionClient, photoFiles.rows.map(row => row.storage_path));
+        await transactionClient.query('DELETE FROM photo_assets WHERE user_id = $1', [req.authUser.id]);
+        const voiceIntroFiles = await transactionClient.query(
+          'SELECT storage_path FROM profile_voice_intros WHERE user_id = $1 ORDER BY id FOR UPDATE',
+          [req.authUser.id]
+        );
+        await queuePrivateVoiceIntroPurges(transactionClient, voiceIntroFiles.rows.map(row => row.storage_path));
+        await transactionClient.query('DELETE FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM sessions WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM relationship_assessments WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM identity_verification_consents WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM identity_verification_session_reservations WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM identity_verification_events WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM identity_verifications WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM likes WHERE sender_id = $1 OR target_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM profile_passes WHERE passer_id = $1 OR passed_user_id = $1', [req.authUser.id]);
+        // Preserve other users' already-consumed daily discovery slots.
+        await transactionClient.query('DELETE FROM female_profile_exposures WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM profile_preferences WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM user_notifications WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM account_action_tokens WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM user_blocks WHERE blocker_id = $1 OR blocked_id = $1', [req.authUser.id]);
+        await transactionClient.query(
+          "UPDATE messages SET body = '[сообщение удалено]', deleted_at = COALESCE(deleted_at, statement_timestamp()) WHERE sender_id = $1",
+          [req.authUser.id]
+        );
+        await transactionClient.query(
+          `UPDATE profiles SET
+             display_name = 'Удалённый пользователь', birth_date = NULL,
+             country = '—', city = '—', bio = '',
+             photo_urls = '{}', occupation = '', education = '', languages = '{}',
+             is_visible = FALSE, has_children = NULL, children_disclosure_confirmed_at = NULL,
+             family_format = 'open_to_both', wants_children = 'discuss',
+             children_living_arrangement = 'not_applicable', updated_at = statement_timestamp()
+           WHERE user_id = $1`,
+          [req.authUser.id]
+        );
+        await transactionClient.query(
+          `UPDATE mobile_sessions
+           SET revoked_at = NOW(), revoked_reason = 'account_unavailable'
+           WHERE user_id = $1 AND revoked_at IS NULL`,
+          [req.authUser.id]
+        );
+        await transactionClient.query(
+          `UPDATE users SET status = 'deleted', email = $2, password_hash = NULL,
+             phone_e164 = NULL, phone_verified_at = NULL, female_trial_ends_at = NULL,
+             premium_until = NULL, premium_lifetime = FALSE, updated_at = statement_timestamp()
+           WHERE id = $1`,
+          [req.authUser.id, 'deleted+' + req.authUser.id + '@deleted.invalid']
+        );
+        // Append-only consent evidence may be purged only after the account tombstone.
+        await transactionClient.query('DELETE FROM profile_voice_intro_consent_events WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM profile_voice_intro_consents WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM identity_l3_consent_events WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM identity_l3_consents WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM ad_consent_preferences WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM ad_consent_history WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM gift_receiving_preferences WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query('DELETE FROM ad_events WHERE user_id = $1', [req.authUser.id]);
+        await transactionClient.query(
+          "UPDATE matches SET status = 'closed' WHERE user_a_id = $1 OR user_b_id = $1",
+          [req.authUser.id]
+        );
+        await transactionClient.query(
+          `INSERT INTO account_reuse_restrictions (email_hmac, expires_at)
+           VALUES ($1, clock_timestamp() + INTERVAL '90 days')
+           ON CONFLICT (email_hmac) DO UPDATE
+           SET expires_at = GREATEST(account_reuse_restrictions.expires_at, EXCLUDED.expires_at)`,
+          [accountReuseDigest]
+        );
+        return { deleted: true };
+      }
+    });
     clearSessionCookie(res);
     return res.status(204).end();
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (String(error?.message || '').startsWith('privacy_recovery_ledger_') ||
+        String(error?.message || '').startsWith('privacy_recovery_operation_')) {
+      console.error('Privacy recovery Ledger rejected account erasure:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
+    if ([
+      'account_deletion_identity_changed_retry',
+      'account_deletion_billing_state_changed_retry',
+      'identity_l3_media_purge_unavailable'
+    ].includes(error?.message)) {
+      return res.status(409).json({ error: error.message });
+    }
     console.error('Account deletion failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'account_deletion_failed' });
   } finally {
@@ -2768,65 +2933,157 @@ app.get('/api/profiles/me/voice-intro', profileActionLimiter, requireSession, as
 });
 
 app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession, profileActionLimiter, async (req, res) => {
-  let client;
+  const userId = req.authUser.id;
+
   try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    await acquireGiftSafetyUserLocks(client, req.authUser.id);
-    const consent = await client.query(
-      'SELECT consent_version, withdrawn_at FROM profile_voice_intro_consents WHERE user_id = $1 FOR UPDATE',
-      [req.authUser.id]
+    // Read the consent grant and the current clip without holding locks while
+    // one or more independent Ledger acknowledgements are requested.
+    const preflight = await pool.query(
+      `SELECT u.id AS active_user_id,
+              c.consent_version, c.granted_at::text AS consent_granted_at,
+              c.withdrawn_at::text AS consent_withdrawn_at,
+              a.id AS clip_id, a.storage_path, a.created_at::text AS clip_created_at
+         FROM users u
+         LEFT JOIN profile_voice_intro_consents c ON c.user_id = u.id
+         LEFT JOIN profile_voice_intros a ON a.user_id = u.id
+        WHERE u.id = $1 AND u.status = 'active'`,
+      [userId]
     );
-    const result = await client.query(
-      'SELECT id, storage_path FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE',
-      [req.authUser.id]
-    );
-    for (const clip of result.rows) {
-      try {
-        await enqueuePrivacyRecoveryEvent(client, {
+    if (!preflight.rows[0]) return res.status(401).json({ error: 'account_not_active' });
+    const snapshot = preflight.rows[0];
+    const expectedConsent = snapshot.consent_version == null ? null : {
+      consent_version: snapshot.consent_version,
+      granted_at: snapshot.consent_granted_at,
+      withdrawn_at: snapshot.consent_withdrawn_at
+    };
+    const expectedClip = snapshot.clip_id == null ? null : {
+      id: snapshot.clip_id,
+      storage_path: snapshot.storage_path,
+      created_at: snapshot.clip_created_at
+    };
+    const consentWasActive = Boolean(expectedConsent && !expectedConsent.withdrawn_at);
+    const operations = [];
+
+    if (expectedClip) {
+      operations.push({
+        operationId: derivePrivacyRecoveryOperationId({
           eventType: 'voice_intro_erasure_requested',
-          userId: req.authUser.id,
-          resourceId: clip.id
-        });
-      } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Privacy recovery ledger rejected voice intro erasure:', error?.message || 'unknown error');
-        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
-      }
+          userId,
+          resourceId: expectedClip.id,
+          generation: expectedClip.created_at
+        }),
+        event: {
+          eventType: 'voice_intro_erasure_requested',
+          userId,
+          resourceId: expectedClip.id
+        }
+      });
     }
-    if (consent.rows[0] && !consent.rows[0].withdrawn_at) {
-      try {
-        await enqueuePrivacyRecoveryEvent(client, {
+    if (consentWasActive) {
+      if (typeof expectedConsent.granted_at !== 'string' ||
+          expectedConsent.granted_at.length === 0 || expectedConsent.granted_at.length > 64 ||
+          !Number.isSafeInteger(Number(expectedConsent.consent_version))) {
+        throw new Error('voice_intro_consent_lifecycle_invalid');
+      }
+      operations.push({
+        operationId: derivePrivacyRecoveryOperationId({
           eventType: 'voice_intro_consent_withdrawn',
-          userId: req.authUser.id
-        });
-      } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Privacy recovery ledger rejected voice consent withdrawal:', error?.message || 'unknown error');
-        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
-      }
-      await client.query(
-        'UPDATE profile_voice_intro_consents SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp() WHERE user_id = $1',
-        [req.authUser.id]
-      );
-      await client.query(
-        `INSERT INTO profile_voice_intro_consent_events
-           (user_id, actor_user_id, event_type, consent_version, occurred_at)
-         SELECT user_id, user_id, 'withdrawn', consent_version, withdrawn_at
-         FROM profile_voice_intro_consents WHERE user_id = $1`,
-        [req.authUser.id]
-      );
+          userId,
+          resourceId: 'voice-intro-consent',
+          generation: `${expectedConsent.consent_version}:${expectedConsent.granted_at}`
+        }),
+        event: { eventType: 'voice_intro_consent_withdrawn', userId }
+      });
     }
-    await queuePrivateVoiceIntroPurges(client, result.rows.map(row => row.storage_path));
-    await client.query('DELETE FROM profile_voice_intros WHERE user_id = $1', [req.authUser.id]);
-    await client.query('COMMIT');
+
+    if (operations.length === 0) return res.status(204).end();
+
+    const applyErasure = async transactionClient => {
+      // Upload/grant uses this same user safety lock. Revalidate the complete
+      // clip + consent snapshot after every event has been acknowledged.
+      await acquireGiftSafetyUserLocks(transactionClient, userId);
+      const account = await transactionClient.query(
+        "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR UPDATE",
+        [userId]
+      );
+      if (!account.rowCount) throw new Error('account_not_active');
+
+      const currentConsentResult = await transactionClient.query(
+        `SELECT consent_version, granted_at::text AS granted_at,
+                withdrawn_at::text AS withdrawn_at
+           FROM profile_voice_intro_consents WHERE user_id = $1 FOR UPDATE`,
+        [userId]
+      );
+      const currentConsent = currentConsentResult.rows[0] || null;
+      const sameConsent = expectedConsent === null
+        ? currentConsent === null
+        : Boolean(currentConsent &&
+            currentConsent.consent_version === expectedConsent.consent_version &&
+            currentConsent.granted_at === expectedConsent.granted_at &&
+            currentConsent.withdrawn_at === expectedConsent.withdrawn_at);
+      if (!sameConsent) throw new Error('voice_intro_state_changed_retry');
+
+      const currentClipResult = await transactionClient.query(
+        `SELECT id, storage_path, created_at::text AS created_at
+           FROM profile_voice_intros WHERE user_id = $1 FOR UPDATE`,
+        [userId]
+      );
+      const currentClip = currentClipResult.rows[0] || null;
+      const sameClip = expectedClip === null
+        ? currentClip === null
+        : Boolean(currentClip &&
+            currentClip.id === expectedClip.id &&
+            currentClip.storage_path === expectedClip.storage_path &&
+            currentClip.created_at === expectedClip.created_at);
+      if (!sameClip) throw new Error('voice_intro_state_changed_retry');
+
+      if (consentWasActive) {
+        const withdrawn = await transactionClient.query(
+          `UPDATE profile_voice_intro_consents
+              SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp()
+            WHERE user_id = $1 AND withdrawn_at IS NULL
+            RETURNING consent_version, withdrawn_at::text AS withdrawn_at`,
+          [userId]
+        );
+        if (withdrawn.rowCount !== 1) throw new Error('voice_intro_state_changed_retry');
+        await transactionClient.query(
+          `INSERT INTO profile_voice_intro_consent_events
+             (user_id, actor_user_id, event_type, consent_version, occurred_at)
+           VALUES ($1, $1, 'withdrawn', $2, $3)`,
+          [userId, withdrawn.rows[0].consent_version, withdrawn.rows[0].withdrawn_at]
+        );
+      }
+
+      if (currentClip) {
+        await queuePrivateVoiceIntroPurges(transactionClient, [currentClip.storage_path]);
+        await transactionClient.query(
+          'DELETE FROM profile_voice_intros WHERE user_id = $1 AND id = $2',
+          [userId, currentClip.id]
+        );
+      }
+      return { erased: Boolean(currentClip), consentWithdrawn: consentWasActive };
+    };
+
+    await runAckGatedPrivacyRecoveryBatch({
+      pool,
+      operations,
+      apply: applyErasure
+    });
     return res.status(204).end();
   } catch (error) {
-    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.message === 'voice_intro_state_changed_retry') {
+      return res.status(409).json({ error: 'voice_intro_state_changed_retry' });
+    }
+    if (error?.message === 'account_not_active') {
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (String(error?.message || '').startsWith('privacy_recovery_ledger_') ||
+        String(error?.message || '').startsWith('privacy_recovery_operation_')) {
+      console.error('Privacy recovery ledger rejected voice intro erasure:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
     console.error('Voice intro delete failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'voice_intro_delete_failed' });
-  } finally {
-    client?.release();
   }
 });
 
@@ -3419,87 +3676,136 @@ app.patch('/api/profiles/me', validateRequestOrigin, requireSession, async (req,
   }
   if (updates.length === 0) return res.status(400).json({ error: 'no_valid_profile_fields' });
 
-  let client;
-  let removedAssets = [];
   try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    // Serialize profile changes + screening against gift acceptance for this user.
-    await acquireGiftSafetyUserLocks(client, req.authUser.id);
-    // photoUrls ownership was checked before opening this transaction for fast
-    // rejection. Recheck after the user lock so a concurrent photo removal
-    // cannot leave this profile pointing at an asset that has already been deleted.
+    // Discover the exact immutable upload identities without holding locks
+    // while the remote Ledger ACK is obtained.
+    let expectedRemovedAssets = [];
     if (Object.hasOwn(body, 'photoUrls')) {
-      const photoIds = body.photoUrls.map(url => url.slice('/api/photos/'.length));
-      if (photoIds.length) {
-        const ownedPhotos = await client.query(
-          'SELECT id FROM photo_assets WHERE user_id = $1 AND id = ANY($2::uuid[]) FOR SHARE',
+      const keepIds = body.photoUrls.filter(url => url.startsWith('/api/photos/'))
+        .map(url => url.slice('/api/photos/'.length));
+      const preflight = await pool.query(
+        `SELECT id, storage_path, created_at::text AS created_at
+           FROM photo_assets
+          WHERE user_id = $1
+            AND NOT (id = ANY($2::uuid[]))
+          ORDER BY id`,
+        [req.authUser.id, keepIds]
+      );
+      expectedRemovedAssets = preflight.rows;
+    }
+
+    const privacyOperations = expectedRemovedAssets.map(photo => ({
+      operationId: derivePrivacyRecoveryOperationId({
+        eventType: 'private_photo_erasure_requested',
+        userId: req.authUser.id,
+        resourceId: photo.id,
+        generation: photo.created_at
+      }),
+      event: {
+        eventType: 'private_photo_erasure_requested',
+        userId: req.authUser.id,
+        resourceId: photo.id
+      }
+    }));
+
+    const applyProfileUpdate = async transactionClient => {
+      // Serialize profile changes + screening against gift acceptance for this user.
+      await acquireGiftSafetyUserLocks(transactionClient, req.authUser.id);
+      if (Object.hasOwn(body, 'photoUrls')) {
+        const photoIds = body.photoUrls.filter(url => url.startsWith('/api/photos/'))
+          .map(url => url.slice('/api/photos/'.length));
+        if (photoIds.length) {
+          const ownedPhotos = await transactionClient.query(
+            'SELECT id FROM photo_assets WHERE user_id = $1 AND id = ANY($2::uuid[]) FOR SHARE',
+            [req.authUser.id, photoIds]
+          );
+          if (ownedPhotos.rowCount !== new Set(photoIds).size) {
+            throw new Error('profile_photo_ownership_changed_retry');
+          }
+        }
+
+        const selectedPhotos = await transactionClient.query(
+          `SELECT id, storage_path, created_at::text AS created_at
+             FROM photo_assets
+            WHERE user_id = $1
+              AND NOT (id = ANY($2::uuid[]))
+            ORDER BY id FOR UPDATE`,
           [req.authUser.id, photoIds]
         );
-        if (ownedPhotos.rowCount !== new Set(photoIds).size) {
-          await client.query('ROLLBACK');
-          return res.status(400).json({ error: 'invalid_photo_urls' });
+        const actual = selectedPhotos.rows;
+        const expectedIdentity = expectedRemovedAssets.map(row =>
+          [row.id, row.storage_path, row.created_at]
+        );
+        const actualIdentity = actual.map(row =>
+          [row.id, row.storage_path, row.created_at]
+        );
+        if (JSON.stringify(actualIdentity) !== JSON.stringify(expectedIdentity)) {
+          throw new Error('private_photo_erasure_set_changed_retry');
         }
       }
-    }
-    let photosPendingErasure = [];
-    if (Object.hasOwn(body, 'photoUrls')) {
-      const selectedPhotos = await client.query(
-        `SELECT id FROM photo_assets
+
+      const result = await transactionClient.query(
+        `UPDATE profiles SET ${updates.join(', ')}, updated_at = statement_timestamp()
          WHERE user_id = $1
-           AND NOT (('/api/photos/' || id::text) = ANY($2::text[]))
-         ORDER BY id FOR UPDATE`,
-        [req.authUser.id, body.photoUrls.filter(url => url.startsWith('/api/photos/'))]
+           AND EXISTS (SELECT 1 FROM users WHERE users.id = profiles.user_id AND users.status = 'active')
+         RETURNING user_id AS id, display_name AS "displayName", gender, country, city, bio,
+           photo_urls AS "photoUrls", occupation, education, languages,
+           relationship_intent AS "relationshipIntent", is_visible AS "isVisible",
+           family_format AS "familyFormat", has_children AS "hasChildren",
+           children_disclosure_confirmed_at AS "childrenDisclosureConfirmedAt",
+           wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement"`,
+        values
       );
-      photosPendingErasure = selectedPhotos.rows;
-      for (const photo of photosPendingErasure) {
-        try {
-          await enqueuePrivacyRecoveryEvent(client, {
-            eventType: 'private_photo_erasure_requested',
-            userId: req.authUser.id,
-            resourceId: photo.id
-          });
-        } catch (error) {
-          await client.query('ROLLBACK');
-          console.error('Privacy recovery ledger rejected photo erasure:', error?.message || 'unknown error');
-          return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+      if (!result.rows[0]) throw new Error('profile_not_found');
+
+      if (Object.hasOwn(body, 'photoUrls')) {
+        const removed = await transactionClient.query(
+          "DELETE FROM photo_assets WHERE user_id = $1 AND NOT (('/api/photos/' || id::text) = ANY($2::text[])) RETURNING storage_path AS \"storagePath\"",
+          [req.authUser.id, body.photoUrls.filter(url => url.startsWith('/api/photos/'))]
+        );
+        if (removed.rowCount !== expectedRemovedAssets.length) {
+          throw new Error('private_photo_erasure_set_changed_retry');
         }
+        await queuePrivatePhotoPurges(transactionClient, removed.rows.map(asset => asset.storagePath));
       }
+
+      const screening = await screenProfilePrivate(result.rows[0]);
+      await persistScreening(req.authUser.id, 'profile', screening, transactionClient);
+      return {
+        profile: result.rows[0],
+        screening: {
+          engine: screening.engine,
+          externalProcessing: false,
+          flags: screening.flags,
+          requiresReview: screening.requiresReview
+        }
+      };
+    };
+
+    let outcome;
+    if (privacyOperations.length) {
+      const batch = await runAckGatedPrivacyRecoveryBatch({
+        pool,
+        operations: privacyOperations,
+        apply: applyProfileUpdate
+      });
+      outcome = batch.result;
+    } else {
+      outcome = await withPooledTransaction(pool, applyProfileUpdate);
     }
-    const result = await client.query(
-      `UPDATE profiles SET ${updates.join(', ')}, updated_at = statement_timestamp()
-       WHERE user_id = $1
-         AND EXISTS (SELECT 1 FROM users WHERE users.id = profiles.user_id AND users.status = 'active')
-       RETURNING user_id AS id, display_name AS "displayName", gender, country, city, bio,
-         photo_urls AS "photoUrls", occupation, education, languages,
-         relationship_intent AS "relationshipIntent", is_visible AS "isVisible",
-         family_format AS "familyFormat", has_children AS "hasChildren",
-         children_disclosure_confirmed_at AS "childrenDisclosureConfirmedAt",
-         wants_children AS "wantsChildren", children_living_arrangement AS "childrenLivingArrangement"`,
-      values
-    );
-    if (!result.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'profile_not_found' });
-    }
-    if (Object.hasOwn(body, 'photoUrls')) {
-      const removed = await client.query(
-        "DELETE FROM photo_assets WHERE user_id = $1 AND NOT (('/api/photos/' || id::text) = ANY($2::text[])) RETURNING storage_path AS \"storagePath\"",
-        [req.authUser.id, body.photoUrls.filter(url => url.startsWith('/api/photos/'))]
-      );
-      removedAssets = removed.rows;
-      await queuePrivatePhotoPurges(client, removedAssets.map(asset => asset.storagePath));
-    }
-    const screening = await screenProfilePrivate(result.rows[0]);
-    await persistScreening(req.authUser.id, 'profile', screening, client);
-    await client.query('COMMIT');
-    return res.json({ profile: result.rows[0], screening: { engine: screening.engine, externalProcessing: false, flags: screening.flags, requiresReview: screening.requiresReview } });
+    return res.json(outcome);
   } catch (error) {
-    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (String(error?.message || '').startsWith('privacy_recovery_ledger_') ||
+        String(error?.message || '').startsWith('privacy_recovery_operation_')) {
+      console.error('Privacy recovery Ledger rejected photo erasure:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
+    if (['profile_photo_ownership_changed_retry', 'private_photo_erasure_set_changed_retry'].includes(error?.message)) {
+      return res.status(409).json({ error: 'profile_photo_state_changed_retry' });
+    }
+    if (error?.message === 'profile_not_found') return res.status(404).json({ error: 'profile_not_found' });
     console.error('Profile update failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'profile_update_failed' });
-  } finally {
-    client?.release();
   }
 });
 
@@ -6275,109 +6581,122 @@ app.post('/api/gifts/orders/:publicReference/withdraw-consent', validateRequestO
     return res.status(400).json({ error: 'invalid_gift_reference' });
   }
 
-  let client;
   try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-
-    // Only the recipient may withdraw consent. Acquire the same pair lock as
-    // acceptance, blocking, and reporting before taking the order row lock.
-    const pair = await client.query(
-      `SELECT sender_id, recipient_id
+    // This read is deliberately lock-free: no domain locks may be held while
+    // the independent Ledger is contacted. All facts are revalidated in apply().
+    const preflight = await pool.query(
+      `SELECT id, sender_id, recipient_id, status,
+              payment_status AS "paymentStatus",
+              consent_withdrawn_at AS "consentWithdrawnAt",
+              dispatched_at AS "dispatchedAt"
        FROM gift_delivery_orders
        WHERE public_reference = $1 AND recipient_id = $2`,
       [reference, req.authUser.id]
     );
-    if (!pair.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'gift_order_not_available' });
+    const candidate = preflight.rows[0];
+    if (!candidate) return res.status(404).json({ error: 'gift_order_not_available' });
+    // A completed withdrawal is an idempotent success on client retry; do not
+    // reject it merely because the order is now cancelled and no longer eligible.
+    if (candidate.consentWithdrawnAt) {
+      return res.json({ order: { id: reference, status: 'cancelled', consentWithdrawn: true }, duplicate: true });
     }
-
-    // Match account deletion, moderation, and decision lock order so a stale
-    // session cannot mutate consent after either participant becomes inactive.
-    await acquireGiftSafetyUserLocks(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
-    await acquireGiftSafetyPairLock(client, pair.rows[0].sender_id, pair.rows[0].recipient_id);
-    const accountStates = await client.query(
-      'SELECT id, status FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR SHARE',
-      [[pair.rows[0].sender_id, pair.rows[0].recipient_id]]
-    );
-    if (accountStates.rowCount !== 2 || accountStates.rows.some(account => account.status !== 'active')) {
-      await client.query('ROLLBACK');
+    if (!evaluateGiftConsentWithdrawalEligibility(candidate).eligible) {
       return res.status(409).json({ error: 'gift_order_not_withdrawable' });
     }
 
-    const selected = await client.query(
-      `SELECT id, status, payment_status AS "paymentStatus",
-              consent_withdrawn_at AS "consentWithdrawnAt", dispatched_at AS "dispatchedAt"
-       FROM gift_delivery_orders
-       WHERE public_reference = $1 AND recipient_id = $2
-       FOR UPDATE`,
-      [reference, req.authUser.id]
-    );
-    const order = selected.rows[0];
-    // Keep endpoint and unit-tested policy gates aligned. Payment transitions
-    // are intentionally not simulated by this endpoint.
-    const withdrawalEligibility = evaluateGiftConsentWithdrawalEligibility(order);
-    if (!withdrawalEligibility.eligible) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
-    }
-
-    try {
-      await enqueuePrivacyRecoveryEvent(client, {
+    const operationId = derivePrivacyRecoveryOperationId({
+      eventType: 'gift_order_consent_withdrawn',
+      userId: req.authUser.id,
+      resourceId: candidate.id,
+      generation: candidate.id
+    });
+    const result = await runAckGatedPrivacyRecoveryOperation({
+      pool,
+      operationId,
+      event: {
         eventType: 'gift_order_consent_withdrawn',
         userId: req.authUser.id,
-        resourceId: order.id
-      });
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('Privacy recovery ledger rejected gift consent withdrawal:', error?.message || 'unknown error');
-      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
-    }
+        resourceId: candidate.id
+      },
+      apply: async client => {
+        // Match account deletion, moderation, and decision lock order. The
+        // preflight participants are checked again after all locks are held.
+        await acquireGiftSafetyUserLocks(client, candidate.sender_id, candidate.recipient_id);
+        await acquireGiftSafetyPairLock(client, candidate.sender_id, candidate.recipient_id);
+        const accountStates = await client.query(
+          'SELECT id, status FROM users WHERE id = ANY($1::uuid[]) ORDER BY id FOR SHARE',
+          [[candidate.sender_id, candidate.recipient_id]]
+        );
+        if (accountStates.rowCount !== 2 || accountStates.rows.some(account => account.status !== 'active')) {
+          throw new Error('gift_order_not_withdrawable');
+        }
 
-    const updated = await client.query(
-      `UPDATE gift_delivery_orders
-       SET status = 'cancelled',
-           consent_withdrawn_at = statement_timestamp(),
-           address_vault_ref = NULL,
-           address_verified_at = NULL,
-           updated_at = statement_timestamp()
-       WHERE id = $1
-         AND recipient_id = $2
-         AND status IN ('recipient_accepted', 'address_verified')
-         AND consent_withdrawn_at IS NULL
-       RETURNING public_reference`,
-      [order.id, req.authUser.id]
-    );
-    if (updated.rowCount !== 1) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
-    }
+        const selected = await client.query(
+          `SELECT id, sender_id, recipient_id, status,
+                  payment_status AS "paymentStatus",
+                  consent_withdrawn_at AS "consentWithdrawnAt",
+                  dispatched_at AS "dispatchedAt"
+           FROM gift_delivery_orders
+           WHERE public_reference = $1 AND recipient_id = $2
+           FOR UPDATE`,
+          [reference, req.authUser.id]
+        );
+        const order = selected.rows[0];
+        if (!order || order.id !== candidate.id ||
+            order.sender_id !== candidate.sender_id ||
+            order.recipient_id !== candidate.recipient_id ||
+            !evaluateGiftConsentWithdrawalEligibility(order).eligible) {
+          throw new Error('gift_order_not_withdrawable');
+        }
 
-    // Consent withdrawal revokes the encrypted address payload in the same
-    // transaction as the order pointer. Clearing only address_vault_ref would
-    // leave the ciphertext recoverable by a future privileged code path.
-    await revokeGiftAddressVaultEntry(client, {
-      orderId: order.id,
-      recipientUserId: req.authUser.id,
-      actorUserId: req.authUser.id
+        const updated = await client.query(
+          `UPDATE gift_delivery_orders
+           SET status = 'cancelled',
+               consent_withdrawn_at = statement_timestamp(),
+               address_vault_ref = NULL,
+               address_verified_at = NULL,
+               updated_at = statement_timestamp()
+           WHERE id = $1
+             AND recipient_id = $2
+             AND status IN ('recipient_accepted', 'address_verified')
+             AND consent_withdrawn_at IS NULL
+           RETURNING public_reference`,
+          [order.id, req.authUser.id]
+        );
+        if (updated.rowCount !== 1) throw new Error('gift_order_not_withdrawable');
+
+        // Revoke ciphertext in the same transaction as the order pointer.
+        await revokeGiftAddressVaultEntry(client, {
+          orderId: order.id,
+          recipientUserId: req.authUser.id,
+          actorUserId: req.authUser.id
+        });
+
+        await client.query(
+          `INSERT INTO gift_delivery_order_events
+             (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
+           VALUES ($1, $2, 'recipient', 'consent_withdrawn', $3, 'cancelled')`,
+          [order.id, req.authUser.id, order.status]
+        );
+        await notifyGiftRequestUpdate(client, candidate.sender_id, updated.rows[0].public_reference, 'consent_withdrawn');
+        return updated.rows[0].public_reference;
+      }
     });
 
-    await client.query(
-      `INSERT INTO gift_delivery_order_events
-         (order_id, actor_user_id, actor_type, event_type, from_status, to_status)
-       VALUES ($1, $2, 'recipient', 'consent_withdrawn', $3, 'cancelled')`,
-      [order.id, req.authUser.id, order.status]
-    );
-    await notifyGiftRequestUpdate(client, pair.rows[0].sender_id, updated.rows[0].public_reference, 'consent_withdrawn');
-    await client.query('COMMIT');
-    return res.json({ order: { id: updated.rows[0].public_reference, status: 'cancelled', consentWithdrawn: true } });
+    return res.json({
+      order: { id: reference, status: 'cancelled', consentWithdrawn: true },
+      ...(result.duplicate === true ? { duplicate: true } : {})
+    });
   } catch (error) {
-    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.message === 'gift_order_not_withdrawable') {
+      return res.status(409).json({ error: 'gift_order_not_withdrawable' });
+    }
+    if (String(error?.message || '').startsWith('privacy_recovery_ledger_')) {
+      console.error('Privacy recovery Ledger blocked gift consent withdrawal:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
     console.error('Gift consent withdrawal failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_consent_withdrawal_unavailable' });
-  } finally {
-    client?.release();
   }
 });
 
@@ -6543,29 +6862,80 @@ app.delete('/api/gifts/orders/:publicReference/address-draft', validateRequestOr
   if (typeof reference !== 'string' || !/^gift_[a-f0-9]{32}$/i.test(reference)) {
     return res.status(400).json({ error: 'invalid_gift_reference' });
   }
-  let client;
   try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    const locked = await lockGiftAddressDraftOrder(client, {
-      publicReference: reference, recipientUserId: req.authUser.id
+    // Lock-free preflight: capture the exact consent grant lifecycle. The
+    // Ledger request must never run while PostgreSQL row/advisory locks are held.
+    const preflight = await pool.query(
+      `SELECT o.id, o.sender_id, o.recipient_id, c.id AS consent_event_id,
+              c.consent_version AS "consentVersion", c.action
+         FROM gift_delivery_orders o
+         LEFT JOIN LATERAL (
+           SELECT id, consent_version, action
+             FROM gift_address_draft_consent_events
+            WHERE order_id = o.id AND recipient_user_id = o.recipient_id
+            ORDER BY id DESC LIMIT 1
+         ) c ON TRUE
+        WHERE o.public_reference = $1 AND o.recipient_id = $2`,
+      [reference, req.authUser.id]
+    );
+    const candidate = preflight.rows[0];
+    if (!candidate) return res.status(404).json({ error: 'gift_address_draft_not_available' });
+    if (candidate.action !== 'granted') return res.status(204).end();
+
+    const operationId = derivePrivacyRecoveryOperationId({
+      eventType: 'gift_address_draft_consent_withdrawn',
+      userId: req.authUser.id,
+      resourceId: candidate.id,
+      generation: candidate.consent_event_id
     });
-    if (!locked.ok) {
-      await client.query('ROLLBACK');
-      return res.status(locked.status).json({ error: locked.error });
-    }
-    const result = await withdrawGiftAddressDraft(client, {
-      orderId: locked.order.id, recipientUserId: req.authUser.id,
-      actorUserId: req.authUser.id, consentVersion: GIFT_ADDRESS_DRAFT_CONSENT_VERSION
+    await runAckGatedPrivacyRecoveryOperation({
+      pool,
+      operationId,
+      event: {
+        eventType: 'gift_address_draft_consent_withdrawn',
+        userId: req.authUser.id,
+        resourceId: candidate.id
+      },
+      apply: async client => {
+        const locked = await lockGiftAddressDraftOrder(client, {
+          publicReference: reference, recipientUserId: req.authUser.id
+        });
+        if (!locked.ok || locked.order.id !== candidate.id ||
+            locked.order.sender_id !== candidate.sender_id ||
+            locked.order.recipient_id !== candidate.recipient_id) {
+          throw new Error('gift_address_draft_state_changed_retry');
+        }
+        const current = await client.query(
+          `SELECT id, consent_version, action
+             FROM gift_address_draft_consent_events
+            WHERE order_id = $1 AND recipient_user_id = $2
+            ORDER BY id DESC LIMIT 1
+            FOR UPDATE`,
+          [candidate.id, req.authUser.id]
+        );
+        if (current.rows[0]?.id !== candidate.consent_event_id ||
+            current.rows[0]?.action !== 'granted' ||
+            Number(current.rows[0]?.consent_version) !== GIFT_ADDRESS_DRAFT_CONSENT_VERSION) {
+          throw new Error('gift_address_draft_state_changed_retry');
+        }
+        await withdrawGiftAddressDraft(client, {
+          orderId: candidate.id, recipientUserId: req.authUser.id,
+          actorUserId: req.authUser.id, consentVersion: GIFT_ADDRESS_DRAFT_CONSENT_VERSION
+        });
+        return { withdrawn: true };
+      }
     });
-    await client.query('COMMIT');
     return res.status(204).end();
   } catch (error) {
-    if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (String(error?.message || '').startsWith('privacy_recovery_ledger_')) {
+      console.error('Privacy recovery Ledger blocked gift address draft withdrawal:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
+    if (error?.message === 'gift_address_draft_state_changed_retry') {
+      return res.status(409).json({ error: 'gift_address_draft_state_changed_retry' });
+    }
     console.error('Gift address draft withdrawal failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'gift_address_draft_withdrawal_unavailable' });
-  } finally {
-    client?.release();
   }
 });
 
@@ -7085,135 +7455,249 @@ app.put('/api/identity/l3/consent', validateRequestOrigin, requireSession, ident
 });
 
 app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, identityL3Limiter, async (req, res) => {
+  const userId = req.authUser.id;
   let client;
-  try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    await acquireGiftSafetyUserLocks(client, req.authUser.id);
-    const account = await client.query(
+
+  const applyWithdrawal = async (transactionClient, expectedConsent, expectedActive) => {
+    // Match the grant/upload lock order. These locks are acquired only after
+    // the Ledger ACK for an active consent withdrawal.
+    await acquireGiftSafetyUserLocks(transactionClient, userId);
+    const account = await transactionClient.query(
       "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR UPDATE",
-      [req.authUser.id]
+      [userId]
     );
-    if (!account.rowCount) {
-      await client.query('ROLLBACK');
-      return res.status(401).json({ error: 'account_not_active' });
+    if (!account.rowCount) throw new Error('account_not_active');
+
+    const currentResult = await transactionClient.query(
+      `SELECT consent_version, granted_at::text AS granted_at,
+              withdrawn_at::text AS withdrawn_at
+         FROM identity_l3_consents WHERE user_id = $1 FOR UPDATE`,
+      [userId]
+    );
+    const current = currentResult.rows[0] || null;
+    const sameLifecycle = expectedConsent === null
+      ? current === null
+      : Boolean(current &&
+          current.consent_version === expectedConsent.consent_version &&
+          current.granted_at === expectedConsent.granted_at &&
+          (current.withdrawn_at === expectedConsent.withdrawn_at ||
+            (!expectedActive && Boolean(current.withdrawn_at))));
+    if (!sameLifecycle || Boolean(current && !current.withdrawn_at) !== expectedActive) {
+      throw new Error('identity_l3_consent_state_changed_retry');
     }
 
-    const current = await client.query(
-      'SELECT consent_version, withdrawn_at FROM identity_l3_consents WHERE user_id = $1 FOR UPDATE',
-      [req.authUser.id]
-    );
-    const consent = current.rows[0];
-    // Any previously granted version remains withdrawable after a notice
-    // update; the current version is required for access, not for revocation.
-    const wasActive = Boolean(consent && !consent.withdrawn_at);
-    if (wasActive) {
-      try {
-        await enqueuePrivacyRecoveryEvent(client, {
-          eventType: 'identity_l3_consent_withdrawn',
-          userId: req.authUser.id
-        });
-      } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Privacy recovery ledger rejected L3 consent withdrawal:', error?.message || 'unknown error');
-        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
-      }
-      await client.query(
-        'UPDATE identity_l3_consents SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp() WHERE user_id = $1 AND withdrawn_at IS NULL',
-        [req.authUser.id]
-      );
-      await client.query(
-        `INSERT INTO identity_l3_consent_events
-           (user_id, actor_user_id, event_type, consent_version, occurred_at)
-         VALUES ($1, $1, 'withdrawn', $2, statement_timestamp())`,
-        [req.authUser.id, consent.consent_version]
-      );
-    }
-
-    await client.query(
+    // Revoke every outstanding upload capability before changing submissions.
+    await transactionClient.query(
       `UPDATE identity_l3_upload_tokens
-       SET revoked_at = statement_timestamp()
-       WHERE user_id = $1 AND consumed_at IS NULL AND revoked_at IS NULL`,
-      [req.authUser.id]
+          SET revoked_at = statement_timestamp()
+        WHERE user_id = $1 AND consumed_at IS NULL AND revoked_at IS NULL`,
+      [userId]
     );
-    await client.query(
+    await transactionClient.query(
       "SELECT set_config('app.identity_l3_actor_user_id', '', true), set_config('app.identity_l3_reason_code', 'consent_withdrawn', true)"
     );
 
-    const submissions = await client.query(
+    const submissions = await transactionClient.query(
       `SELECT id, status, storage_object_key
-       FROM identity_l3_submissions
-       WHERE user_id = $1
-         AND (
-           status IN ('draft', 'upload_authorized', 'uploaded', 'processing', 'pending_review', 'approved')
-           OR storage_object_key IS NOT NULL
-         )
-       ORDER BY created_at, id
-       FOR UPDATE`,
-      [req.authUser.id]
+         FROM identity_l3_submissions
+        WHERE user_id = $1
+          AND (
+            status IN ('draft', 'upload_authorized', 'uploaded', 'processing', 'pending_review', 'approved')
+            OR storage_object_key IS NOT NULL
+          )
+        ORDER BY created_at, id
+        FOR UPDATE`,
+      [userId]
     );
     let queuedPurgeJobs = 0;
     for (const submission of submissions.rows) {
       if (['draft', 'upload_authorized', 'uploaded', 'processing', 'pending_review'].includes(submission.status)) {
-        await client.query(
+        await transactionClient.query(
           "UPDATE identity_l3_submissions SET status = 'withdrawn' WHERE id = $1 AND user_id = $2",
-          [submission.id, req.authUser.id]
+          [submission.id, userId]
         );
       } else if (submission.status === 'approved') {
-        // Revoke profile access immediately. Keep the original reviewer decision
-        // fields immutable; the consent-withdrawal reason is recorded separately.
-        await client.query(
+        // Revoke profile access immediately while preserving the original
+        // reviewer decision as immutable evidence.
+        await transactionClient.query(
           "UPDATE identity_l3_submissions SET status = 'revoked', revoked_at = statement_timestamp() WHERE id = $1 AND user_id = $2",
-          [submission.id, req.authUser.id]
+          [submission.id, userId]
         );
       }
 
       if (submission.storage_object_key) {
-        // The terminal submission transition above is the sole INSERT path:
-        // its database trigger creates a durable queued job. Requeue only an
-        // existing failed job here; a direct INSERT/UPSERT would bypass the
-        // migration's guarded enqueue-source invariant.
-        const requeued = await client.query(
+        // Terminal transitions create the durable purge job through the DB
+        // trigger. Only failed jobs are requeued explicitly here.
+        const requeued = await transactionClient.query(
           `UPDATE identity_l3_media_purge_jobs
-           SET status = 'queued',
-               attempts = 0,
-               next_attempt_at = statement_timestamp(),
-               lease_token = NULL,
-               lease_expires_at = NULL,
-               last_error_code = NULL,
-               updated_at = statement_timestamp()
-           WHERE submission_id = $1
-             AND user_id = $2
-             AND status = 'failed'
-           RETURNING id`,
-          [submission.id, req.authUser.id]
+              SET status = 'queued',
+                  attempts = 0,
+                  next_attempt_at = statement_timestamp(),
+                  lease_token = NULL,
+                  lease_expires_at = NULL,
+                  last_error_code = NULL,
+                  updated_at = statement_timestamp()
+            WHERE submission_id = $1
+              AND user_id = $2
+              AND status = 'failed'
+            RETURNING id`,
+          [submission.id, userId]
         );
         queuedPurgeJobs += requeued.rowCount;
       }
     }
 
-    const purgeCounts = await client.query(
+    // The consent trigger requires every active submission to be terminal
+    // before withdrawal is recorded. Keep the transition and audit event in
+    // this same transaction, after token revocation and submission updates.
+    if (expectedActive) {
+      const withdrawn = await transactionClient.query(
+        `UPDATE identity_l3_consents
+            SET withdrawn_at = statement_timestamp(), updated_at = statement_timestamp()
+          WHERE user_id = $1 AND withdrawn_at IS NULL
+          RETURNING consent_version, withdrawn_at::text AS withdrawn_at`,
+        [userId]
+      );
+      if (withdrawn.rowCount !== 1) throw new Error('identity_l3_consent_state_changed_retry');
+      await transactionClient.query(
+        `INSERT INTO identity_l3_consent_events
+           (user_id, actor_user_id, event_type, consent_version, occurred_at)
+         VALUES ($1, $1, 'withdrawn', $2, $3)`,
+        [userId, withdrawn.rows[0].consent_version, withdrawn.rows[0].withdrawn_at]
+      );
+    }
+
+    const purgeCounts = await transactionClient.query(
       `SELECT
          COUNT(*) FILTER (WHERE status IN ('queued', 'processing'))::int AS pending,
          COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
-       FROM identity_l3_media_purge_jobs
-       WHERE user_id = $1`,
-      [req.authUser.id]
+         FROM identity_l3_media_purge_jobs
+        WHERE user_id = $1`,
+      [userId]
     );
     const pendingCount = Number(purgeCounts.rows[0]?.pending || 0);
     const failedCount = Number(purgeCounts.rows[0]?.failed || 0);
-    await client.query('COMMIT');
-    return res.json({
-      version: IDENTITY_L3_CONSENT_VERSION,
-      accepted: false,
-      withdrawn: wasActive,
+    return {
+      withdrawn: expectedActive,
       purgeStatus: failedCount > 0 ? 'failed' : pendingCount > 0 ? 'pending' : 'complete',
       pendingPurgeJobs: pendingCount,
       failedPurgeJobs: failedCount,
       requeuedFailedJobs: queuedPurgeJobs
+    };
+  };
+
+  try {
+    // Capture the exact grant lifecycle without holding locks during the
+    // independent Ledger round-trip.
+    const preflight = await pool.query(
+      `SELECT u.id AS active_user_id, c.consent_version,
+              c.granted_at::text AS granted_at, c.withdrawn_at::text AS withdrawn_at
+         FROM users u
+         LEFT JOIN identity_l3_consents c ON c.user_id = u.id
+        WHERE u.id = $1 AND u.status = 'active'`,
+      [userId]
+    );
+    if (!preflight.rows[0]) return res.status(401).json({ error: 'account_not_active' });
+    const expectedConsent = preflight.rows[0].consent_version == null
+      ? null
+      : {
+          consent_version: preflight.rows[0].consent_version,
+          granted_at: preflight.rows[0].granted_at,
+          withdrawn_at: preflight.rows[0].withdrawn_at
+        };
+    const wasActive = Boolean(expectedConsent && !expectedConsent.withdrawn_at);
+    let result;
+
+    if (!expectedConsent) {
+      // Without a consent lifecycle there is no safe, stable identity for a
+      // withdrawal event. Do not revoke capabilities or alter residual L3 data.
+      const residual = await pool.query(
+        `SELECT
+           EXISTS (SELECT 1 FROM identity_l3_upload_tokens WHERE user_id = $1) OR
+           EXISTS (SELECT 1 FROM identity_l3_submissions WHERE user_id = $1) OR
+           EXISTS (SELECT 1 FROM identity_l3_media_purge_jobs WHERE user_id = $1)
+           AS has_residual_l3_state`,
+        [userId]
+      );
+      if (residual.rows[0]?.has_residual_l3_state) {
+        throw new Error('identity_l3_consent_lifecycle_missing_reconciliation_required');
+      }
+      result = {
+        withdrawn: false,
+        purgeStatus: 'complete',
+        pendingPurgeJobs: 0,
+        failedPurgeJobs: 0,
+        requeuedFailedJobs: 0
+      };
+    } else {
+      if (typeof expectedConsent.granted_at !== 'string' ||
+          expectedConsent.granted_at.length === 0 || expectedConsent.granted_at.length > 64 ||
+          !Number.isSafeInteger(Number(expectedConsent.consent_version))) {
+        throw new Error('identity_l3_consent_lifecycle_invalid');
+      }
+      // Both first-time withdrawal and retry/cleanup of an already-withdrawn
+      // lifecycle require the same durable Ledger ACK. The operation ID is
+      // lifecycle-stable, so retries cannot manufacture a second event.
+      const operationId = derivePrivacyRecoveryOperationId({
+        eventType: 'identity_l3_consent_withdrawn',
+        userId,
+        resourceId: 'identity-l3-consent',
+        generation: `${expectedConsent.consent_version}:${expectedConsent.granted_at}`
+      });
+      const operation = await runAckGatedPrivacyRecoveryOperation({
+        pool,
+        operationId,
+        event: { eventType: 'identity_l3_consent_withdrawn', userId },
+        apply: transactionClient => applyWithdrawal(transactionClient, expectedConsent, wasActive),
+        applyDuplicate: transactionClient => applyWithdrawal(transactionClient, expectedConsent, false)
+      });
+      result = operation.result;
+      if (!result) {
+        const counts = await pool.query(
+          `SELECT
+             COUNT(*) FILTER (WHERE status IN ('queued', 'processing'))::int AS pending,
+             COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
+             FROM identity_l3_media_purge_jobs
+            WHERE user_id = $1`,
+          [userId]
+        );
+        const pending = Number(counts.rows[0]?.pending || 0);
+        const failed = Number(counts.rows[0]?.failed || 0);
+        result = {
+          withdrawn: wasActive,
+          purgeStatus: failed > 0 ? 'failed' : pending > 0 ? 'pending' : 'complete',
+          pendingPurgeJobs: pending,
+          failedPurgeJobs: failed,
+          requeuedFailedJobs: 0
+        };
+      }
+    }
+
+    return res.json({
+      version: IDENTITY_L3_CONSENT_VERSION,
+      accepted: false,
+      withdrawn: result.withdrawn,
+      purgeStatus: result.purgeStatus,
+      pendingPurgeJobs: result.pendingPurgeJobs,
+      failedPurgeJobs: result.failedPurgeJobs,
+      requeuedFailedJobs: result.requeuedFailedJobs
     });
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.message === 'identity_l3_consent_state_changed_retry') {
+      return res.status(409).json({ error: 'identity_l3_consent_state_changed_retry' });
+    }
+    if (error?.message === 'account_not_active') {
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (error?.message === 'identity_l3_consent_lifecycle_missing_reconciliation_required') {
+      return res.status(503).json({ error: 'identity_l3_consent_lifecycle_reconciliation_required' });
+    }
+    if (String(error?.message || '').startsWith('privacy_recovery_ledger_') ||
+        String(error?.message || '').startsWith('privacy_recovery_operation_')) {
+      console.error('Privacy recovery ledger rejected L3 consent withdrawal:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
     console.error('L3 consent withdrawal failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'l3_consent_withdrawal_unavailable' });
   } finally {
@@ -7251,58 +7735,11 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
   }
 
   const preferences = validation.value;
+  const userId = req.authUser.id;
   let client;
-  try {
-    client = await pool.connect();
-    await client.query('BEGIN');
-    // Serialize preference writes against account deletion. If this request wins,
-    // deletion waits and purges the newly written history afterwards; if deletion
-    // wins, this lock observes the deleted status and refuses to recreate history.
-    const activeAccount = await client.query(
-      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
-      [req.authUser.id]
-    );
-    if (activeAccount.rowCount !== 1) {
-      await client.query('ROLLBACK');
-      return res.status(401).json({ error: 'account_not_active' });
-    }
-    // The upsert takes a row-level write lock. Ad-event requests hold FOR SHARE
-    // on the same preference row until their transaction finishes, so a concurrent
-    // revocation and event are serialized: either the event finishes before the
-    // revocation commits, or it observes the revoked/stale consent and is rejected.
-    const previousConsent = await client.query(
-      `SELECT ads_consent, date_offers_consent, wedding_offers_consent,
-              marriage_planning_opt_in, category_consents
-       FROM ad_consent_preferences WHERE user_id = $1 FOR UPDATE`,
-      [req.authUser.id]
-    );
-    const previous = previousConsent.rows[0];
-    const previousCategories = previous?.category_consents && typeof previous.category_consents === 'object'
-      ? previous.category_consents : {};
-    const categoryRevoked = Object.entries(previousCategories).some(([key, enabled]) =>
-      enabled === true && preferences.categoryConsents[key] !== true
-    );
-    const consentRevoked = Boolean(previous && (
-      (previous.ads_consent && !preferences.adsConsent) ||
-      (previous.date_offers_consent && !preferences.dateOffersConsent) ||
-      (previous.wedding_offers_consent && !preferences.weddingOffersConsent) ||
-      (previous.marriage_planning_opt_in && !preferences.marriagePlanningOptIn) ||
-      categoryRevoked
-    ));
-    if (consentRevoked) {
-      try {
-        await enqueuePrivacyRecoveryEvent(client, {
-          eventType: 'ad_consent_revoked',
-          userId: req.authUser.id
-        });
-      } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Privacy recovery ledger rejected ad consent revocation:', error?.message || 'unknown error');
-        return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
-      }
-    }
 
-    const result = await client.query(
+  const persistPreferencesAndHistory = async transactionClient => {
+    const result = await transactionClient.query(
       `INSERT INTO ad_consent_preferences
          (user_id, ads_consent, date_offers_consent, wedding_offers_consent,
           marriage_planning_opt_in, category_consents, consent_version, updated_at)
@@ -7318,7 +7755,7 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
        RETURNING ads_consent, date_offers_consent, wedding_offers_consent,
                  marriage_planning_opt_in, category_consents, consent_version`,
       [
-        req.authUser.id,
+        userId,
         preferences.adsConsent,
         preferences.dateOffersConsent,
         preferences.weddingOffersConsent,
@@ -7328,17 +7765,109 @@ app.put('/api/ads/consent', validateRequestOrigin, requireSession, profileAction
       ]
     );
     const savedPreferences = serializeAdConsentPreferences(result.rows[0]);
-    await client.query(
+    await transactionClient.query(
       'INSERT INTO ad_consent_history (user_id, consent_version, preferences) VALUES ($1, $2, $3::jsonb)',
-      [req.authUser.id, AD_CONSENT_VERSION, JSON.stringify(savedPreferences)]
+      [userId, AD_CONSENT_VERSION, JSON.stringify(savedPreferences)]
     );
+    return savedPreferences;
+  };
+
+  try {
+    // This read is deliberately lock-free: no PostgreSQL lock may be held while
+    // waiting for the independent Privacy Ledger acknowledgement.
+    const preflight = await pool.query(
+      `SELECT u.id AS active_user_id, p.user_id, p.ads_consent, p.date_offers_consent,
+              p.wedding_offers_consent, p.marriage_planning_opt_in,
+              p.category_consents, p.consent_version, p.updated_at::text AS updated_at
+         FROM users u
+         LEFT JOIN ad_consent_preferences p ON p.user_id = u.id
+        WHERE u.id = $1 AND u.status = 'active'`,
+      [userId]
+    );
+    if (!preflight.rows[0]) return res.status(401).json({ error: 'account_not_active' });
+    const previous = preflight.rows[0].user_id ? preflight.rows[0] : null;
+    const consentRevoked = hasAdConsentRevocation(previous, preferences);
+
+    if (consentRevoked) {
+      const generation = getAdConsentLifecycleGeneration(previous);
+      const operationId = derivePrivacyRecoveryOperationId({
+        eventType: 'ad_consent_revoked',
+        userId,
+        resourceId: 'ad-consent',
+        generation
+      });
+      const operation = await runAckGatedPrivacyRecoveryOperation({
+        pool,
+        operationId,
+        event: { eventType: 'ad_consent_revoked', userId },
+        apply: async transactionClient => {
+          // Reacquire locks only after the ACK. A re-consent or any other update
+          // during the network round-trip makes this operation non-applicable.
+          const activeAccount = await transactionClient.query(
+            'SELECT id FROM users WHERE id = $1 AND status = \'active\' FOR SHARE',
+            [userId]
+          );
+          if (activeAccount.rowCount !== 1) throw new Error('account_not_active');
+          const currentResult = await transactionClient.query(
+            `SELECT user_id, ads_consent, date_offers_consent, wedding_offers_consent,
+                    marriage_planning_opt_in, category_consents, consent_version, updated_at::text AS updated_at
+               FROM ad_consent_preferences WHERE user_id = $1 FOR UPDATE`,
+            [userId]
+          );
+          const current = currentResult.rows[0] || null;
+          if (!isSameAdConsentLifecycle(previous, current)) {
+            throw new Error('ad_consent_state_changed_retry');
+          }
+          return persistPreferencesAndHistory(transactionClient);
+        }
+      });
+      return res.json({
+        version: AD_CONSENT_VERSION,
+        preferences: operation.result,
+        privacyRecovery: { acknowledged: true, duplicate: operation.duplicate === true }
+      });
+    }
+
+    // Non-revoking writes retain the normal transaction. Re-check under lock:
+    // if a concurrent grant made this request a revocation, fail closed and let
+    // the client retry through the ACK-gated path instead of bypassing the Ledger.
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const activeAccount = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND status = 'active' FOR SHARE",
+      [userId]
+    );
+    if (activeAccount.rowCount !== 1) {
+      await client.query('ROLLBACK');
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    const currentResult = await client.query(
+      `SELECT user_id, ads_consent, date_offers_consent, wedding_offers_consent,
+              marriage_planning_opt_in, category_consents, consent_version, updated_at::text AS updated_at
+         FROM ad_consent_preferences WHERE user_id = $1 FOR UPDATE`,
+      [userId]
+    );
+    const current = currentResult.rows[0] || null;
+    if (hasAdConsentRevocation(current, preferences)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'ad_consent_state_changed_retry' });
+    }
+    const savedPreferences = await persistPreferencesAndHistory(client);
     await client.query('COMMIT');
-    return res.json({
-      version: AD_CONSENT_VERSION,
-      preferences: savedPreferences
-    });
+    return res.json({ version: AD_CONSENT_VERSION, preferences: savedPreferences });
   } catch (error) {
     if (client && !await rollbackPooledTransaction(client)) client = null;
+    if (error?.message === 'ad_consent_state_changed_retry') {
+      return res.status(409).json({ error: 'ad_consent_state_changed_retry' });
+    }
+    if (error?.message === 'account_not_active') {
+      return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (String(error?.message || '').startsWith('privacy_recovery_ledger_') ||
+        String(error?.message || '').startsWith('privacy_recovery_operation_')) {
+      console.error('Privacy recovery ledger rejected ad consent revocation:', error?.message || 'unknown error');
+      return res.status(503).json({ error: 'privacy_recovery_ledger_unavailable' });
+    }
     console.error('Ad consent preferences update failed:', error?.message || 'unknown error');
     return res.status(500).json({ error: 'ad_consent_preferences_unavailable' });
   } finally {

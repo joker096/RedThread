@@ -5,7 +5,8 @@ const EVENT_TYPES = new Set([
   "private_photo_erasure_requested",
   "identity_l3_consent_withdrawn",
   "ad_consent_revoked",
-  "gift_order_consent_withdrawn"
+  "gift_order_consent_withdrawn",
+  "gift_address_draft_consent_withdrawn"
 ]);
 const MAX_BODY_BYTES = 4096;
 const MAX_CLOCK_SKEW_SECONDS = 300;
@@ -94,6 +95,8 @@ function validEvent(value) {
   if (Object.keys(value).length !== 5 + (value.resource_ref === undefined ? 0 : 1)) return false;
   if (typeof value.event_id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.event_id)) return false;
   if (value.schema_version !== 1 || !EVENT_TYPES.has(value.event_type)) return false;
+  if (value.event_type === 'gift_address_draft_consent_withdrawn' &&
+      (typeof value.resource_ref !== 'string' || !/^[a-f0-9]{64}$/i.test(value.resource_ref))) return false;
   if (typeof value.subject_ref !== "string" || !/^[a-f0-9]{64}$/i.test(value.subject_ref)) return false;
   if (value.resource_ref !== undefined && (typeof value.resource_ref !== "string" || !/^[a-f0-9]{64}$/i.test(value.resource_ref))) return false;
   if (typeof value.occurred_at !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value.occurred_at)) return false;
@@ -123,14 +126,14 @@ export async function handleRequest(request, env) {
       ).run();
       const row = await env.LEDGER_DB.prepare("SELECT sequence FROM privacy_events WHERE event_id = ?")
         .bind(event.event_id).first();
-      return json({ accepted: true, duplicate: false, sequence: row.sequence }, 201);
+      return json({ accepted: true, duplicate: false, event_id: event.event_id, sequence: row.sequence }, 201);
     } catch (error) {
       const existing = await env.LEDGER_DB.prepare(
         "SELECT sequence, payload_sha256 FROM privacy_events WHERE event_id = ?"
       ).bind(event.event_id).first();
       if (existing) {
         if (existing.payload_sha256 !== payloadHash) return json({ error: "event_id_conflict" }, 409);
-        return json({ accepted: true, duplicate: true, sequence: existing.sequence }, 200);
+        return json({ accepted: true, duplicate: true, event_id: event.event_id, sequence: existing.sequence }, 200);
       }
       return json({ error: "ledger_write_failed" }, 503);
     }

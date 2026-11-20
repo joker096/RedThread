@@ -148,3 +148,17 @@ test('fails closed when a restored resource has no owner identity', () => {
   assert.equal(result[0].status, 'resource_owner_missing');
   assert.equal(result[0].resourceId, null);
 });
+
+test('maps address-draft consent withdrawal to the recipient-owned draft lifecycle', () => {
+  const recipientId = id();
+  const orderId = id();
+  const result = resolvePrivacyRecoveryMappings({
+    pseudonymKey: key,
+    users: [{ id: recipientId }],
+    giftOrders: [{ id: orderId, user_id: recipientId }],
+    events: [event('gift_address_draft_consent_withdrawn', recipientId, orderId)]
+  });
+  assert.equal(result[0].status, 'matched');
+  assert.equal(result[0].subjectUserId, recipientId);
+  assert.equal(result[0].resourceId, orderId);
+});

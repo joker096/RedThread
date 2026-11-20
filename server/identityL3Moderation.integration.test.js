@@ -10,6 +10,7 @@ import path from 'node:path';
 import pg from 'pg';
 import { createSessionToken, hashSessionToken } from './security.js';
 import { runIdentityL3PurgeOnce } from './process-identity-l3-queue.js';
+import { startTestPrivacyRecoveryLedger } from './testPrivacyRecoveryLedger.js';
 
 const { Pool } = pg;
 
@@ -41,6 +42,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
   const applicantSession = createSessionToken();
   const moderatorSession = createSessionToken();
   let child;
+  let ledger;
 
   async function seedUser(userId, role, gender, label, token) {
     await pool.query(
@@ -149,6 +151,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
     );
 
     const port = await findFreePort();
+    ledger = await startTestPrivacyRecoveryLedger();
     const origin = 'http://localhost:3000';
     const api = 'http://127.0.0.1:' + port;
     child = spawn(process.execPath, ['server/index.js'], {
@@ -157,6 +160,10 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
         API_PORT: String(port),
         APP_ORIGIN: origin,
         NODE_ENV: 'test',
+        PRIVACY_RECOVERY_LEDGER_REQUIRED: 'true',
+        PRIVACY_RECOVERY_LEDGER_URL: ledger.url,
+        PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: 'test-ledger-hmac-secret-'.padEnd(40, 'x'),
+        PRIVACY_RECOVERY_LEDGER_PSEUDONYM_KEY: 'test-ledger-pseudonym-key-'.padEnd(40, 'y'),
         EMAIL_VERIFICATION_REQUIRED: 'false',
         IDENTITY_L3_ENABLED: 'true',
         IDENTITY_L3_STORAGE_DIR: storageRoot,
@@ -342,6 +349,19 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
 
     // Withdrawal revokes an existing approval immediately and the purge worker
     // must be able to clear media from the now-revoked terminal submission.
+    ledger.failNext();
+    const rejectedWithdrawal = await request('/api/identity/l3/consent', {
+      method: 'DELETE',
+      headers: { Cookie: applicantCookie }
+    });
+    assert.equal(rejectedWithdrawal.status, 503,
+      'L3 consent and approval state must not be mutated before the Ledger ACK');
+    const consentBeforeRetry = await pool.query(
+      'SELECT withdrawn_at FROM identity_l3_consents WHERE user_id = $1',
+      [applicantId]
+    );
+    assert.equal(consentBeforeRetry.rows[0]?.withdrawn_at, null);
+
     const withdrawn = await request('/api/identity/l3/consent', {
       method: 'DELETE',
       headers: { Cookie: applicantCookie }
@@ -526,6 +546,7 @@ test('L3 moderator queue, authenticated media review, decisions and rejected-med
       [[applicantId, moderatorId]]
     );
     await pool.end();
+    if (ledger) await ledger.close().catch(() => {});
     await Promise.all([
       rm(storageRoot, { recursive: true, force: true }),
       rm(tempRoot, { recursive: true, force: true })

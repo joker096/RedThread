@@ -13,7 +13,8 @@ const EVENT_TYPES = new Set([
   'private_photo_erasure_requested',
   'identity_l3_consent_withdrawn',
   'ad_consent_revoked',
-  'gift_order_consent_withdrawn'
+  'gift_order_consent_withdrawn',
+  'gift_address_draft_consent_withdrawn'
 ]);
 
 function validEvent(event, expectedSequence) {
@@ -26,6 +27,7 @@ function validEvent(event, expectedSequence) {
     typeof event.subject_ref === 'string' && /^[a-f0-9]{64}$/i.test(event.subject_ref) &&
     (event.resource_ref === null || event.resource_ref === undefined ||
       (typeof event.resource_ref === 'string' && /^[a-f0-9]{64}$/i.test(event.resource_ref))) &&
+    (event.event_type !== 'gift_address_draft_consent_withdrawn' || typeof event.resource_ref === 'string') &&
     typeof event.occurred_at === 'string' && Number.isFinite(Date.parse(event.occurred_at)) &&
     typeof event.received_at === 'string' && Number.isFinite(Date.parse(event.received_at)));
 }

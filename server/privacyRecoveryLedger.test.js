@@ -39,7 +39,7 @@ test('event is pseudonymized, signed and only acknowledged after remote durable 
     now: () => 1_800_000_000_000,
     fetchImpl: async (url, options) => {
       captured = { url, options, event: JSON.parse(options.body) };
-      return new Response(JSON.stringify({ accepted: true, duplicate: false, sequence: 17 }), {
+      return new Response(JSON.stringify({ accepted: true, duplicate: false, event_id: captured.event.event_id, sequence: 17 }), {
         status: 201, headers: { 'content-type': 'application/json' }
       });
     }
@@ -47,6 +47,7 @@ test('event is pseudonymized, signed and only acknowledged after remote durable 
 
   assert.equal(result.acknowledged, true);
   assert.equal(result.sequence, 17);
+  assert.equal(result.eventId, captured.event.event_id);
   assert.equal(captured.url, 'https://ledger.example/v1/events');
   assert.equal(captured.options.redirect, 'error', 'signed privacy events must never follow redirects to another host');
   assert.equal(captured.event.event_type, 'voice_intro_consent_withdrawn');
@@ -84,7 +85,7 @@ test('invalid event types and non-HTTPS endpoints are rejected', async () => {
 test('malformed or non-success acknowledgement is rejected', async () => {
   await assert.rejects(
     appendPrivacyRecoveryEvent({ eventType: 'account_erasure_requested', userId: 'u-1' }, {
-      env: baseEnv, fetchImpl: async () => new Response('{}', { status: 200 })
+      env: baseEnv, fetchImpl: async () => new Response(JSON.stringify({ accepted: true, sequence: 18 }), { status: 200 })
     }),
     /invalid_acknowledgement/
   );
@@ -99,5 +100,36 @@ test('delivery rejects malformed persisted payloads before making a network requ
       subject_ref: 'c'.repeat(64), occurred_at: '2026-11-16T00:00:00.000Z'
     }, { env: baseEnv, fetchImpl: async () => { throw new Error('must not call'); } }),
     /invalid_privacy_recovery_event_payload/
+  );
+});
+
+test('address draft consent withdrawal is a supported pseudonymized Ledger event', async () => {
+  let payload;
+  const result = await appendPrivacyRecoveryEvent({
+    eventType: 'gift_address_draft_consent_withdrawn',
+    userId: 'recipient-user',
+    resourceId: 'gift-order',
+    occurredAt: '2026-11-18T12:00:00.000Z'
+  }, {
+    env: baseEnv,
+    fetchImpl: async (_url, options) => {
+      payload = JSON.parse(options.body);
+      return new Response(JSON.stringify({ accepted: true, event_id: payload.event_id, sequence: 29 }), { status: 201 });
+    }
+  });
+  assert.equal(result.acknowledged, true);
+  assert.equal(result.sequence, 29);
+  assert.equal(payload.event_type, 'gift_address_draft_consent_withdrawn');
+  assert.notEqual(payload.subject_ref, 'recipient-user');
+  assert.notEqual(payload.resource_ref, 'gift-order');
+});
+
+test('address draft withdrawal payload requires the exact order resource', async () => {
+  await assert.rejects(
+    appendPrivacyRecoveryEvent({
+      eventType: 'gift_address_draft_consent_withdrawn',
+      userId: 'recipient-user'
+    }, { env: baseEnv, fetchImpl: async () => { throw new Error('must not call'); } }),
+    /invalid_privacy_recovery_event/
   );
 });

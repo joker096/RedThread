@@ -28,7 +28,7 @@ Do not reuse `GIFT_ADDRESS_VAULT_KEY`, voice, identity, session, or backup encry
 
 - `PUT /api/gifts/orders/:publicReference/address-draft`: recipient-only; requires `{ "consent": true, "consentVersion": 1, "address": { ... } }`. Stores or replaces an encrypted temporary draft.
 - `GET /api/gifts/orders/:publicReference/address-draft`: recipient-only; returns the decrypted draft only while consent is active and TTL has not elapsed.
-- `DELETE /api/gifts/orders/:publicReference/address-draft`: recipient-only; deletes ciphertext and appends a withdrawal event.
+- `DELETE /api/gifts/orders/:publicReference/address-draft`: recipient-only; captures the active consent-grant event, obtains a durable ACK for `gift_address_draft_consent_withdrawn`, then reacquires safety/order/consent locks, revalidates the same grant lifecycle, physically deletes the live ciphertext row and appends the local withdrawal event atomically. Ledger failure returns 503 and leaves the ciphertext and consent unchanged. The same deterministic event ID is reused on retries.
 
 The order must already be `recipient_accepted`. A transition out of that state, order-level consent withdrawal, account suspension/deletion, match deactivation, block/report/safety hold or other terminalization automatically deletes the draft row and withdraws active draft consent.
 
