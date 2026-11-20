@@ -172,10 +172,11 @@ test('maintenance cannot overtake an admitted backup reader', async () => {
   let backup;
   try {
     const started = path.join(f.temporaryRoot, 'tar-started');
+    const release = path.join(f.temporaryRoot, 'tar-release');
     await writeFile(path.join(f.fakeBin, 'tar'), `#!/usr/bin/env bash
 set -Eeuo pipefail
 printf started > "$TAR_STARTED"
-sleep 0.8
+while [[ ! -e "$TAR_RELEASE" ]]; do sleep 0.01; done
 printf 'fixture-archive-with-private-photo-content'
 `);
     await chmod(path.join(f.fakeBin, 'tar'), 0o700);
@@ -186,7 +187,8 @@ printf 'fixture-archive-with-private-photo-content'
       BACKUP_DIR: f.backupDir,
       BACKUP_AGE_RECIPIENT: 'age1fixturepublicrecipient',
       PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.lock,
-      TAR_STARTED: started
+      TAR_STARTED: started,
+      TAR_RELEASE: release
     };
     backup = spawn('bash', [admissionScript, 'writer', '--', 'bash', script], { env, stdio: 'ignore' });
     const deadline = Date.now() + 3000;
@@ -203,11 +205,12 @@ printf 'fixture-archive-with-private-photo-content'
       env: {
         ...env,
         PRIVACY_RECOVERY_DRAIN_EXECUTABLE: f.drain,
-        PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '0.1'
+        PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '0.2'
       }
     });
     assert.notEqual(maintenance.status, 0, maintenance.stderr || 'maintenance must wait for backup reader');
     assert.match(maintenance.stderr, /did not drain/);
+    await writeFile(release, 'release');
     await new Promise((resolve, reject) => {
       backup.once('error', reject);
       backup.once('exit', code => code === 0 ? resolve() : reject(new Error('backup exited with ' + code)));
