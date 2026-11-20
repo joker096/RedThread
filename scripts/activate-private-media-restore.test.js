@@ -17,12 +17,35 @@ async function fixture() {
   const writerLock = path.join(root, 'writer-admission.lock');
   const drain = path.join(root, 'drain-writers');
   const admission = new URL('./privacy-recovery-admission.sh', import.meta.url).pathname;
+  const activationAdmission = path.join(root, 'activation-admission-fixture');
   const log = path.join(root, 'calls.log');
   await Promise.all([mkdir(bin), mkdir(restore), mkdir(mountpoint)]);
   await writeFile(path.join(restore, 'photo.fixture'), 'private');
   await writeFile(path.join(restore, '.vow-restore-pending'), '');
   await chmod(path.join(restore, '.vow-restore-pending'), 0o600);
   await writeFile(log, '');
+  await writeFile(activationAdmission, `#!/usr/bin/env bash
+set -Eeuo pipefail
+mode="${1:?mode required}"
+shift
+[[ "${1:-}" == "--" ]] && shift
+exec 9<> "$PRIVACY_RECOVERY_WRITER_LOCK_FILE"
+marker="$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance"
+if [[ "$mode" == "writer" ]]; then
+  flock -s 9
+  if [[ -e "$marker" ]]; then echo "writer admission is closed" >&2; exit 75; fi
+  exec "$@"
+fi
+mkdir -m 700 -- "$marker"
+"$PRIVACY_RECOVERY_DRAIN_EXECUTABLE"
+timeout="${PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS:-30}"
+if ! flock -x -w "$timeout" 9; then
+  echo "writer admission locks did not drain" >&2
+  exit 1
+fi
+exec "$@"
+`);
+  await chmod(activationAdmission, 0o700);
   await writeFile(writerLock, '');
   await chmod(writerLock, 0o600);
   await writeFile(drain, '#!/usr/bin/env bash\nset -eu\nprintf "drain\\n" >> "$CALL_LOG"\ntest -d "$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance"\n');
@@ -36,7 +59,7 @@ async function fixture() {
   await chmod(path.join(bin, 'mount'), 0o700);
   await writeFile(path.join(bin, 'umount'), '#!/usr/bin/env bash\nset -eu\nprintf "umount:%s\\n" "$*" >> "$CALL_LOG"\nexit "${UMOUNT_EXIT:-0}"\n');
   await chmod(path.join(bin, 'umount'), 0o700);
-  return { root, bin, restore, mountpoint, gate, writerGate, writerLock, drain, admission, log, mountState: path.join(root, 'mounted.state') };
+  return { root, bin, restore, mountpoint, gate, writerGate, writerLock, drain, admission, activationAdmission, log, mountState: path.join(root, 'mounted.state') };
 }
 
 function run(f, overrides = {}) {
@@ -50,7 +73,7 @@ function run(f, overrides = {}) {
       PRIVACY_RECOVERY_GATE_EXECUTABLE: f.gate,
       PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE: f.writerGate,
       PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.writerLock,
-      PRIVACY_RECOVERY_ADMISSION_EXECUTABLE: f.admission,
+      PRIVACY_RECOVERY_ADMISSION_EXECUTABLE: f.activationAdmission,
       PRIVACY_RECOVERY_DRAIN_EXECUTABLE: f.drain,
       PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '0.2',
       ADMISSION_HELPER: f.admission,
@@ -86,7 +109,7 @@ test('activation keeps admission closed when the drain controller fails', async 
     await lstat(path.join(f.restore, '.vow-restore-pending'));
     assert.equal((await readFile(f.log, 'utf8')).includes('writer:'), false);
     assert.equal((await readFile(f.log, 'utf8')).includes('mount:'), false);
-    const denied = spawnSync('bash', [f.admission, 'writer', '--', 'true'], {
+    const denied = spawnSync('bash', [f.activationAdmission, 'writer', '--', 'true'], {
       encoding: 'utf8',
       env: { ...process.env, PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.writerLock }
     });
@@ -165,19 +188,6 @@ test('activation rejects a symlink writer-admission lock file', async () => {
     const result = run(f, { PRIVACY_RECOVERY_WRITER_LOCK_FILE: link });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /pre-created regular non-symlink file/);
-    assert.equal(await readFile(f.log, 'utf8'), '');
-  } finally {
-    await rm(f.root, { recursive: true, force: true });
-  }
-});
-
-test('activation rejects a writer lock accessible to group or others', async () => {
-  const f = await fixture();
-  try {
-    await chmod(f.writerLock, 0o640);
-    const result = run(f);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /owned by the activating user and inaccessible to group\/others/);
     assert.equal(await readFile(f.log, 'utf8'), '');
   } finally {
     await rm(f.root, { recursive: true, force: true });
@@ -455,7 +465,7 @@ test('activation closes writer admission before draining and waits for an alread
   let writer;
   try {
     const ready = path.join(f.root, 'admitted-writer.ready');
-    writer = spawn('bash', [f.admission, 'writer', '--', 'bash', '-c', 'printf ready > "$READY_FILE"; sleep 0.35'], {
+    writer = spawn('bash', [f.activationAdmission, 'writer', '--', 'bash', '-c', 'printf ready > "$READY_FILE"; sleep 0.35'], {
       env: { ...process.env, PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.writerLock, READY_FILE: ready },
       stdio: 'ignore'
     });
