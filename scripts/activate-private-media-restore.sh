@@ -112,8 +112,8 @@ fi
 # exclusive lock and its durable maintenance marker already present.
 if [[ "${1:-}" != "--vow-internal-activation" ]]; then
   admission_helper="${PRIVACY_RECOVERY_ADMISSION_EXECUTABLE:-$(dirname -- "$0")/privacy-recovery-admission.sh}"
-  if [[ "$admission_helper" != /* || ! -f "$admission_helper" || -L "$admission_helper" || ! -x "$admission_helper" ]]; then
-    echo "privacy-recovery admission helper must be an absolute, regular, executable, non-symlink file" >&2
+  if [[ "$admission_helper" != /* || ! -f "$admission_helper" || -L "$admission_helper" ]]; then
+    echo "privacy-recovery admission helper must be an absolute, regular, non-symlink file" >&2
     exit 1
   fi
   exec bash "$admission_helper" maintenance -- "$0" --vow-internal-activation
