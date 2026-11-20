@@ -7693,6 +7693,9 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
     if (error?.message === 'account_not_active') {
       return res.status(401).json({ error: 'account_not_active' });
     }
+    if (error?.message === 'identity_l3_consent_lifecycle_missing_reconciliation_required') {
+      return res.status(503).json({ error: 'identity_l3_consent_lifecycle_reconciliation_required' });
+    }
     if (String(error?.message || '').startsWith('privacy_recovery_ledger_') ||
         String(error?.message || '').startsWith('privacy_recovery_operation_')) {
       console.error('Privacy recovery ledger rejected L3 consent withdrawal:', error?.message || 'unknown error');
