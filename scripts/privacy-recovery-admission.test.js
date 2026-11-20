@@ -305,7 +305,6 @@ fi
     }
   });
 
-});
 
   await t.test('SIGKILL during the maintenance critical command releases the flock but preserves the sticky marker', async () => {
     const f = await fixture();
@@ -366,3 +365,4 @@ fi
       }
     }
   });
+});
