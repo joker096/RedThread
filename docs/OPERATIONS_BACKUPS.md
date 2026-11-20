@@ -4,6 +4,23 @@
 
 Use a deployment secret manager for DATABASE_URL and BACKUP_AGE_RECIPIENT; do not commit credentials. Install PostgreSQL client tools and age on a trusted Linux backup host. Generate an age recipient key pair and keep the private identity offline or in a dedicated secret manager; only the public recipient belongs in BACKUP_AGE_RECIPIENT.
 
+## Runtime writer admission for the application stack
+
+Before starting any API or worker container, provision one persistent host lock directory shared by every Compose service built from the API image. Do not place it under `/run` or another volatile filesystem: the maintenance marker must survive a host reboot so an interrupted deletion/restore cannot silently reopen writers.
+
+```bash
+# Choose and record one numeric GID consistently across every host.
+PRIVACY_RECOVERY_WRITER_GID='<numeric-writer-group-id>'
+PRIVACY_RECOVERY_WRITER_LOCK_DIR=/var/lib/vow-privacy-admission
+groupadd --system --gid "$PRIVACY_RECOVERY_WRITER_GID" vow-privacy-writers
+install -d -o root -g "$PRIVACY_RECOVERY_WRITER_GID" -m 2750 "$PRIVACY_RECOVERY_WRITER_LOCK_DIR"
+install -o root -g "$PRIVACY_RECOVERY_WRITER_GID" -m 0640 /dev/null "$PRIVACY_RECOVERY_WRITER_LOCK_DIR/writers.lock"
+```
+
+Set `PRIVACY_RECOVERY_WRITER_GID` and `PRIVACY_RECOVERY_WRITER_LOCK_DIR` in the protected Compose environment. Compose mounts the pre-existing directory read-only into every API, migration, retention and purge container, adds only the configured supplementary group, and refuses to create a missing host path. The API image entrypoint acquires the shared lock before running any command; each database-writing Node entrypoint independently verifies the inherited FD 9 and fails closed when invoked directly with the production guard enabled. Runtime scripts remain root-owned inside the image.
+
+Do not start or restart the application stack until the host directory and lock file have the exact ownership and modes above. The Docker daemon administrator can always override container entrypoints or mount arbitrary files; therefore restrict Docker socket/context access to the trusted deployment and maintenance operators. The admission protocol protects ordinary Compose starts, automatic restarts and direct Node invocations by the unprivileged service account; it is not a security boundary against a hostile host root or Docker administrator.
+
 Before any backup, provision the dedicated writer-admission lock on the trusted host. The lock directory must be owned by root and the configured writer group with mode `2750`; the lock file must be root-owned by that group with mode `0640`. Add the backup service account to the group and set the numeric GID. The drain controller is required for maintenance mode; a backup writer only needs the lock and group configuration.
 
 ```bash
