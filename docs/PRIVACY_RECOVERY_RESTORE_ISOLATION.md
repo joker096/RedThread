@@ -137,3 +137,24 @@ The maintenance marker remains after successful activation and all failures. The
 
 This integration fixes the ordering mismatch in the activation wrapper for cooperative participants. It does **not** implement service-wide admission enforcement or host-level isolation. Compose/API/purge/migration/manual writer paths still need to be wired to the same lock and marker, and the independent host gate must still prove that non-cooperating host processes, namespaces, descriptors, aliases and Docker clients cannot write during the critical section. Until those controls and their evidence exist, real private-media restore activation remains prohibited.
 
+## Host/container lock permissions: unresolved integration blocker
+
+The current lock helper is intentionally **host-operator-only** and is not safe to mount into the API or worker containers as-is:
+
+- The API image runs as the unprivileged `node` user.
+- The helper currently requires the lock file owner to equal the calling UID, requires group/other permissions to be absent, and opens the lock read/write for every mode.
+- The documented host provisioning example creates a root:root mode-0600 lock. A `node` process cannot open that file, and changing it to mode 0644/0666 or making it group-writable would weaken the security boundary rather than solve it.
+
+Do not bind-mount the current host lock into Compose and do not claim that the services participate in admission until a dedicated cross-boundary contract is implemented and tested.
+
+A candidate contract for review (not yet implemented or approved):
+
+1. Provision a dedicated, non-login host group for Vow writer admission. Its numeric GID must be explicitly selected during host provisioning and passed as configuration; never assume that UID/GID 1000 or any image-default group is suitable.
+2. The lock inode is host-owned by root and the dedicated group, with mode `0640`. Its parent directory is root-owned by the same group, mode `0750`, and not writable by group members. The sticky maintenance marker is created by the root maintenance process with the same group and mode `0750`; marker creation must remain durable and fail closed.
+3. Every writer container receives the same host lock inode and marker parent through read-only bind mounts. Its process identity must have the configured dedicated supplementary GID (for Compose this must be explicitly provisioned, e.g. with `group_add`, and verified at runtime). No container receives write access to the lock or marker parent.
+4. Writer mode opens the lock read-only and takes a shared `flock`; maintenance mode opens it read/write as root and takes the exclusive lock. Linux shared `flock` is supported on a read-only descriptor, but this exact behavior must be covered by tests in the target runtime/filesystem. The writer checks the marker while holding the shared lock and retains the descriptor for the entire writer lifetime.
+5. The helper must validate the configured numeric GID, actual supplementary-group membership, root/group ownership, exact permission masks, canonical parent path, non-symlink inode identity, and marker type/ownership/mode. It must reject an unconfigured GID, an unexpected group, writable group/other bits, and a lock or marker mounted from a different inode.
+6. Provisioning must create the lock and marker parent before any Vow writer can start. A boot-time service / systemd ordering dependency and a single mandatory entrypoint guard must prevent API, purge, migration, scheduled, restart-policy and manual Compose launches from bypassing admission. Read-only bind mounts alone do not enforce launch policy.
+7. Tests must cover root maintenance versus node writer, shared lock on read-only FD, supplementary GID present/missing, wrong GID, group/world write rejection, marker visibility, marker creation durability, long-lived writer drain, descriptor inheritance, mount identity across every consumer, and attempted manual/restart startup during maintenance.
+
+The candidate permissions above are a design direction only. Do not modify the current helper to accept group ownership or relax its permissions until the full provisioning, service integration, boot ordering, host admission policy, and tests are implemented together. The independent host-level isolation gate and its machine-readable attestation remain separate mandatory prerequisites.
