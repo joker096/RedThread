@@ -16,7 +16,7 @@ const setprivAvailable = spawnSync('setpriv', ['--version'], { encoding: 'utf8' 
 const canRun = rootAvailable && setprivAvailable && writerUid !== 0;
 
 function runRoot(args, options = {}) {
-  return spawnSync(...(sudo.length ? ['sudo', ['-n', ...args]] : [args[0], args.slice(1)]), options);
+  return spawnSync(...(sudo.length ? ['sudo', ['-n', ...args]] : [args[0], args.slice(1)]), { encoding: 'utf8', ...options });
 }
 
 async function fixture({ drain = `#!/usr/bin/env bash
@@ -183,7 +183,7 @@ exit 44
       assert.equal(blocked.status, 75, blocked.stderr);
     } finally {
       if (writer && writer.exitCode === null) writer.kill('SIGKILL');
-      await rm(readyFile, { force: true });
+      runRoot(['rm', '-f', '--', readyFile]);
       await cleanup(f);
     }
   });
