@@ -9,6 +9,7 @@ import { validateEncryptedArchive } from './verify-encrypted-backups.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const backupScript = path.join(root, 'backup-private-media.sh');
+const admissionScript = path.join(root, 'privacy-recovery-admission.sh');
 const restoreScript = path.join(root, 'restore-private-media.sh');
 
 function available(command) {
@@ -34,12 +35,15 @@ test('private media backup and restore round-trip with real age encryption and t
   const source = path.join(temporaryRoot, 'private-media');
   const backupDir = path.join(temporaryRoot, 'encrypted-backups');
   const identityFile = path.join(temporaryRoot, 'age-identity.txt');
+  const lockFile = path.join(temporaryRoot, 'writers.lock');
   const wrongIdentityFile = path.join(temporaryRoot, 'wrong-age-identity.txt');
   const destination = path.join(temporaryRoot, 'isolated-restore', 'private-media');
   const fixture = Buffer.from('synthetic-private-media-fixture-not-user-data');
   const nestedFixture = Buffer.from([0, 1, 2, 3, 254, 255]);
 
   try {
+    await writeFile(lockFile, '');
+    await chmod(lockFile, 0o600);
     await mkdir(path.join(source, 'nested'), { recursive: true, mode: 0o700 });
     await mkdir(path.dirname(destination), { mode: 0o700 });
     await writeFile(path.join(source, 'photo-fixture.bin'), fixture, { mode: 0o600 });
@@ -51,11 +55,12 @@ test('private media backup and restore round-trip with real age encryption and t
     const recipient = identity.match(/^# public key: (age1[0-9a-z]+)$/m)?.[1];
     assert.ok(recipient, 'age-keygen must produce a valid public recipient');
 
-    run('bash', [backupScript], {
+    run('bash', [admissionScript, 'writer', '--', 'bash', backupScript], {
       PRIVATE_MEDIA_DIR: source,
       BACKUP_DIR: backupDir,
       BACKUP_AGE_RECIPIENT: recipient,
-      BACKUP_RETENTION_DAYS: '30'
+      BACKUP_RETENTION_DAYS: '30',
+      PRIVACY_RECOVERY_WRITER_LOCK_FILE: lockFile
     });
 
     const artifacts = await readdir(backupDir);
