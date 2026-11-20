@@ -26,6 +26,8 @@ export HOST_WRITER_ISOLATION_GATE_EXECUTABLE=/absolute/path/to/host-writer-isola
 install -d -o root -g root -m 0700 /run/vow-restore-audit01
 install -o root -g root -m 0600 /dev/null /run/vow-restore-audit01/writers.lock
 export PRIVACY_RECOVERY_WRITER_LOCK_FILE=/run/vow-restore-audit01/writers.lock
+# Must drain all admitted writers in this isolated restore environment.
+export PRIVACY_RECOVERY_DRAIN_EXECUTABLE=/absolute/path/to/restore-writer-drain-controller
 export PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE=/absolute/path/to/scripts/privacy-recovery-stop-writers.sh
 export PRIVACY_RECOVERY_GATE_EXECUTABLE=/absolute/path/to/domain-reconciliation-gate
 export RESTORE_DESTINATION=/absolute/path/to/disposable-restore-staging
