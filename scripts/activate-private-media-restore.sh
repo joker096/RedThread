@@ -109,6 +109,12 @@ if [[ "${1:-}" != "--vow-internal-activation" ]]; then
     echo "privacy-recovery admission helper must be an absolute, regular, non-symlink file" >&2
     exit 1
   fi
+  admission_identity="$(stat -c '%u:%a' -- "$admission_helper")"
+  IFS=: read -r admission_owner admission_mode <<< "$admission_identity"
+  if [[ "$admission_owner" != "0" ]] || (( (8#$admission_mode & 8#022) != 0 )); then
+    echo "privacy-recovery admission helper must be root-owned and not group/world writable" >&2
+    exit 1
+  fi
   exec bash "$admission_helper" maintenance -- bash "$0" --vow-internal-activation
 fi
 shift
