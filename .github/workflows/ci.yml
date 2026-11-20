@@ -73,5 +73,38 @@ jobs:
         run: mkdir -p /tmp/vow-ci-privacy-admission && docker compose config --quiet
       - name: Build API container
         run: docker build --target api -t vow-api:ci .
+      - name: Verify API image admission, direct-launch rejection and maintenance closure
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          lock_dir=/tmp/vow-ci-runtime-admission
+          sudo install -d -o root -g 65534 -m 2750 "$lock_dir"
+          sudo install -o root -g 65534 -m 0640 /dev/null "$lock_dir/writers.lock"
+          docker run --rm --group-add 65534 \
+            --mount "type=bind,src=$lock_dir,dst=/run/vow-privacy,readonly" \
+            -e PRIVACY_RECOVERY_REQUIRE_ADMISSION=true \
+            -e PRIVACY_RECOVERY_WRITER_LOCK_FILE=/run/vow-privacy/writers.lock \
+            -e PRIVACY_RECOVERY_WRITER_GID=65534 \
+            vow-api:ci node --input-type=module -e "import('./server/privacyRecoveryAdmissionGuard.js').then(m => m.assertPrivacyRecoveryAdmission())"
+          if docker run --rm --entrypoint node --group-add 65534 \
+            --mount "type=bind,src=$lock_dir,dst=/run/vow-privacy,readonly" \
+            -e PRIVACY_RECOVERY_REQUIRE_ADMISSION=true \
+            -e PRIVACY_RECOVERY_WRITER_LOCK_FILE=/run/vow-privacy/writers.lock \
+            -e PRIVACY_RECOVERY_WRITER_GID=65534 \
+            vow-api:ci --input-type=module -e "import('./server/privacyRecoveryAdmissionGuard.js').then(m => m.assertPrivacyRecoveryAdmission())"; then
+            echo "Direct Node invocation unexpectedly bypassed admission" >&2
+            exit 1
+          fi
+          sudo install -d -o root -g 65534 -m 2750 "$lock_dir/writers.lock.maintenance"
+          set +e
+          docker run --rm --group-add 65534 \
+            --mount "type=bind,src=$lock_dir,dst=/run/vow-privacy,readonly" \
+            -e PRIVACY_RECOVERY_REQUIRE_ADMISSION=true \
+            -e PRIVACY_RECOVERY_WRITER_LOCK_FILE=/run/vow-privacy/writers.lock \
+            -e PRIVACY_RECOVERY_WRITER_GID=65534 \
+            vow-api:ci node --input-type=module -e "import('./server/privacyRecoveryAdmissionGuard.js').then(m => m.assertPrivacyRecoveryAdmission())"
+          status=$?
+          set -e
+          test "$status" -eq 75
       - name: Build web container
         run: docker build --target web -t vow-web:ci .
