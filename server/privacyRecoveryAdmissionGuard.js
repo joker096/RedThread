@@ -27,7 +27,7 @@ export function assertPrivacyRecoveryAdmission(env = process.env) {
   } catch {
     throw new Error('privacy recovery admission cannot inspect inherited FD 9');
   }
-  if (!/^lock:\\s*\\d+:\\s+FLOCK\\s+ADVISORY\\s+READ\\b/m.test(descriptorInfo)) {
+  if (!/^lock:\s*\d+:\s+FLOCK\s+ADVISORY\s+READ\b/m.test(descriptorInfo)) {
     throw new Error('privacy recovery admission requires a live shared flock on FD 9');
   }
 
