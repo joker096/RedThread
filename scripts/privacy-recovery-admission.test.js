@@ -150,7 +150,9 @@ test "$status" -eq 75
   });
 
   await t.test('maintenance failure leaves the sticky marker and never runs critical work', async () => {
-    const f = await fixture({ drain: '#!/usr/bin/env bash\\nexit 44\\n' });
+    const f = await fixture({ drain: `#!/usr/bin/env bash
+exit 44
+` });
     const output = `${f.root}.unsafe-output`;
     try {
       const result = run(f, 'maintenance', ['bash', '-c', 'echo unsafe > "$CRITICAL_OUTPUT"'], { CRITICAL_OUTPUT: output });
