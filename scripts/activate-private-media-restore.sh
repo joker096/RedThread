@@ -2,20 +2,6 @@
 set -Eeuo pipefail
 umask 077
 
-# The public entrypoint must always enter the shared marker-first maintenance
-# protocol. The internal phase is accepted only with the helper's inherited
-# exclusive lock and its durable maintenance marker already present.
-if [[ "${1:-}" != "--vow-internal-activation" ]]; then
-  admission_helper="${PRIVACY_RECOVERY_ADMISSION_EXECUTABLE:-$(dirname -- "$0")/privacy-recovery-admission.sh}"
-  if [[ "$admission_helper" != /* || ! -f "$admission_helper" || -L "$admission_helper" || ! -x "$admission_helper" ]]; then
-    echo "privacy-recovery admission helper must be an absolute, regular, executable, non-symlink file" >&2
-    exit 1
-  fi
-  exec bash "$admission_helper" maintenance -- "$0" --vow-internal-activation
-fi
-shift
-
-
 : "${RESTORE_DESTINATION:?Set RESTORE_DESTINATION to the isolated restore staging directory}"
 : "${PRIVATE_MEDIA_MOUNTPOINT:?Set PRIVATE_MEDIA_MOUNTPOINT to an existing empty mountpoint}"
 : "${PRIVACY_RECOVERY_GATE_EXECUTABLE:?Set PRIVACY_RECOVERY_GATE_EXECUTABLE to the executable domain-reconciliation gate}"
@@ -135,6 +121,20 @@ if [[ -n "$(find "$PRIVATE_MEDIA_MOUNTPOINT" -mindepth 1 -maxdepth 1 -print -qui
   echo "private media mountpoint must be empty" >&2
   exit 1
 fi
+
+# The public entrypoint must always enter the shared marker-first maintenance
+# protocol. The internal phase is accepted only with the helper's inherited
+# exclusive lock and its durable maintenance marker already present.
+if [[ "${1:-}" != "--vow-internal-activation" ]]; then
+  admission_helper="${PRIVACY_RECOVERY_ADMISSION_EXECUTABLE:-$(dirname -- "$0")/privacy-recovery-admission.sh}"
+  if [[ "$admission_helper" != /* || ! -f "$admission_helper" || -L "$admission_helper" || ! -x "$admission_helper" ]]; then
+    echo "privacy-recovery admission helper must be an absolute, regular, executable, non-symlink file" >&2
+    exit 1
+  fi
+  exec bash "$admission_helper" maintenance -- "$0" --vow-internal-activation
+fi
+shift
+
 
 # Stop and audit writers before domain reconciliation. This gate must target a dedicated restore-only environment.
 # A non-zero result leaves the restore pending and prevents activation.
