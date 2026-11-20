@@ -442,7 +442,7 @@ test('activation closes writer admission before draining and waits for an alread
       catch (error) { if (error.code !== 'ENOENT') throw error; await new Promise(resolve => setTimeout(resolve, 10)); }
     }
     await lstat(ready);
-    const result = run(f);
+    const result = run(f, { PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '2' });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const calls = await readFile(f.log, 'utf8');
     assert.ok(calls.indexOf('drain\n') >= 0);
