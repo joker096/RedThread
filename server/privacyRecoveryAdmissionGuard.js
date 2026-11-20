@@ -1,6 +1,11 @@
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 
-export function assertPrivacyRecoveryAdmission(env = process.env, expectedLockFile = '/run/vow-privacy/writers.lock') {
+const PINNED_LOCK_FILES = new Set([
+  '/run/vow-privacy/writers.lock',
+  '/var/lib/vow-privacy-admission/writers.lock'
+]);
+
+export function assertPrivacyRecoveryAdmission(env = process.env, expectedLockFile = null) {
   if (env.PRIVACY_RECOVERY_REQUIRE_ADMISSION !== 'true' && env.NODE_ENV !== 'production') return false;
 
   const lockFile = env.PRIVACY_RECOVERY_WRITER_LOCK_FILE;
@@ -8,7 +13,8 @@ export function assertPrivacyRecoveryAdmission(env = process.env, expectedLockFi
     throw new Error('privacy recovery admission requires an absolute writer lock path');
   }
 
-  if (lockFile !== expectedLockFile) {
+  const allowedLockFiles = expectedLockFile ? new Set([expectedLockFile]) : PINNED_LOCK_FILES;
+  if (!allowedLockFiles.has(lockFile)) {
     throw new Error('privacy recovery admission refuses a lock path outside the pinned host mount');
   }
 
