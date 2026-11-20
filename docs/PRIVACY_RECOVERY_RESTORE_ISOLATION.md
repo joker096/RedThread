@@ -18,16 +18,16 @@ export RESTORE_COMPOSE_PROJECT=vow-restore-audit01
 export RESTORE_COMPOSE_FILE=/absolute/path/to/restore-compose.yaml
 # Provision and pin a dedicated, restore-only Docker context and daemon.
 export RESTORE_DOCKER_CONTEXT=vow-restore-audit01
-export RESTORE_DOCKER_ENDPOINT=unix:///run/vow-restore-audit01/docker.sock
+export RESTORE_DOCKER_ENDPOINT=unix:///var/lib/vow-restore-audit01/docker.sock
 export RESTORE_DOCKER_DAEMON_ID=<expected-hex-daemon-id>
 export PRIVACY_RECOVERY_MEDIA_VOLUMES=vow-restore-audit01_private_photos,vow-restore-audit01_private_voice_intros,vow-restore-audit01_private_identity_l3
 export HOST_WRITER_ISOLATION_GATE_EXECUTABLE=/absolute/path/to/host-writer-isolation-gate
 # Pre-create this file with ownership/permissions restricted to the restore operator
 groupadd --system vow-privacy-writers
 export PRIVACY_RECOVERY_WRITER_GID="$(getent group vow-privacy-writers | cut -d: -f3)"
-install -d -o root -g "$PRIVACY_RECOVERY_WRITER_GID" -m 2750 /run/vow-restore-audit01
-install -o root -g "$PRIVACY_RECOVERY_WRITER_GID" -m 0640 /dev/null /run/vow-restore-audit01/writers.lock
-export PRIVACY_RECOVERY_WRITER_LOCK_FILE=/run/vow-restore-audit01/writers.lock
+install -d -o root -g "$PRIVACY_RECOVERY_WRITER_GID" -m 2750 /var/lib/vow-restore-audit01
+install -o root -g "$PRIVACY_RECOVERY_WRITER_GID" -m 0640 /dev/null /var/lib/vow-restore-audit01/writers.lock
+export PRIVACY_RECOVERY_WRITER_LOCK_FILE=/var/lib/vow-restore-audit01/writers.lock
 # Must drain all admitted writers in this isolated restore environment.
 export PRIVACY_RECOVERY_DRAIN_EXECUTABLE=/absolute/path/to/restore-writer-drain-controller
 export PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE=/absolute/path/to/scripts/privacy-recovery-stop-writers.sh
@@ -117,85 +117,94 @@ At minimum, test that the gate rejects: a missing or replaced inherited lock des
 The current repository does not yet contain this privileged host gate or these host-level integration tests. This contract is therefore an explicit unresolved prerequisite, not a claim that host-wide writer isolation has been implemented.
 
 
-## Writer admission primitive (foundational; not yet wired into services)
+## Cooperative writer admission integrated into the application stack
 
-`scripts/privacy-recovery-admission.sh` provides a small cooperative protocol for testing and later integration:
+The cross-UID admission protocol is now integrated into the supported Compose/API launch paths in this branch. It is a cooperative control for processes that use the configured lock; it is not a kernel-enforced freeze and does not replace the independent host-level isolation gate below.
 
-- A writer acquires a shared `flock`, checks the adjacent `.maintenance` marker while holding that lock, and then `exec`s its workload while retaining the descriptor.
-- Maintenance atomically creates the marker directory first, fsyncs its parent, invokes a separately provisioned drain controller, and only then waits for the exclusive lock.
-- The marker is intentionally sticky. Drain failure, lock timeout, process termination, or reboot does not reopen admission.
-- If a writer checked for the marker before it was created, it is an already-admitted writer and must be stopped/drained before the exclusive lock can be acquired. If it checks after marker creation, it must reject startup.
+### Lock and marker protocol
 
-The activation wrapper now invokes this primitive in `maintenance` mode. It is still **not mounted into Compose, used by the API entrypoint, or applied to purge/migration/manual launch paths**. It therefore does not protect running Vow services and must not be treated as satisfying the host writer-isolation gate. Integration with services requires a provisioned shared lock inode and marker path visible identically to host and every relevant container, an enforced launch policy that prevents bypass, a real drain controller, and the host-level attestation/evidence contract above.
+`scripts/privacy-recovery-admission.sh` provides two modes:
 
+- A writer runs unprivileged, validates the configured numeric GID and root-owned lock contract, opens FD 9 read-only, verifies the descriptor matches the configured lock inode, acquires a shared `flock`, checks the adjacent `.maintenance` marker while holding the lock, then execs the workload while retaining FD 9.
+- Maintenance runs as root, opens FD 9 read/write, validates the same lock inode, creates and syncs the root-owned group-visible `.maintenance` marker before draining admitted writers, then acquires the exclusive lock and retains it through the critical command.
+- The marker is intentionally sticky. Drain failure, lock timeout, process termination, or reboot does not reopen admission. There is no automatic marker removal or automatic writer reopening path.
 
-## Activation ordering: marker-first protocol integrated
+The persistent host directory must be on a non-volatile filesystem (the normal host runbook uses `/var/lib/vow-privacy-admission`, not `/run`). The directory is root-owned by the dedicated writer group with mode `2750`; the lock file is root-owned by that group with mode `0640`. The configured GID must be explicitly provisioned and passed to every participating service.
 
-The activation wrapper now delegates admission sequencing to `scripts/privacy-recovery-admission.sh maintenance`. It performs non-mutating input/path/mountpoint validation first, then the helper creates and syncs the sticky maintenance marker, invokes the configured drain controller, waits for existing shared-lock writers to exit, and acquires the exclusive lock. The helper then execs the activation phase while retaining FD 9. The activation phase verifies the inherited descriptor and marker and does not reopen the lock.
+### Compose and Node entrypoint integration
 
-The activation tests now exercise the real wrapper with an already-admitted long-running writer. They verify that the marker exists before drain, a new writer is rejected, activation waits for the old writer's shared lock to be released, and writer isolation/reconciliation/mount occur only after the exclusive lock is held.
+The API image now has a mandatory Dockerfile entrypoint through `scripts/privacy-recovery-admission.sh writer --`. It starts as the unprivileged `node` user and preserves FD 9 when it executes the configured command. The JavaScript guard in `server/privacyRecoveryAdmissionGuard.js` independently requires the inherited shared lock and rejects a missing/wrong descriptor, an unpinned lock path, or a present maintenance marker whenever `NODE_ENV=production` or `PRIVACY_RECOVERY_REQUIRE_ADMISSION=true`.
 
-The maintenance marker remains after successful activation and all failures. There is intentionally no automatic reopening path. A separate audited reopening procedure is still required before future writers can start.
+Compose mounts the pre-provisioned lock directory read-only at `/run/vow-privacy`, adds the configured numeric supplementary GID, and refuses to create a missing host source path. The host source directory must remain persistent even though its in-container mount point is under `/run`.
 
-This integration fixes the ordering mismatch in the activation wrapper for cooperative participants. It does **not** implement service-wide admission enforcement or host-level isolation. Compose/API/purge/migration/manual writer paths still need to be wired to the same lock and marker, and the independent host gate must still prove that non-cooperating host processes, namespaces, descriptors, aliases and Docker clients cannot write during the critical section. Until those controls and their evidence exist, real private-media restore activation remains prohibited.
+The audited Compose services covered by the shared admission mount and group are:
 
-## Host/container lock permissions: cross-UID helper implemented; service integration still blocked
+- `migrate`
+- `ad-event-retention`
+- `female-profile-exposure-retention`
+- `account-reuse-retention`
+- `gift-request-expiry`
+- `identity-l3-worker`
+- `identity-l3-purge-worker`
+- `identity-l3-expiry`
+- `private-photo-purge`
+- `private-voice-intro-purge`
+- `voice-intro-migration`
+- `api`
 
-The admission helper now implements the root-owned, dedicated-group contract needed for an unprivileged service process:
+The corresponding database-mutating Node entrypoints also call the JavaScript admission guard. The Nginx gateway and PostgreSQL server are not application-side DB-writing Node services and are not wrapped as such. The backup package entrypoints use the shared writer lock as readers and retain it for the full backup operation.
 
-- The API image runs as the unprivileged `node` user; writer mode is explicitly non-root.
-- The lock directory must be root-owned by the configured numeric GID and mode `2750`; the lock inode must be root-owned by the same GID and mode `0640`.
-- Writer mode validates supplementary-group membership, opens FD 9 read-only, verifies the opened device/inode against the configured path, acquires a shared `flock`, checks the marker, and retains the descriptor through the command.
-- Maintenance mode is root-only, opens FD 9 read/write, creates a root-owned group-visible mode-`2750` sticky marker, runs the configured drain controller, and acquires the exclusive lock.
-- The helper rejects missing/invalid GIDs, wrong ownership or modes, symlinked/non-canonical paths, inode replacement detected across open, non-member writers, and non-root maintenance.
+Coverage includes `scripts/compose-network-policy.test.js`, the admission helper and guard tests, and the CI Docker runtime smoke test. The smoke test verifies normal image admission, rejects direct Node launch without inherited FD 9, and verifies that a maintenance marker closes writer admission.
 
-The helper and root/setpriv integration tests now cover the cross-UID contract. This does **not** mean Compose services participate yet: do not bind-mount the lock into API/workers until the same inode, supplementary GID, marker parent, boot-time provisioning and mandatory launch guard are integrated atomically across every relevant service.
+### Residual bypass boundary
 
-1. Provision a dedicated, non-login host group for Vow writer admission. Its numeric GID must be explicitly selected during host provisioning and passed as configuration; never assume that UID/GID 1000 or any image-default group is suitable.
-2. Implemented by the helper: the lock inode is root-owned by the dedicated group with mode `0640`; its parent directory is root-owned by the same group, mode `2750` (setgid, group-readable/searchable, not group-writable). The sticky maintenance marker is created by root with the inherited group and mode `2750`; marker creation is synced and remains fail-closed.
-3. Every writer container receives the same host lock inode and marker parent through read-only bind mounts. Its process identity must have the configured dedicated supplementary GID (for Compose this must be explicitly provisioned, e.g. with `group_add`, and verified at runtime). No container receives write access to the lock or marker parent.
-4. Implemented and covered by root/setpriv integration tests: writer mode opens the lock read-only and takes a shared `flock`; maintenance mode opens it read/write as root and takes the exclusive lock. The writer checks the marker while holding the shared lock and retains the descriptor for the entire command lifetime.
-5. Implemented in the helper: validate the configured numeric GID, actual supplementary-group membership, root/group ownership, exact permission modes, canonical parent path, non-symlink paths, and lock device/inode identity across open. A wrong GID, missing group membership, unexpected ownership/mode or inode replacement is rejected.
-6. Provisioning must create the lock and marker parent before any Vow writer can start. A boot-time service / systemd ordering dependency and a single mandatory entrypoint guard must prevent API, purge, migration, scheduled, restart-policy and manual Compose launches from bypassing admission. Read-only bind mounts alone do not enforce launch policy.
-7. Root/setpriv tests now cover root maintenance versus unprivileged writer, shared lock lifetime on read-only FD, supplementary GID membership, root/group ownership and modes, marker visibility, sticky failure behavior and long-lived writer drain. Still required before service integration: missing/wrong GID and mount identity from every consumer, descriptor inheritance through each actual launch path, and attempted manual/restart startup during maintenance.
+This integration protects the supported Compose launch paths, ordinary restarts, and guarded Node entrypoints when the configured host lock is provisioned correctly. It is not a security boundary against a privileged host administrator or Docker daemon administrator: such an administrator can override an entrypoint, change mounts/environment, or launch a process outside the cooperative protocol. Restrict Docker socket/context access to trusted operators.
 
-The cross-UID helper contract is implemented, but provisioning and service integration are not. Do not enable any API/worker path until group creation, lock bind mounts, group_add, boot ordering, mandatory entrypoints and bypass tests are implemented together. The independent host-level isolation gate and its machine-readable attestation remain separate mandatory prerequisites.
+Manual/host-managed production Node services must use the same persistent lock inode, configured GID, and `privacy-recovery-admission.sh writer -- ...` launcher. A direct Node/npm invocation without a valid inherited FD 9 is rejected by the production guard. Do not create a second lock file for a worker or backup process; all participants must use the same inode and marker path.
 
-## Compose writer inventory and admission bypasses
+## Restore-only writer isolation gate: separate mandatory prerequisite
 
-The Compose and package manifests at the audited revision show that admission is not yet wired into the real process launch paths.
+The cooperative application admission protocol does not prove that every process with access to restored media participates in it. Real private-media restore activation remains prohibited until the independent host-level isolation gate is implemented, tested, and its evidence reviewed.
 
-### Processes with private-media access
+The supplied `scripts/privacy-recovery-stop-writers.sh` is only the Docker portion of the restore gate. It:
 
-| Service / command | Private storage access | Restart / launch characteristic |
-|---|---|---|
-| `api` / `npm run start:api` | Writable mounts for photos, voice introductions and L3 identity media | `unless-stopped`; Dockerfile CMD starts Node directly |
-| `private-photo-purge` | Writable photo volume | `unless-stopped`; shell loop starts worker directly |
-| `private-voice-intro-purge` | Writable voice-intro volume | `unless-stopped`; shell loop starts worker directly |
-| `identity-l3-purge-worker` | Writable L3 volume | `unless-stopped`; direct Node command |
-| `identity-l3-worker` | Read-only L3 volume | `unless-stopped`; direct Node command, still a private-media reader and must be drained/guarded during restore |
-| `voice-intro-migration` | Writable voice-intro volume | One-shot profile; direct Node command |
-| `backup:private-media` / `scripts/backup-private-media.sh` | Reads the complete active private-media root; writes an encrypted archive outside that root | Package command uses shared admission; direct script invocation is rejected |
-| `migrate` | No private-media volume in current Compose definition | One-shot DB migration; must be considered for startup sequencing, but it is not currently a private-volume writer |
+- Requires a dedicated `vow-restore-*` Compose project, an explicitly pinned non-default Docker context, endpoint, and daemon ID.
+- Stops every service in that restore project except its dedicated database.
+- Inspects all running containers on the pinned daemon and rejects writable attachments to the three exact restore media volumes.
+- Requires an operator-supplied `HOST_WRITER_ISOLATION_GATE_EXECUTABLE` and invokes it through a pinned, verified file descriptor.
+- Never stops unrelated containers automatically.
 
-The following services also run periodic database maintenance commands, but do not mount the three private-media volumes in the inspected Compose definition: `ad-event-retention`, `female-profile-exposure-retention`, `account-reuse-retention`, `gift-request-expiry`, and `identity-l3-expiry`. Their database mutation lifecycle should be inventoried separately; do not conflate them with filesystem writers.
+The external host gate is not a placeholder that may simply return zero. It must independently prove the caller's inherited exclusive lock, enforce admission closure for the full critical interval, inspect processes and mount namespaces, identify open writable descriptors and bind aliases, cover host/container runtime launch paths, and produce machine-readable timestamped evidence. It must fail closed on inaccessible process/namespace data, uncertain storage identity, an unpinned Docker daemon, or any writer that can bypass admission.
 
-### Confirmed bypasses and protocol mismatch
+The current repository does not implement a universal host process inspector or the complete host-wide admission enforcement/evidence system. A Docker container scan alone is subject to a time-of-check/time-of-use race and cannot establish host isolation. If the external host gate is missing, incomplete, or unverified, the operator must keep the restore pending and must not activate it.
 
-- The API image sets `USER node` and launches `npm run start:api` directly from the Dockerfile. There is no common admission entrypoint.
-- Compose commands for the photo purge, voice purge, L3 worker, L3 purge worker and voice-intro migration invoke Node or a shell loop directly. They do not acquire the admission lock.
-- `restart: unless-stopped` means Docker can relaunch several consumers without the maintenance script being invoked. Stopping a Compose project and checking its current containers is not a durable launch barrier.
-- Package scripts expose direct worker and API commands (including `start:api`, `identity:l3-worker`, `photos:purge`, `voice-intros:purge`, and `voice-intros:migrate-once`). Local/manual operator invocations therefore also bypass a container-only wrapper. The private-media backup package command is the exception and now uses the admission helper.
-- `npm run backup:private-media` now enters `scripts/privacy-recovery-admission.sh writer` and the backup script verifies that inherited FD 9 holds the shared lock for the full operation. Direct script invocation is rejected. This covers the supported package command only; the cross-UID lock contract and host-wide enforcement remain unresolved.
-- The admission helper now opens writer FD 9 read-only and maintenance FD 9 read/write, validates the root-owned shared-group contract and retains the lock for the command. The remaining gap is that the actual Compose/API/worker launch paths are not wired to it.
-- The current helper is a cooperative primitive, not a mandatory guard. No Compose service, Dockerfile entrypoint, package command or boot-time unit shown in this inventory forces every relevant launch path through it.
+### Required host-gate acceptance tests
 
-### Integration rule
+Before accepting the external gate, test that it rejects at least:
 
-Do not wire only the API or only the purge workers. Once the cross-UID lock contract is implemented, every process that can read or write private-media roots must participate in the same lock protocol. This includes backup readers: a backup must acquire and retain the shared admission lock for the entire source snapshot/archive operation, then release it only after the read is complete. A backup reader must reject the sticky maintenance marker just like a media writer; otherwise maintenance can race an in-progress backup. For long-running processes, the shared lock descriptor must remain open for the entire period of access, not merely around startup. The writer must acquire the shared lock and check the sticky maintenance marker while holding it; on marker presence it must refuse to start. Maintenance must create and durably sync the marker before draining existing participants and acquiring the exclusive lock.
+- A missing, replaced, or mismatched inherited lock descriptor.
+- A second writer admission during the critical interval.
+- A writer in a separate mount/PID namespace.
+- A bind-mount alias or writable alias to any protected media volume.
+- An open writable descriptor to a deleted file.
+- An inaccessible or changing `/proc` entry and a process appearing during the scan.
+- An unexpected Docker endpoint/daemon ID or a new container admitted after initial enumeration.
+- Any unsupported runtime or storage access path that cannot be independently inspected.
 
-Before service integration, add tests for read-only shared-lock acquisition and verify the same host inode and marker directory from every relevant container. Then add one mandatory entrypoint/launcher for the API and every worker/migration profile, plus a host boot/start policy that prevents direct Compose/manual/restart launches from bypassing it. The Docker daemon/socket access boundary and external host-level isolation attestation remain independent prerequisites.
+Tests must demonstrate that admission remains closed until the activation wrapper releases its lock, including gate failure and signal/termination paths. Evidence must identify the host, gate version/hash, lock device/inode and descriptor, admission policy and held state, Docker endpoint/daemon identity, process/namespace scan coverage, protected storage identities, and each explicit pass/fail result. Do not include media contents or personal data.
 
+### Restore lock path example
+
+Use a persistent host path for the restore lock as well; do not put the host lock/marker directory under volatile `/run`:
+
+```sh
+export PRIVACY_RECOVERY_WRITER_GID='<numeric-writer-group-id>'
+export PRIVACY_RECOVERY_WRITER_LOCK_FILE=/var/lib/vow-restore-audit01/writers.lock
+install -d -o root -g "$PRIVACY_RECOVERY_WRITER_GID" -m 2750 /var/lib/vow-restore-audit01
+install -o root -g "$PRIVACY_RECOVERY_WRITER_GID" -m 0640 /dev/null "$PRIVACY_RECOVERY_WRITER_LOCK_FILE"
+```
+
+The lock directory may be bind-mounted read-only inside containers at `/run/vow-privacy`; the host source remains persistent. The marker is adjacent to the lock file and must survive a reboot.
 
 ## Private-media backup admission integration
 
