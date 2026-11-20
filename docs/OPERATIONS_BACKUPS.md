@@ -24,7 +24,7 @@ Do not start or restart the application stack until the host directory and lock 
 Before any backup, provision the dedicated writer-admission lock on the trusted host. The lock directory must be owned by root and the configured writer group with mode `2750`; the lock file must be root-owned by that group with mode `0640`. Add the backup service account to the group and set the numeric GID. The drain controller is required for maintenance mode; a backup writer only needs the lock and group configuration.
 
 ```bash
-export PRIVACY_RECOVERY_WRITER_LOCK_FILE=/run/vow-privacy/writers.lock
+export PRIVACY_RECOVERY_WRITER_LOCK_FILE=/var/lib/vow-privacy-admission/writers.lock
 export PRIVACY_RECOVERY_WRITER_GID='<numeric-writer-group-id>'
 export BACKUP_DIR=/secure/backups
 export BACKUP_RETENTION_DAYS=30
