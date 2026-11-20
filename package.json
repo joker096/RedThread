@@ -47,7 +47,7 @@
     "privacy-ledger:verify": "node scripts/verify-privacy-ledger-export.mjs",
     "privacy-recovery:inventory": "node scripts/privacy-recovery-inventory.js",
     "voice-intros:migrate-once": "node server/runVoiceIntroMigration.js --apply",
-    "backup:bundle": "bash scripts/backup-bundle.sh",
+    "backup:bundle": "bash scripts/privacy-recovery-admission.sh writer -- bash scripts/backup-bundle.sh",
     "restore:bundle": "bash scripts/restore-bundle.sh",
     "privacy-ledger:outbox-worker": "node server/process-privacy-recovery-outbox.js",
     "gifts:address-drafts:purge": "node server/process-gift-address-draft-purge.js",
