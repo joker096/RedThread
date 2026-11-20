@@ -1,3 +1,5 @@
+import { assertPrivacyRecoveryAdmission } from './privacyRecoveryAdmissionGuard.js';
+assertPrivacyRecoveryAdmission();
 import 'dotenv/config';
 import { createHash, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
