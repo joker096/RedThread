@@ -31,19 +31,21 @@ command -v mount >/dev/null 2>&1 || { echo "mount is required" >&2; exit 1; }
 command -v mountpoint >/dev/null 2>&1 || { echo "mountpoint is required" >&2; exit 1; }
 command -v umount >/dev/null 2>&1 || { echo "umount is required for fail-closed rollback" >&2; exit 1; }
 
-if [[ ! "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE" = /* ||
-      ! -f "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE" ||
-      -L "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE" ]]; then
-  echo "writer-isolation gate must be an absolute, regular, non-symlink script" >&2
-  exit 1
-fi
-if [[ ! "$PRIVACY_RECOVERY_GATE_EXECUTABLE" = /* ||
-      ! -f "$PRIVACY_RECOVERY_GATE_EXECUTABLE" ||
-      -L "$PRIVACY_RECOVERY_GATE_EXECUTABLE" ||
-      ! -x "$PRIVACY_RECOVERY_GATE_EXECUTABLE" ]]; then
-  echo "privacy recovery gate must be an absolute, regular, executable, non-symlink file" >&2
-  exit 1
-fi
+validate_root_executable() {
+  local executable="$1" description="$2" identity owner mode links
+  if [[ "$executable" != /* || ! -f "$executable" || -L "$executable" || ! -x "$executable" ]]; then
+    echo "$description must be an absolute, regular, executable, non-symlink file" >&2
+    return 1
+  fi
+  identity="$(stat -Lc '%u:%a:%h' -- "$executable")"
+  IFS=: read -r owner mode links <<< "$identity"
+  if [[ "$owner" != "0" || "$links" != "1" ]] || (( (8#$mode & 8#022) != 0 )); then
+    echo "$description must be root-owned, singly-linked and not group/world writable" >&2
+    return 1
+  fi
+}
+validate_root_executable "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE" "writer-isolation gate"
+validate_root_executable "$PRIVACY_RECOVERY_GATE_EXECUTABLE" "privacy recovery gate"
 
 command -v realpath >/dev/null 2>&1 || { echo "realpath is required to validate restore and mountpoint paths" >&2; exit 1; }
 if [[ "$RESTORE_DESTINATION" != /* || ! -d "$RESTORE_DESTINATION" || -L "$RESTORE_DESTINATION" ]]; then
@@ -137,12 +139,22 @@ export PRIVACY_RECOVERY_WRITER_LOCK_FD=9
 
 # Stop and audit writers before domain reconciliation. This gate must target a dedicated restore-only environment.
 # A non-zero result leaves the restore pending and prevents activation.
-RESTORE_DESTINATION="$RESTORE_DESTINATION" bash "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE"
+exec 7< "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE"
+if [[ "$(stat -Lc '%d:%i' -- /proc/self/fd/7)" != "$(stat -Lc '%d:%i' -- "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE")" ]]; then
+  echo "writer-isolation gate changed while opening; refusing activation" >&2
+  exit 1
+fi
+RESTORE_DESTINATION="$RESTORE_DESTINATION" bash /proc/self/fd/7
 
 # The verifier owns the domain-specific sequence: inventory, supported replay,
 # receipt/queue verification, consent checks, and account/gift reconciliation.
 # A non-zero result leaves the restore pending and prevents the bind mount.
-RESTORE_DESTINATION="$RESTORE_DESTINATION" "$PRIVACY_RECOVERY_GATE_EXECUTABLE"
+exec 6< "$PRIVACY_RECOVERY_GATE_EXECUTABLE"
+if [[ "$(stat -Lc '%d:%i' -- /proc/self/fd/6)" != "$(stat -Lc '%d:%i' -- "$PRIVACY_RECOVERY_GATE_EXECUTABLE")" ]]; then
+  echo "privacy recovery gate changed while opening; refusing activation" >&2
+  exit 1
+fi
+RESTORE_DESTINATION="$RESTORE_DESTINATION" bash /proc/self/fd/6
 
 # Persist an explicit transition marker before changing either authoritative marker.
 # If the process is killed between these operations, a later invocation fails closed
