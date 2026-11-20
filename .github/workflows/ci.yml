@@ -47,7 +47,7 @@ jobs:
       - name: Install media and PostgreSQL 16 restore drill tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg age ca-certificates curl
+          sudo apt-get install -y --no-install-recommends ffmpeg age ca-certificates curl acl
           sudo install -d /usr/share/postgresql-common/pgdg
           sudo curl --fail --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 3 --connect-timeout 20 --max-time 120 https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
           . /etc/os-release
