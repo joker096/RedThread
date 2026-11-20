@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Cooperative writer admission primitive for privacy-recovery maintenance.
-# This helper is NOT host isolation: every writer launch path must be forced
-# through it, and the host gate must independently enforce that boundary.
+# Cross-UID admission for private-media writers and root-only maintenance.
+# This is cooperative coordination; it is not a substitute for host isolation.
 set -Eeuo pipefail
-umask 077
+umask 027
 
 mode="${1:-}"
 if [[ "$mode" != "writer" && "$mode" != "maintenance" ]]; then
@@ -18,54 +17,96 @@ if [[ "$#" -eq 0 ]]; then
 fi
 
 : "${PRIVACY_RECOVERY_WRITER_LOCK_FILE:?Set the shared writer-admission lock file}"
+: "${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric shared writer group ID}"
 lock_file="$PRIVACY_RECOVERY_WRITER_LOCK_FILE"
+writer_gid="$PRIVACY_RECOVERY_WRITER_GID"
+if [[ ! "$writer_gid" =~ ^[1-9][0-9]*$ ]]; then
+  echo "writer group ID must be a positive numeric GID" >&2
+  exit 1
+fi
 if [[ "$lock_file" != /* || ! -f "$lock_file" || -L "$lock_file" ]]; then
   echo "writer-admission lock must be an absolute regular non-symlink file" >&2
   exit 1
 fi
-command -v stat >/dev/null 2>&1 || { echo "stat is required" >&2; exit 1; }
-command -v realpath >/dev/null 2>&1 || { echo "realpath is required" >&2; exit 1; }
-command -v flock >/dev/null 2>&1 || { echo "flock is required" >&2; exit 1; }
-command -v sync >/dev/null 2>&1 || { echo "sync is required" >&2; exit 1; }
+for utility in stat realpath flock sync id; do
+  command -v "$utility" >/dev/null 2>&1 || { echo "$utility is required" >&2; exit 1; }
+done
 
 lock_dir="$(dirname -- "$lock_file")"
-lock_name="$(basename -- "$lock_file")"
 canonical_dir="$(realpath -e -- "$lock_dir")"
 if [[ "$canonical_dir" != "$lock_dir" || -L "$lock_dir" ]]; then
   echo "writer-admission lock directory must be canonical and non-symlinked" >&2
   exit 1
 fi
-dir_mode="$(stat -c '%a' -- "$lock_dir")"
-file_owner="$(stat -c '%u' -- "$lock_file")"
-file_mode="$(stat -c '%a' -- "$lock_file")"
-if (( (8#$dir_mode & 8#022) != 0 )); then
-  echo "writer-admission lock directory must not be group- or world-writable" >&2
+
+dir_identity="$(stat -Lc '%u:%g:%a:%d:%i' -- "$lock_dir")"
+file_identity="$(stat -Lc '%u:%g:%a:%d:%i' -- "$lock_file")"
+IFS=: read -r dir_owner dir_group dir_mode dir_dev dir_ino <<< "$dir_identity"
+IFS=: read -r file_owner file_group file_mode file_dev file_ino <<< "$file_identity"
+if [[ "$dir_owner" != "0" || "$dir_group" != "$writer_gid" || "$dir_mode" != "2750" ]]; then
+  echo "writer-admission directory must be root:<writer-gid> mode 2750" >&2
   exit 1
 fi
-if [[ "$file_owner" != "$(id -u)" ]] || (( (8#$file_mode & 8#077) != 0 )); then
-  echo "writer-admission lock must be owned by the caller and inaccessible to group/others" >&2
+if [[ "$file_owner" != "0" || "$file_group" != "$writer_gid" || "$file_mode" != "640" ]]; then
+  echo "writer-admission lock must be root:<writer-gid> mode 0640" >&2
   exit 1
+fi
+
+uid="$(id -u)"
+if [[ "$mode" == "writer" ]]; then
+  if [[ "$uid" == "0" ]]; then
+    echo "writer admission must run as an unprivileged service account" >&2
+    exit 1
+  fi
+  groups=" $(id -G) "
+  if [[ "$groups" != *" $writer_gid "* ]]; then
+    echo "writer process is not a member of the configured shared group" >&2
+    exit 1
+  fi
+else
+  if [[ "$uid" != "0" ]]; then
+    echo "maintenance admission is root-only" >&2
+    exit 1
+  fi
 fi
 
 marker="$lock_file.maintenance"
-exec 9<> "$lock_file"
+if [[ -L "$marker" ]]; then
+  echo "maintenance marker must not be a symlink" >&2
+  exit 1
+fi
+
+# Writers deliberately open the root-owned lock read-only. Maintenance opens
+# it read-write because it must hold an exclusive flock.
+if [[ "$mode" == "writer" ]]; then
+  exec 9< "$lock_file"
+else
+  exec 9<> "$lock_file"
+fi
+
+# Compare the opened descriptor with the path after open to detect replacement
+# between initial validation and descriptor acquisition. The lock directory is
+# root-owned and not writable by the service group, closing writer-side swaps.
+fd_identity="$(stat -Lc '%d:%i' -- /proc/self/fd/9)"
+path_identity="$(stat -Lc '%d:%i' -- "$lock_file")"
+if [[ "$fd_identity" != "$path_identity" || "$fd_identity" != "$file_dev:$file_ino" ]]; then
+  echo "writer-admission lock changed while opening; refusing admission" >&2
+  exit 1
+fi
 
 if [[ "$mode" == "writer" ]]; then
-  # The marker check is serialized with maintenance by the shared lock:
-  # a writer either observes the marker and rejects, or was admitted before
-  # marker creation and must be drained before maintenance gets the EX lock.
+  # Serialize marker observation with maintenance marker creation.
   flock -s 9
-  if [[ -e "$marker" || -L "$marker" ]]; then
+  if [[ -e "$marker" ]]; then
     echo "writer admission is closed for privacy-recovery maintenance" >&2
     exit 75
   fi
   exec "$@"
 fi
 
-# Close admission atomically BEFORE draining existing shared-lock holders.
-# The marker is deliberately sticky: failures, signals and reboots do not
-# reopen writers. Recovery must explicitly inspect state before any reopening.
-if ! mkdir -m 700 -- "$marker"; then
+# Root closes admission before draining existing readers. The marker is sticky:
+# errors, signals and reboots do not silently reopen writer access.
+if ! mkdir -m 2750 -- "$marker"; then
   echo "maintenance marker already exists or cannot be created; refusing to reopen admission" >&2
   exit 1
 fi
@@ -75,6 +116,12 @@ sync -f "$lock_dir"
 drain="$PRIVACY_RECOVERY_DRAIN_EXECUTABLE"
 if [[ "$drain" != /* || ! -f "$drain" || -L "$drain" || ! -x "$drain" ]]; then
   echo "drain controller must be an absolute regular executable non-symlink file" >&2
+  exit 1
+fi
+drain_identity="$(stat -Lc '%u:%a' -- "$drain")"
+IFS=: read -r drain_owner drain_mode <<< "$drain_identity"
+if [[ "$drain_owner" != "0" ]] || (( (8#$drain_mode & 8#022) != 0 )); then
+  echo "drain controller must be root-owned and not group/world writable" >&2
   exit 1
 fi
 if ! "$drain"; then
