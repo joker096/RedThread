@@ -9,10 +9,18 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const script = path.join(root, 'scripts', 'backup-postgres.sh');
 
+function runWithAdmission(env) {
+  return spawnSync('bash', ['-c', 'exec 9< "$LOCK_FILE"; flock -s 9; exec bash "$BACKUP_SCRIPT"'], {
+    encoding: 'utf8',
+    env: { ...env, LOCK_FILE: env.PRIVACY_RECOVERY_WRITER_LOCK_FILE, BACKUP_SCRIPT: script }
+  });
+}
+
 test('PostgreSQL backup streams plaintext only through age and writes a private encrypted artifact', async () => {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-postgres-backup-test-'));
   const fakeBin = path.join(temporaryRoot, 'bin');
   const backupDir = path.join(temporaryRoot, 'backups');
+  const lockFile = path.join(temporaryRoot, 'writers.lock');
   await mkdir(fakeBin);
   try {
     const pgDump = path.join(fakeBin, 'pg_dump');
@@ -39,17 +47,16 @@ rm -f "$temporary_input"
     await chmod(pgDump, 0o700);
     await chmod(age, 0o700);
 
-    const result = spawnSync('bash', [script], {
-      encoding: 'utf8',
-      env: {
+    await writeFile(lockFile, '');
+    const result = runWithAdmission({
         ...process.env,
         PATH: `${fakeBin}:${process.env.PATH || ''}`,
         DATABASE_URL: 'postgresql://backup-user:secret@example.invalid/vow',
         BACKUP_AGE_RECIPIENT: 'age1fixturepublicrecipient',
         BACKUP_DIR: backupDir,
-        BACKUP_RETENTION_DAYS: '30'
-      }
-    });
+        BACKUP_RETENTION_DAYS: '30',
+        PRIVACY_RECOVERY_WRITER_LOCK_FILE: lockFile
+      });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const files = await readdir(backupDir);
     const backupName = files.find(name => name.endsWith('.dump.age'));
@@ -81,6 +88,7 @@ test('PostgreSQL backup refuses to create plaintext artifacts without an age rec
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-postgres-backup-no-recipient-'));
   const fakeBin = path.join(temporaryRoot, 'bin');
   const backupDir = path.join(temporaryRoot, 'backups');
+  const lockFile = path.join(temporaryRoot, 'writers.lock');
   await mkdir(fakeBin);
   try {
     const pgDump = path.join(fakeBin, 'pg_dump');
@@ -89,19 +97,42 @@ test('PostgreSQL backup refuses to create plaintext artifacts without an age rec
     await writeFile(age, '#!/usr/bin/env bash\ncat');
     await chmod(pgDump, 0o700);
     await chmod(age, 0o700);
-    const result = spawnSync('bash', [script], {
-      encoding: 'utf8',
-      env: {
+    await writeFile(lockFile, '');
+    const result = runWithAdmission({
         ...process.env,
         PATH: `${fakeBin}:${process.env.PATH || ''}`,
         DATABASE_URL: 'postgresql://backup-user:secret@example.invalid/vow',
         BACKUP_AGE_RECIPIENT: '',
-        BACKUP_DIR: backupDir
-      }
-    });
+        BACKUP_DIR: backupDir,
+        PRIVACY_RECOVERY_WRITER_LOCK_FILE: lockFile
+      });
     assert.notEqual(result.status, 0, 'missing encryption recipient must fail closed');
     assert.deepEqual(await readdir(backupDir).catch(() => []), [],
       'no backup artifact may be created when encryption is not configured');
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+
+test('PostgreSQL backup rejects direct invocation without a live shared admission lock', async () => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-postgres-backup-bypass-'));
+  try {
+    const lockFile = path.join(temporaryRoot, 'writers.lock');
+    await writeFile(lockFile, '');
+    const result = spawnSync('bash', [script], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        DATABASE_URL: 'postgresql://backup-user:secret@example.invalid/vow',
+        BACKUP_AGE_RECIPIENT: 'age1fixturepublicrecipient',
+        BACKUP_DIR: path.join(temporaryRoot, 'backups'),
+        PRIVACY_RECOVERY_WRITER_LOCK_FILE: lockFile
+      }
+    });
+    assert.notEqual(result.status, 0, 'manual backup invocation must fail closed');
+    assert.match(result.stderr, /requires the inherited admission lock on FD 9/);
+    assert.deepEqual(await readdir(path.join(temporaryRoot, 'backups')).catch(() => []), []);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
