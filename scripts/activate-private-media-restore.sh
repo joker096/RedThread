@@ -46,8 +46,8 @@ if [[ ! -d "$maintenance_marker" || -L "$maintenance_marker" || ! -e /proc/self/
   echo "activation requires the inherited maintenance lock and durable admission marker" >&2
   exit 1
 fi
-if flock -n "$PRIVACY_RECOVERY_WRITER_LOCK_FILE" -c true; then
-  echo "activation does not hold the exclusive writer-admission lock" >&2
+if ! flock -n -x 9; then
+  echo "activation could not confirm the inherited descriptor holds the exclusive writer-admission lock" >&2
   exit 1
 fi
 export PRIVACY_RECOVERY_WRITER_LOCK_FILE
