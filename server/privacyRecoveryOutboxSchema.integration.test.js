@@ -96,3 +96,65 @@ test('outbox schema rejects malformed payloads and immutable event mutation', {
     await pool.end();
   }
 });
+
+
+test('outbox accepts address-draft withdrawal only with a valid pseudonymized order reference', {
+  skip: !process.env.DATABASE_URL ? 'DATABASE_URL is not configured' : false,
+  timeout: 15_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+  const eventId = randomUUID();
+  const validPayload = {
+    eventType: 'gift_address_draft_consent_withdrawn',
+    userId: randomUUID(),
+    resourceId: randomUUID(),
+    eventId
+  };
+  try {
+    const queued = await enqueuePrivacyRecoveryEvent(pool, validPayload, { env });
+    assert.equal(queued.queued, true);
+    assert.equal(queued.eventId, eventId);
+
+    const stored = await pool.query(
+      'SELECT event_payload FROM privacy_recovery_ledger_outbox WHERE event_id = $1',
+      [eventId]
+    );
+    assert.equal(stored.rowCount, 1);
+    assert.match(stored.rows[0].event_payload.resource_ref, /^[a-f0-9]{64}$/);
+
+    const missingResourceId = randomUUID();
+    const missingResourcePayload = {
+      event_id: missingResourceId,
+      schema_version: 1,
+      event_type: 'gift_address_draft_consent_withdrawn',
+      subject_ref: 'b'.repeat(64),
+      occurred_at: new Date().toISOString()
+    };
+    await assert.rejects(
+      pool.query(
+        'INSERT INTO privacy_recovery_ledger_outbox (event_id, event_payload) VALUES ($1, $2::jsonb)',
+        [missingResourceId, JSON.stringify(missingResourcePayload)]
+      ),
+      error => error.code === '23514',
+      'address-draft withdrawal must include a resource reference'
+    );
+
+    const malformedResourceId = randomUUID();
+    const malformedResourcePayload = {
+      ...missingResourcePayload,
+      event_id: malformedResourceId,
+      resource_ref: 'not-a-pseudonym'
+    };
+    await assert.rejects(
+      pool.query(
+        'INSERT INTO privacy_recovery_ledger_outbox (event_id, event_payload) VALUES ($1, $2::jsonb)',
+        [malformedResourceId, JSON.stringify(malformedResourcePayload)]
+      ),
+      error => error.code === '23514',
+      'address-draft withdrawal must use a 64-hex pseudonymized resource reference'
+    );
+  } finally {
+    await pool.query('DELETE FROM privacy_recovery_ledger_outbox WHERE event_id = $1', [eventId]).catch(() => {});
+    await pool.end();
+  }
+});
