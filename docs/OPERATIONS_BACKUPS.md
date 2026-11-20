@@ -4,11 +4,18 @@
 
 Use a deployment secret manager for DATABASE_URL and BACKUP_AGE_RECIPIENT; do not commit credentials. Install PostgreSQL client tools and age on a trusted Linux backup host. Generate an age recipient key pair and keep the private identity offline or in a dedicated secret manager; only the public recipient belongs in BACKUP_AGE_RECIPIENT.
 
+Before any backup, provision the dedicated writer-admission lock on the trusted host. The lock directory must be owned by root and the configured writer group with mode `2750`; the lock file must be root-owned by that group with mode `0640`. Add the backup service account to the group and set the numeric GID. The drain controller is required for maintenance mode; a backup writer only needs the lock and group configuration.
+
 ```bash
-chmod +x scripts/backup-postgres.sh
-BACKUP_DIR=/secure/backups BACKUP_RETENTION_DAYS=30 \\
-  BACKUP_AGE_RECIPIENT='age1...' ./scripts/backup-postgres.sh
+export PRIVACY_RECOVERY_WRITER_LOCK_FILE=/run/vow-privacy/writers.lock
+export PRIVACY_RECOVERY_WRITER_GID='<numeric-writer-group-id>'
+export BACKUP_DIR=/secure/backups
+export BACKUP_RETENTION_DAYS=30
+export BACKUP_AGE_RECIPIENT='age1...'
+npm run backup:postgres
 ```
+
+The npm entrypoint invokes `privacy-recovery-admission.sh writer`; the backup script independently verifies that inherited FD 9 refers to the configured lock inode and carries a live shared flock. Direct/manual invocation of `scripts/backup-postgres.sh` without that descriptor fails closed. The shared lock remains held for the complete pg_dump-to-age stream, so exclusive privacy maintenance cannot begin while the backup is reading the database. `backup:private-media` and `backup:bundle` use the same admission protocol; the bundle holds one shared lock across both database and media capture. Do not remove the FD checks or call the underlying scripts outside the admission wrapper.
 
 The script streams pg_dump directly into age, so plaintext database contents are not written to disk. It creates a custom-format encrypted backup, restricts local permissions, writes a SHA-256 checksum and removes encrypted local backups past the configured retention. It refuses to run without age and a recipient. A local backup is not a disaster-recovery plan: copy the encrypted artifact to off-site/object storage with restricted access and lifecycle policies.
 
