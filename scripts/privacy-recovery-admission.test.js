@@ -323,7 +323,7 @@ fi
       ], { CRITICAL_READY: criticalReady });
       maintenance = spawn(args[0], args.slice(1), { stdio: 'ignore', detached: true });
       await waitForPath(f.marker, 3000, true);
-      await waitForPath(criticalReady);
+      await waitForPath(criticalReady, 3000, true);
       process.kill(-maintenance.pid, 'SIGKILL');
       await new Promise((resolve, reject) => {
         maintenance.once('error', reject);
