@@ -1,7 +1,7 @@
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 
 export function assertPrivacyRecoveryAdmission(env = process.env, expectedLockFile = '/run/vow-privacy/writers.lock') {
-  if (env.PRIVACY_RECOVERY_REQUIRE_ADMISSION !== 'true') return false;
+  if (env.PRIVACY_RECOVERY_REQUIRE_ADMISSION !== 'true' && env.NODE_ENV !== 'production') return false;
 
   const lockFile = env.PRIVACY_RECOVERY_WRITER_LOCK_FILE;
   if (typeof lockFile !== 'string' || !lockFile.startsWith('/')) {
