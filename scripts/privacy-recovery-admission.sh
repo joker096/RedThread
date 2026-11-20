@@ -77,7 +77,10 @@ if [[ "$drain" != /* || ! -f "$drain" || -L "$drain" || ! -x "$drain" ]]; then
   echo "drain controller must be an absolute regular executable non-symlink file" >&2
   exit 1
 fi
-"$drain"
+if ! "$drain"; then
+  echo "writer drain controller failed; admission remains closed" >&2
+  exit 1
+fi
 
 timeout="${PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS:-30}"
 if [[ ! "$timeout" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
