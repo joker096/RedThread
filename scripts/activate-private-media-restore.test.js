@@ -43,7 +43,7 @@ async function fixture() {
     '  exec "$@"',
     'fi',
     'mkdir -m 700 -- "$marker"',
-    '"$PRIVACY_RECOVERY_DRAIN_EXECUTABLE"',
+    'if ! "$PRIVACY_RECOVERY_DRAIN_EXECUTABLE"; then echo "drain controller failed" >&2; exit 1; fi',
     'timeout="${PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS:-30}"',
     'if ! flock -x -w "$timeout" 9; then',
     '  echo "writer admission locks did not drain" >&2',
