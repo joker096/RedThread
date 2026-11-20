@@ -339,3 +339,30 @@ fi
       await cleanup(f);
     }
   });
+
+  await t.test('maintenance rejects writable, hard-linked and symlinked drain controllers', async () => {
+    for (const scenario of ['writable', 'hardlink', 'symlink']) {
+      const f = await fixture();
+      const alternate = path.join(f.root, 'alternate-drain');
+      try {
+        if (scenario === 'writable') {
+          const mode = runRoot(['chmod', '0775', f.drainPath]);
+          assert.equal(mode.status, 0, mode.stderr);
+        } else if (scenario === 'hardlink') {
+          const linked = runRoot(['ln', '--', f.drainPath, alternate]);
+          assert.equal(linked.status, 0, linked.stderr);
+        } else {
+          const moved = runRoot(['mv', '--', f.drainPath, alternate]);
+          assert.equal(moved.status, 0, moved.stderr);
+          const linked = runRoot(['ln', '-s', '--', alternate, f.drainPath]);
+          assert.equal(linked.status, 0, linked.stderr);
+        }
+        const result = run(f, 'maintenance', ['true']);
+        assert.equal(result.status, 1, `${scenario}: ${result.stderr}`);
+        assert.match(result.stderr, /drain controller must be root-owned/);
+        assert.equal(runRoot(['test', '-d', f.marker]).status, 0, 'failed validation must leave admission closed');
+      } finally {
+        await cleanup(f);
+      }
+    }
+  });
