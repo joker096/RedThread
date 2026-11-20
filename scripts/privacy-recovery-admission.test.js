@@ -24,6 +24,10 @@ async function fixture({ drain = '#!/usr/bin/env bash\\nset -eu\\nexit 0\\n' } =
   const lock = path.join(admissionDir, 'writers.lock');
   const drainPath = path.join(root, 'drain');
   const marker = lock + '.maintenance';
+  const rootOwner = runRoot(['chown', `0:${writerGid}`, root]);
+  assert.equal(rootOwner.status, 0, rootOwner.stderr);
+  const rootMode = runRoot(['chmod', '2750', root]);
+  assert.equal(rootMode.status, 0, rootMode.stderr);
   const admissionCreate = runRoot(['install', '-d', '-o', '0', '-g', String(writerGid), '-m', '2750', admissionDir]);
   assert.equal(admissionCreate.status, 0, admissionCreate.stderr);
   const lockCreate = runRoot(['install', '-o', '0', '-g', String(writerGid), '-m', '0640', '/dev/null', lock]);
@@ -145,7 +149,7 @@ test('cross-UID admission integration requires root and setpriv', { skip: !canRu
     try {
       const result = run(f, 'maintenance', ['bash', '-c', 'echo unsafe > "$CRITICAL_OUTPUT"'], { CRITICAL_OUTPUT: output });
       assert.notEqual(result.status, 0);
-      await lstat(f.marker);
+      assert.equal(runRoot(['test', '-d', f.marker]).status, 0);
       assert.equal(runRoot(['test', '-e', output]).status, 1);
       const blocked = run(f, 'writer', ['true']);
       assert.equal(blocked.status, 75, blocked.stderr);
