@@ -104,6 +104,9 @@ test('Docker database network is isolated from the public web proxy container', 
     assert.match(block, /volumes:[\s\S]*?\*privacy-admission-volume/,
       name + ' must mount the host-owned admission lock directory read-only');
   }
+  const migrationService = serviceBlock('migrate');
+  assert.match(migrationService, /command: \\["node", "scripts\\/migrate\\.js"\\]/,
+    'migrations must run Node directly so FD 9 is preserved across exec');
   const dockerfileAdmission = await readFile(new URL('../Dockerfile', import.meta.url), 'utf8');
   assert.match(dockerfileAdmission, /PRIVACY_RECOVERY_REQUIRE_ADMISSION=true/);
   assert.ok(dockerfileAdmission.includes('ENTRYPOINT ["bash", "scripts/privacy-recovery-admission.sh", "writer", "--"]'),
