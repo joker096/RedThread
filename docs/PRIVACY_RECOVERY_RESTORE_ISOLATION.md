@@ -158,3 +158,36 @@ A candidate contract for review (not yet implemented or approved):
 7. Tests must cover root maintenance versus node writer, shared lock on read-only FD, supplementary GID present/missing, wrong GID, group/world write rejection, marker visibility, marker creation durability, long-lived writer drain, descriptor inheritance, mount identity across every consumer, and attempted manual/restart startup during maintenance.
 
 The candidate permissions above are a design direction only. Do not modify the current helper to accept group ownership or relax its permissions until the full provisioning, service integration, boot ordering, host admission policy, and tests are implemented together. The independent host-level isolation gate and its machine-readable attestation remain separate mandatory prerequisites.
+
+## Compose writer inventory and admission bypasses
+
+The Compose and package manifests at the audited revision show that admission is not yet wired into the real process launch paths.
+
+### Processes with private-media access
+
+| Service / command | Private storage access | Restart / launch characteristic |
+|---|---|---|
+| `api` / `npm run start:api` | Writable mounts for photos, voice introductions and L3 identity media | `unless-stopped`; Dockerfile CMD starts Node directly |
+| `private-photo-purge` | Writable photo volume | `unless-stopped`; shell loop starts worker directly |
+| `private-voice-intro-purge` | Writable voice-intro volume | `unless-stopped`; shell loop starts worker directly |
+| `identity-l3-purge-worker` | Writable L3 volume | `unless-stopped`; direct Node command |
+| `identity-l3-worker` | Read-only L3 volume | `unless-stopped`; direct Node command, still a private-media reader and must be drained/guarded during restore |
+| `voice-intro-migration` | Writable voice-intro volume | One-shot profile; direct Node command |
+| `migrate` | No private-media volume in current Compose definition | One-shot DB migration; must be considered for startup sequencing, but it is not currently a private-volume writer |
+
+The following services also run periodic database maintenance commands, but do not mount the three private-media volumes in the inspected Compose definition: `ad-event-retention`, `female-profile-exposure-retention`, `account-reuse-retention`, `gift-request-expiry`, and `identity-l3-expiry`. Their database mutation lifecycle should be inventoried separately; do not conflate them with filesystem writers.
+
+### Confirmed bypasses and protocol mismatch
+
+- The API image sets `USER node` and launches `npm run start:api` directly from the Dockerfile. There is no common admission entrypoint.
+- Compose commands for the photo purge, voice purge, L3 worker, L3 purge worker and voice-intro migration invoke Node or a shell loop directly. They do not acquire the admission lock.
+- `restart: unless-stopped` means Docker can relaunch several consumers without the maintenance script being invoked. Stopping a Compose project and checking its current containers is not a durable launch barrier.
+- Package scripts expose direct worker and API commands (including `start:api`, `identity:l3-worker`, `photos:purge`, `voice-intros:purge`, and `voice-intros:migrate-once`). Local/manual operator invocations therefore also bypass a container-only wrapper.
+- The current admission helper opens the lock with `exec 9<>` in both writer and maintenance modes. Writer mode therefore requires write access, contrary to the proposed read-only shared-lock contract. It also enforces caller ownership and private permissions, so it cannot yet support the proposed root-owned dedicated-group lock.
+- The current helper is a cooperative primitive, not a mandatory guard. No Compose service, Dockerfile entrypoint, package command or boot-time unit shown in this inventory forces every relevant launch path through it.
+
+### Integration rule
+
+Do not wire only the API or only the purge workers. Once the cross-UID lock contract is implemented, every process that can read or write private-media roots must participate in the same lock protocol. For long-running processes, the shared lock descriptor must remain open for the entire period of access, not merely around startup. The writer must acquire the shared lock and check the sticky maintenance marker while holding it; on marker presence it must refuse to start. Maintenance must create and durably sync the marker before draining existing participants and acquiring the exclusive lock.
+
+Before service integration, add tests for read-only shared-lock acquisition and verify the same host inode and marker directory from every relevant container. Then add one mandatory entrypoint/launcher for the API and every worker/migration profile, plus a host boot/start policy that prevents direct Compose/manual/restart launches from bypassing it. The Docker daemon/socket access boundary and external host-level isolation attestation remain independent prerequisites.
