@@ -6,7 +6,7 @@ COPY . .
 RUN npm run build
 
 FROM node:22-alpine AS api
-RUN apk add --no-cache bash ffmpeg util-linux
+RUN apk add --no-cache bash coreutils ffmpeg util-linux
 ENV NODE_ENV=production
 ENV PRIVACY_RECOVERY_REQUIRE_ADMISSION=true
 ENV PRIVACY_RECOVERY_WRITER_LOCK_FILE=/run/vow-privacy/writers.lock
