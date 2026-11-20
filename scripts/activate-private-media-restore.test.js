@@ -51,7 +51,7 @@ async function fixture() {
     'fi',
     'exec "$@"',
     ''
-  ].join('\\n');
+  ].join('\n');
   await writeFile(activationAdmission, activationAdmissionScript);
   const helperOwner = rootRun(['chown', '0:0', activationAdmission]);
   assert.equal(helperOwner.status, 0, helperOwner.stderr);
