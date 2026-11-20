@@ -316,10 +316,10 @@ fi
         'bash', '-c',
         'printf ready > "$CRITICAL_READY"; while :; do sleep 1; done'
       ], { CRITICAL_READY: criticalReady });
-      maintenance = spawn(args[0], args.slice(1), { stdio: 'ignore' });
+      maintenance = spawn(args[0], args.slice(1), { stdio: 'ignore', detached: true });
       await waitForPath(f.marker);
       await waitForPath(criticalReady);
-      maintenance.kill('SIGKILL');
+      process.kill(-maintenance.pid, 'SIGKILL');
       await new Promise((resolve, reject) => {
         maintenance.once('error', reject);
         maintenance.once('exit', (code, signal) => {
@@ -335,7 +335,7 @@ fi
       const released = runRoot(['flock', '-n', '-x', f.lock, '-c', 'true']);
       assert.equal(released.status, 0, released.stderr || 'kernel must release the exclusive flock after process death');
     } finally {
-      if (maintenance && maintenance.exitCode === null) maintenance.kill('SIGKILL');
+      if (maintenance && maintenance.exitCode === null) process.kill(-maintenance.pid, 'SIGKILL');
       await cleanup(f);
     }
   });
