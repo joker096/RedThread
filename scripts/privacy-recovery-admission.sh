@@ -118,13 +118,27 @@ if [[ "$drain" != /* || ! -f "$drain" || -L "$drain" || ! -x "$drain" ]]; then
   echo "drain controller must be an absolute regular executable non-symlink file" >&2
   exit 1
 fi
-drain_identity="$(stat -Lc '%u:%a' -- "$drain")"
-IFS=: read -r drain_owner drain_mode <<< "$drain_identity"
-if [[ "$drain_owner" != "0" ]] || (( (8#$drain_mode & 8#022) != 0 )); then
-  echo "drain controller must be root-owned and not group/world writable" >&2
+drain_identity="$(stat -Lc '%u:%a:%h' -- "$drain")"
+IFS=: read -r drain_owner drain_mode drain_links <<< "$drain_identity"
+if [[ "$drain_owner" != "0" || "$drain_links" != "1" || ! -x "$drain" ]] || (( (8#$drain_mode & 8#022) != 0 )); then
+  echo "drain controller must be root-owned, singly-linked, executable and not group/world writable" >&2
   exit 1
 fi
-if ! "$drain"; then
+# Open and validate the exact inode, then execute the pinned descriptor to
+# prevent a path replacement between the trust check and process launch.
+exec 8< "$drain"
+fd_drain_identity="$(stat -Lc '%u:%a:%h:%d:%i' -- /proc/self/fd/8)"
+path_drain_identity="$(stat -Lc '%u:%a:%h:%d:%i' -- "$drain")"
+if [[ "$fd_drain_identity" != "$path_drain_identity" ]]; then
+  echo "drain controller changed while opening; refusing maintenance" >&2
+  exit 1
+fi
+IFS=: read -r fd_drain_owner fd_drain_mode fd_drain_links _ _ <<< "$fd_drain_identity"
+if [[ "$fd_drain_owner" != "0" || "$fd_drain_links" != "1" ]] || (( (8#$fd_drain_mode & 8#022) != 0 )); then
+  echo "opened drain controller is not trusted" >&2
+  exit 1
+fi
+if ! bash /proc/self/fd/8; then
   echo "writer drain controller failed; admission remains closed" >&2
   exit 1
 fi
