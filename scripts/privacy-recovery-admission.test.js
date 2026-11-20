@@ -187,4 +187,71 @@ exit 44
       await cleanup(f);
     }
   });
+  await t.test('rejects malformed numeric writer GIDs before opening the lock', async () => {
+    const f = await fixture();
+    try {
+      for (const invalidGid of ['0', '-1', '65534x', '1.5', '']) {
+        const result = run(f, 'writer', ['true'], { PRIVACY_RECOVERY_WRITER_GID: invalidGid });
+        assert.equal(result.status, 1, `unexpected result for GID ${JSON.stringify(invalidGid)}: ${result.stderr}`);
+        assert.match(result.stderr, /writer group ID must be a positive numeric GID/);
+      }
+    } finally {
+      await cleanup(f);
+    }
+  });
+
+  await t.test('rejects a writer whose supplementary groups omit the configured GID', async () => {
+    const f = await fixture();
+    try {
+      const env = {
+        PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.lock,
+        PRIVACY_RECOVERY_WRITER_GID: String(writerGid),
+        PRIVACY_RECOVERY_DRAIN_EXECUTABLE: f.drainPath,
+        PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '1'
+      };
+      const envArgs = Object.entries(env).map(([key, value]) => `${key}=${value}`);
+      const args = [...sudo, 'setpriv', '--reuid', String(writerUid), '--regid', String(writerPrimaryGid),
+        '--groups', '65533', '--', 'env', ...envArgs, 'bash', script, 'writer', '--', 'true'];
+      const result = spawnSync(args[0], args.slice(1), { encoding: 'utf8', timeout: 5000 });
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, /not a member of the configured shared group/);
+    } finally {
+      await cleanup(f);
+    }
+  });
+
+  await t.test('rejects a symlink substituted for the lock file', async () => {
+    const f = await fixture();
+    const target = path.join(f.root, 'alternate-lock');
+    try {
+      const created = runRoot(['install', '-o', '0', '-g', String(writerGid), '-m', '0640', '/dev/null', target]);
+      assert.equal(created.status, 0, created.stderr);
+      const removed = runRoot(['rm', '-f', '--', f.lock]);
+      assert.equal(removed.status, 0, removed.stderr);
+      const linked = runRoot(['ln', '-s', '--', target, f.lock]);
+      assert.equal(linked.status, 0, linked.stderr);
+      const result = run(f, 'writer', ['true']);
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, /absolute regular non-symlink file/);
+    } finally {
+      await cleanup(f);
+    }
+  });
+
+  await t.test('rejects a symlinked maintenance marker instead of treating it as an ordinary marker', async () => {
+    const f = await fixture();
+    const target = path.join(f.root, 'marker-target');
+    try {
+      const created = runRoot(['install', '-d', '-o', '0', '-g', String(writerGid), '-m', '2750', target]);
+      assert.equal(created.status, 0, created.stderr);
+      const linked = runRoot(['ln', '-s', '--', target, f.marker]);
+      assert.equal(linked.status, 0, linked.stderr);
+      const result = run(f, 'writer', ['true']);
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, /maintenance marker must not be a symlink/);
+    } finally {
+      await cleanup(f);
+    }
+  });
+
 });
