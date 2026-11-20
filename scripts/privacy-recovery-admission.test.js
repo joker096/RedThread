@@ -324,7 +324,8 @@ fi
       maintenance = spawn(args[0], args.slice(1), { stdio: 'ignore', detached: true });
       await waitForPath(f.marker, 3000, true);
       await waitForPath(criticalReady, 3000, true);
-      process.kill(-maintenance.pid, 'SIGKILL');
+      const killed = runRoot(['kill', '-KILL', '--', '-' + String(maintenance.pid)]);
+      assert.equal(killed.status, 0, killed.stderr || 'root must terminate the maintenance process group with SIGKILL');
       await new Promise((resolve, reject) => {
         maintenance.once('error', reject);
         maintenance.once('exit', (code, signal) => {
@@ -340,7 +341,9 @@ fi
       const released = runRoot(['flock', '-n', '-x', f.lock, '-c', 'true']);
       assert.equal(released.status, 0, released.stderr || 'kernel must release the exclusive flock after process death');
     } finally {
-      if (maintenance && maintenance.exitCode === null) process.kill(-maintenance.pid, 'SIGKILL');
+      if (maintenance && maintenance.exitCode === null && maintenance.signalCode === null) {
+        runRoot(['kill', '-KILL', '--', '-' + String(maintenance.pid)]);
+      }
       await cleanup(f);
     }
   });
