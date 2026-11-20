@@ -8,12 +8,16 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const script = path.join(root, 'scripts', 'backup-private-media.sh');
+const admissionScript = path.join(root, 'scripts', 'privacy-recovery-admission.sh');
 
 async function fixture() {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-private-media-backup-'));
   const fakeBin = path.join(temporaryRoot, 'bin');
   const mediaRoot = path.join(temporaryRoot, 'private-media');
   const backupDir = path.join(temporaryRoot, 'backups');
+  const lock = path.join(temporaryRoot, 'writers.lock');
+  await writeFile(lock, '');
+  await chmod(lock, 0o600);
   await mkdir(fakeBin);
   await mkdir(mediaRoot);
   await writeFile(path.join(mediaRoot, 'private-photo.jpg'), 'fixture-private-photo-content');
@@ -40,11 +44,12 @@ rm -f "$input"
 `);
   await chmod(tar, 0o700);
   await chmod(age, 0o700);
-  return { temporaryRoot, fakeBin, mediaRoot, backupDir };
+  return { temporaryRoot, fakeBin, mediaRoot, backupDir, lock };
 }
 
-function run(env) {
-  return spawnSync('bash', [script], { encoding: 'utf8', env });
+function run(env, { direct = false } = {}) {
+  const command = direct ? [script] : [admissionScript, 'writer', '--', 'bash', script];
+  return spawnSync('bash', command, { encoding: 'utf8', env: { ...env, PRIVACY_RECOVERY_WRITER_LOCK_FILE: env.PRIVACY_RECOVERY_WRITER_LOCK_FILE || env.LOCK_FILE } });
 }
 
 test('private media backup streams archive into age and stores only encrypted output', async () => {
@@ -56,7 +61,8 @@ test('private media backup streams archive into age and stores only encrypted ou
       PRIVATE_MEDIA_DIR: f.mediaRoot,
       BACKUP_DIR: f.backupDir,
       BACKUP_AGE_RECIPIENT: 'age1fixturepublicrecipient',
-      BACKUP_RETENTION_DAYS: '30'
+      BACKUP_RETENTION_DAYS: '30',
+      LOCK_FILE: f.lock
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const files = await readdir(f.backupDir);
@@ -85,7 +91,8 @@ test('private media backup refuses symlink roots and symlinks inside the media t
       ...process.env,
       PATH: `${f.fakeBin}:${process.env.PATH || ''}`,
       BACKUP_DIR: f.backupDir,
-      BACKUP_AGE_RECIPIENT: 'age1fixturepublicrecipient'
+      BACKUP_AGE_RECIPIENT: 'age1fixturepublicrecipient',
+      LOCK_FILE: f.lock
     };
     const rootResult = run({ ...baseEnv, PRIVATE_MEDIA_DIR: rootLink });
     assert.notEqual(rootResult.status, 0);
@@ -109,7 +116,8 @@ test('private media backup refuses FIFOs and other special filesystem entries', 
       PATH: `${f.fakeBin}:${process.env.PATH || ''}`,
       PRIVATE_MEDIA_DIR: f.mediaRoot,
       BACKUP_DIR: f.backupDir,
-      BACKUP_AGE_RECIPIENT: 'age1fixturepublicrecipient'
+      BACKUP_AGE_RECIPIENT: 'age1fixturepublicrecipient',
+      LOCK_FILE: f.lock
     });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /special filesystem entries/);
@@ -127,9 +135,29 @@ test('private media backup fails closed when encryption recipient is absent', as
       PATH: `${f.fakeBin}:${process.env.PATH || ''}`,
       PRIVATE_MEDIA_DIR: f.mediaRoot,
       BACKUP_DIR: f.backupDir,
-      BACKUP_AGE_RECIPIENT: ''
+      BACKUP_AGE_RECIPIENT: '',
+      LOCK_FILE: f.lock
     });
     assert.notEqual(result.status, 0);
+    assert.deepEqual(await readdir(f.backupDir).catch(() => []), []);
+  } finally {
+    await rm(f.temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test('private media backup rejects direct invocation without an admitted shared lock', async () => {
+  const f = await fixture();
+  try {
+    const result = run({
+      ...process.env,
+      PATH: `${f.fakeBin}:${process.env.PATH || ''}`,
+      PRIVATE_MEDIA_DIR: f.mediaRoot,
+      BACKUP_DIR: f.backupDir,
+      BACKUP_AGE_RECIPIENT: 'age1fixturepublicrecipient',
+      LOCK_FILE: f.lock
+    }, { direct: true });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /requires the inherited admission lock/);
     assert.deepEqual(await readdir(f.backupDir).catch(() => []), []);
   } finally {
     await rm(f.temporaryRoot, { recursive: true, force: true });
