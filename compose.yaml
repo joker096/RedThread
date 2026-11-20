@@ -38,7 +38,7 @@ services:
       <<: *privacy-admission-env
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "false"
-    command: ["npm", "run", "db:migrate"]
+    command: ["node", "scripts/migrate.js"]
     volumes:
       - *privacy-admission-volume
     depends_on:
