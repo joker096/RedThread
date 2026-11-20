@@ -19,7 +19,7 @@ RUN mkdir -p /app/uploads/private-photos /app/uploads/private-identity-l3 /app/u
 USER node
 ENTRYPOINT ["bash", "scripts/privacy-recovery-admission.sh", "writer", "--"]
 EXPOSE 3001
-CMD ["npm", "run", "start:api"]
+CMD ["node", "server/index.js"]
 
 FROM nginx:1.28-alpine AS web
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
