@@ -25,6 +25,15 @@ test('production entrypoint guard rejects a direct Node launch without inherited
   assert.match(result.stderr, /requires the inherited shared lock on FD 9/);
 });
 
+test('NODE_ENV=production activates the guard even when the opt-in flag is absent', async () => {
+  const result = run({
+    NODE_ENV: 'production',
+    PRIVACY_RECOVERY_WRITER_LOCK_FILE: '/run/vow-privacy/writers.lock'
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /requires the inherited shared lock on FD 9/);
+});
+
 test('production entrypoint guard accepts only the configured live shared lock descriptor', async () => {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-admission-node-guard-'));
   try {
