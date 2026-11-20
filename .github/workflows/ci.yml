@@ -70,7 +70,7 @@ jobs:
           APP_URL: http://localhost:8080
           PRIVACY_RECOVERY_WRITER_GID: "65534"
           PRIVACY_RECOVERY_WRITER_LOCK_DIR: /tmp/vow-ci-privacy-admission
-        run: docker compose config --quiet
+        run: mkdir -p /tmp/vow-ci-privacy-admission && docker compose config --quiet
       - name: Build API container
         run: docker build --target api -t vow-api:ci .
       - name: Build web container
