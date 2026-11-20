@@ -117,7 +117,7 @@ test('cross-UID admission integration requires root and setpriv', { skip: !canRu
       assert.equal(available.status, 0, available.stderr);
     } finally {
       if (writer && writer.exitCode === null) writer.kill('SIGKILL');
-      await rm(readyFile, { force: true });
+      runRoot(['rm', '-f', '--', readyFile]);
       await cleanup(f);
     }
   });
@@ -138,7 +138,7 @@ test('cross-UID admission integration requires root and setpriv', { skip: !canRu
       const blocked = run(f, 'writer', ['true']);
       assert.equal(blocked.status, 75, blocked.stderr);
     } finally {
-      await rm(output, { force: true });
+      runRoot(['rm', '-f', '--', output]);
       await cleanup(f);
     }
   });
