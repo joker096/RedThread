@@ -38,21 +38,6 @@ fi
 # Use the canonical directory after validation so the opened path is unambiguous.
 PRIVACY_RECOVERY_WRITER_LOCK_FILE="$canonical_lock_dir/$lock_name"
 
-# FD 9 must be the exclusive lock inherited from privacy-recovery-admission.sh.
-# Never reopen it here: that would create a separate open-file description and can
-# deadlock or invalidate the admission protocol.
-maintenance_marker="$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance"
-if [[ ! -d "$maintenance_marker" || -L "$maintenance_marker" || ! -e /proc/self/fd/9 ]]; then
-  echo "activation requires the inherited maintenance lock and durable admission marker" >&2
-  exit 1
-fi
-if ! flock -n -x 9; then
-  echo "activation could not confirm the inherited descriptor holds the exclusive writer-admission lock" >&2
-  exit 1
-fi
-export PRIVACY_RECOVERY_WRITER_LOCK_FILE
-export PRIVACY_RECOVERY_WRITER_LOCK_FD=9
-
 command -v mount >/dev/null 2>&1 || { echo "mount is required" >&2; exit 1; }
 command -v mountpoint >/dev/null 2>&1 || { echo "mountpoint is required" >&2; exit 1; }
 command -v umount >/dev/null 2>&1 || { echo "umount is required for fail-closed rollback" >&2; exit 1; }
@@ -134,6 +119,21 @@ if [[ "${1:-}" != "--vow-internal-activation" ]]; then
   exec bash "$admission_helper" maintenance -- "$0" --vow-internal-activation
 fi
 shift
+
+# FD 9 must be the exclusive lock inherited from privacy-recovery-admission.sh.
+# Never reopen it here: that would create a separate open-file description and can
+# deadlock or invalidate the admission protocol.
+maintenance_marker="$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance"
+if [[ ! -d "$maintenance_marker" || -L "$maintenance_marker" || ! -e /proc/self/fd/9 ]]; then
+  echo "activation requires the inherited maintenance lock and durable admission marker" >&2
+  exit 1
+fi
+if ! flock -n -x 9; then
+  echo "activation could not confirm the inherited descriptor holds the exclusive writer-admission lock" >&2
+  exit 1
+fi
+export PRIVACY_RECOVERY_WRITER_LOCK_FILE
+export PRIVACY_RECOVERY_WRITER_LOCK_FD=9
 
 
 # Stop and audit writers before domain reconciliation. This gate must target a dedicated restore-only environment.
