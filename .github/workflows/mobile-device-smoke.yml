@@ -14,6 +14,7 @@ on:
       - "scripts/**"
       # Backup/recovery documentation changes require native regression coverage too.
       - "docs/OPERATIONS_BACKUPS.md"
+      - "docs/PRIVACY_RECOVERY_RESTORE_ISOLATION.md"
       - "Dockerfile"
       - "server/**"
       - "android/**"
@@ -32,6 +33,7 @@ on:
       - "package-lock.json"
       - "scripts/**"
       - "docs/OPERATIONS_BACKUPS.md"
+      - "docs/PRIVACY_RECOVERY_RESTORE_ISOLATION.md"
       - "Dockerfile"
       - "server/**"
       - "android/**"
