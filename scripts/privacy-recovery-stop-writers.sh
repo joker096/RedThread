@@ -36,6 +36,20 @@ if [[ ! "$HOST_WRITER_ISOLATION_GATE_EXECUTABLE" = /* || ! -f "$HOST_WRITER_ISOL
   echo "host writer-isolation gate must be an absolute, regular, executable, non-symlink file" >&2
   exit 1
 fi
+gate_identity="$(stat -Lc '%u:%a:%h' -- "$HOST_WRITER_ISOLATION_GATE_EXECUTABLE")"
+IFS=: read -r gate_owner gate_mode gate_links <<< "$gate_identity"
+if [[ "$gate_owner" != "0" || "$gate_links" != "1" ]] || (( (8#$gate_mode & 8#022) != 0 )); then
+  echo "host writer-isolation gate must be root-owned, singly-linked and not group/world writable" >&2
+  exit 1
+fi
+# Open and verify the exact inode before invoking it through the pinned FD.
+exec 8< "$HOST_WRITER_ISOLATION_GATE_EXECUTABLE"
+fd_gate_identity="$(stat -Lc '%u:%a:%h:%d:%i' -- /proc/self/fd/8)"
+path_gate_identity="$(stat -Lc '%u:%a:%h:%d:%i' -- "$HOST_WRITER_ISOLATION_GATE_EXECUTABLE")"
+if [[ "$fd_gate_identity" != "$path_gate_identity" ]]; then
+  echo "host writer-isolation gate changed while opening; refusing to continue" >&2
+  exit 1
+fi
 
 IFS=',' read -r -a media_volumes <<< "$PRIVACY_RECOVERY_MEDIA_VOLUMES"
 if [[ "${#media_volumes[@]}" -ne 3 ]]; then
@@ -140,5 +154,5 @@ for container in "${project_containers[@]}"; do
 done
 
 # Docker cannot prove host process isolation. Require a separate executable gate and fail closed if it rejects.
-"$HOST_WRITER_ISOLATION_GATE_EXECUTABLE"
+bash /proc/self/fd/8
 printf 'Docker and host writer isolation gates passed for restore project %s.\n' "$RESTORE_COMPOSE_PROJECT"
