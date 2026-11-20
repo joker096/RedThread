@@ -20,13 +20,12 @@ function runRoot(args, options = {}) {
 
 async function fixture({ drain = '#!/usr/bin/env bash\\nset -eu\\nexit 0\\n' } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'vow-privacy-admission-'));
-  const lock = path.join(root, 'writers.lock');
+  const admissionDir = path.join(root, 'admission');
+  const lock = path.join(admissionDir, 'writers.lock');
   const drainPath = path.join(root, 'drain');
   const marker = lock + '.maintenance';
-  const setup = runRoot(['chown', `0:${writerGid}`, root]);
-  assert.equal(setup.status, 0, setup.stderr);
-  const dirMode = runRoot(['chmod', '2750', root]);
-  assert.equal(dirMode.status, 0, dirMode.stderr);
+  const admissionCreate = runRoot(['install', '-d', '-o', '0', '-g', String(writerGid), '-m', '2750', admissionDir]);
+  assert.equal(admissionCreate.status, 0, admissionCreate.stderr);
   const lockCreate = runRoot(['install', '-o', '0', '-g', String(writerGid), '-m', '0640', '/dev/null', lock]);
   assert.equal(lockCreate.status, 0, lockCreate.stderr);
   await writeFile(drainPath, drain);
@@ -129,8 +128,7 @@ test('cross-UID admission integration requires root and setpriv', { skip: !canRu
     try {
       const result = run(f, 'maintenance', ['bash', '-c', 'printf activated > "$CRITICAL_OUTPUT"'], { CRITICAL_OUTPUT: output });
       assert.equal(result.status, 0, result.stderr || result.stdout);
-      const marker = await lstat(f.marker);
-      assert.ok(marker.isDirectory());
+      assert.equal(runRoot(['test', '-d', f.marker]).status, 0);
       const markerStat = runRoot(['stat', '-Lc', '%u:%g:%a', f.marker]);
       assert.equal(markerStat.stdout.trim(), `0:${writerGid}:2750`);
       const blocked = run(f, 'writer', ['true']);
@@ -167,7 +165,7 @@ test('cross-UID admission integration requires root and setpriv', { skip: !canRu
       const result = run(f, 'maintenance', ['true'], { PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '0.1' });
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /did not drain/);
-      await lstat(f.marker);
+      assert.equal(runRoot(['test', '-d', f.marker]).status, 0);
       const blocked = run(f, 'writer', ['true']);
       assert.equal(blocked.status, 75, blocked.stderr);
     } finally {
