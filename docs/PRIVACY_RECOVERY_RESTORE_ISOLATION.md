@@ -23,8 +23,10 @@ export RESTORE_DOCKER_DAEMON_ID=<expected-hex-daemon-id>
 export PRIVACY_RECOVERY_MEDIA_VOLUMES=vow-restore-audit01_private_photos,vow-restore-audit01_private_voice_intros,vow-restore-audit01_private_identity_l3
 export HOST_WRITER_ISOLATION_GATE_EXECUTABLE=/absolute/path/to/host-writer-isolation-gate
 # Pre-create this file with ownership/permissions restricted to the restore operator
-install -d -o root -g root -m 0700 /run/vow-restore-audit01
-install -o root -g root -m 0600 /dev/null /run/vow-restore-audit01/writers.lock
+groupadd --system vow-privacy-writers
+export PRIVACY_RECOVERY_WRITER_GID="$(getent group vow-privacy-writers | cut -d: -f3)"
+install -d -o root -g "$PRIVACY_RECOVERY_WRITER_GID" -m 2750 /run/vow-restore-audit01
+install -o root -g "$PRIVACY_RECOVERY_WRITER_GID" -m 0640 /dev/null /run/vow-restore-audit01/writers.lock
 export PRIVACY_RECOVERY_WRITER_LOCK_FILE=/run/vow-restore-audit01/writers.lock
 # Must drain all admitted writers in this isolated restore environment.
 export PRIVACY_RECOVERY_DRAIN_EXECUTABLE=/absolute/path/to/restore-writer-drain-controller
@@ -45,7 +47,7 @@ The host-level executable is an independent, operator-supplied control; this rep
 2. Connect with a dedicated login role whose name matches `vow_restore_<suffix>`. Do not reuse the API, migration, owner, or administrator role.
 3. The restore role must have no role memberships, no superuser/createdb/createrole/replication/bypass-RLS attributes, no write privileges on user relations or sequences, and no CREATE privilege on user schemas or the database. The verifier checks these properties at runtime.
 4. Mount each restored media root into the verifier's own mount namespace as read-only. The CLI reads `/proc/self/mountinfo` and rejects a missing or writable covering mount for photo, voice-intro, or L3 storage.
-5. Pre-create a root-owned, mode-0600 lock file on a trusted local filesystem and provide an executable `PRIVACY_RECOVERY_DRAIN_EXECUTABLE`. Activation closes admission with a durable sticky marker, drains already-admitted writers, then acquires the exclusive lock and retains it through reconciliation and bind activation. The lock is cooperative and does not itself block uncooperative privileged processes.
+5. Pre-create a root-owned, dedicated-group lock directory (mode `2750`) and lock file (mode `0640`) on a trusted local filesystem. Set the numeric `PRIVACY_RECOVERY_WRITER_GID` and provide an executable `PRIVACY_RECOVERY_DRAIN_EXECUTABLE`. The writer opens FD 9 read-only and takes a shared lock as an unprivileged group member; root maintenance opens it read/write and takes the exclusive lock. Activation closes admission with a durable root-owned group-visible sticky marker, drains admitted writers, then retains the exclusive lock through reconciliation and bind activation. This is cooperative coordination, not host isolation.
 6. Before running the verifier, invoke the writer-isolation gate. Its Docker portion stops every service in the dedicated restore project except the isolated DB and rejects any running container anywhere on the daemon with a writable attachment to the restore media volumes. The gate must additionally prove host-level isolation for processes outside Docker, alternate namespaces, writable file descriptors and aliases; otherwise activation is blocked.
 7. Keep the restored media roots read-only after verification. Do not remount them writable or attach them to a writable service until a separately reviewed activation procedure authorizes it.
 
@@ -137,27 +139,27 @@ The maintenance marker remains after successful activation and all failures. The
 
 This integration fixes the ordering mismatch in the activation wrapper for cooperative participants. It does **not** implement service-wide admission enforcement or host-level isolation. Compose/API/purge/migration/manual writer paths still need to be wired to the same lock and marker, and the independent host gate must still prove that non-cooperating host processes, namespaces, descriptors, aliases and Docker clients cannot write during the critical section. Until those controls and their evidence exist, real private-media restore activation remains prohibited.
 
-## Host/container lock permissions: unresolved integration blocker
+## Host/container lock permissions: cross-UID helper implemented; service integration still blocked
 
-The current lock helper is intentionally **host-operator-only** and is not safe to mount into the API or worker containers as-is:
+The admission helper now implements the root-owned, dedicated-group contract needed for an unprivileged service process:
 
-- The API image runs as the unprivileged `node` user.
-- The helper currently requires the lock file owner to equal the calling UID, requires group/other permissions to be absent, and opens the lock read/write for every mode.
-- The documented host provisioning example creates a root:root mode-0600 lock. A `node` process cannot open that file, and changing it to mode 0644/0666 or making it group-writable would weaken the security boundary rather than solve it.
+- The API image runs as the unprivileged `node` user; writer mode is explicitly non-root.
+- The lock directory must be root-owned by the configured numeric GID and mode `2750`; the lock inode must be root-owned by the same GID and mode `0640`.
+- Writer mode validates supplementary-group membership, opens FD 9 read-only, verifies the opened device/inode against the configured path, acquires a shared `flock`, checks the marker, and retains the descriptor through the command.
+- Maintenance mode is root-only, opens FD 9 read/write, creates a root-owned group-visible mode-`2750` sticky marker, runs the configured drain controller, and acquires the exclusive lock.
+- The helper rejects missing/invalid GIDs, wrong ownership or modes, symlinked/non-canonical paths, inode replacement detected across open, non-member writers, and non-root maintenance.
 
-Do not bind-mount the current host lock into Compose and do not claim that the services participate in admission until a dedicated cross-boundary contract is implemented and tested.
-
-A candidate contract for review (not yet implemented or approved):
+The helper and root/setpriv integration tests now cover the cross-UID contract. This does **not** mean Compose services participate yet: do not bind-mount the lock into API/workers until the same inode, supplementary GID, marker parent, boot-time provisioning and mandatory launch guard are integrated atomically across every relevant service.
 
 1. Provision a dedicated, non-login host group for Vow writer admission. Its numeric GID must be explicitly selected during host provisioning and passed as configuration; never assume that UID/GID 1000 or any image-default group is suitable.
-2. The lock inode is host-owned by root and the dedicated group, with mode `0640`. Its parent directory is root-owned by the same group, mode `0750`, and not writable by group members. The sticky maintenance marker is created by the root maintenance process with the same group and mode `0750`; marker creation must remain durable and fail closed.
+2. Implemented by the helper: the lock inode is root-owned by the dedicated group with mode `0640`; its parent directory is root-owned by the same group, mode `2750` (setgid, group-readable/searchable, not group-writable). The sticky maintenance marker is created by root with the inherited group and mode `2750`; marker creation is synced and remains fail-closed.
 3. Every writer container receives the same host lock inode and marker parent through read-only bind mounts. Its process identity must have the configured dedicated supplementary GID (for Compose this must be explicitly provisioned, e.g. with `group_add`, and verified at runtime). No container receives write access to the lock or marker parent.
-4. Writer mode opens the lock read-only and takes a shared `flock`; maintenance mode opens it read/write as root and takes the exclusive lock. Linux shared `flock` is supported on a read-only descriptor, but this exact behavior must be covered by tests in the target runtime/filesystem. The writer checks the marker while holding the shared lock and retains the descriptor for the entire writer lifetime.
-5. The helper must validate the configured numeric GID, actual supplementary-group membership, root/group ownership, exact permission masks, canonical parent path, non-symlink inode identity, and marker type/ownership/mode. It must reject an unconfigured GID, an unexpected group, writable group/other bits, and a lock or marker mounted from a different inode.
+4. Implemented and covered by root/setpriv integration tests: writer mode opens the lock read-only and takes a shared `flock`; maintenance mode opens it read/write as root and takes the exclusive lock. The writer checks the marker while holding the shared lock and retains the descriptor for the entire command lifetime.
+5. Implemented in the helper: validate the configured numeric GID, actual supplementary-group membership, root/group ownership, exact permission modes, canonical parent path, non-symlink paths, and lock device/inode identity across open. A wrong GID, missing group membership, unexpected ownership/mode or inode replacement is rejected.
 6. Provisioning must create the lock and marker parent before any Vow writer can start. A boot-time service / systemd ordering dependency and a single mandatory entrypoint guard must prevent API, purge, migration, scheduled, restart-policy and manual Compose launches from bypassing admission. Read-only bind mounts alone do not enforce launch policy.
-7. Tests must cover root maintenance versus node writer, shared lock on read-only FD, supplementary GID present/missing, wrong GID, group/world write rejection, marker visibility, marker creation durability, long-lived writer drain, descriptor inheritance, mount identity across every consumer, and attempted manual/restart startup during maintenance.
+7. Root/setpriv tests now cover root maintenance versus unprivileged writer, shared lock lifetime on read-only FD, supplementary GID membership, root/group ownership and modes, marker visibility, sticky failure behavior and long-lived writer drain. Still required before service integration: missing/wrong GID and mount identity from every consumer, descriptor inheritance through each actual launch path, and attempted manual/restart startup during maintenance.
 
-The candidate permissions above are a design direction only. Do not modify the current helper to accept group ownership or relax its permissions until the full provisioning, service integration, boot ordering, host admission policy, and tests are implemented together. The independent host-level isolation gate and its machine-readable attestation remain separate mandatory prerequisites.
+The cross-UID helper contract is implemented, but provisioning and service integration are not. Do not enable any API/worker path until group creation, lock bind mounts, group_add, boot ordering, mandatory entrypoints and bypass tests are implemented together. The independent host-level isolation gate and its machine-readable attestation remain separate mandatory prerequisites.
 
 ## Compose writer inventory and admission bypasses
 
@@ -173,7 +175,7 @@ The Compose and package manifests at the audited revision show that admission is
 | `identity-l3-purge-worker` | Writable L3 volume | `unless-stopped`; direct Node command |
 | `identity-l3-worker` | Read-only L3 volume | `unless-stopped`; direct Node command, still a private-media reader and must be drained/guarded during restore |
 | `voice-intro-migration` | Writable voice-intro volume | One-shot profile; direct Node command |
-| `backup:private-media` / `scripts/backup-private-media.sh` | Reads the complete active private-media root; writes an encrypted archive outside that root | Direct/manual package script; no shared admission lock |
+| `backup:private-media` / `scripts/backup-private-media.sh` | Reads the complete active private-media root; writes an encrypted archive outside that root | Package command uses shared admission; direct script invocation is rejected |
 | `migrate` | No private-media volume in current Compose definition | One-shot DB migration; must be considered for startup sequencing, but it is not currently a private-volume writer |
 
 The following services also run periodic database maintenance commands, but do not mount the three private-media volumes in the inspected Compose definition: `ad-event-retention`, `female-profile-exposure-retention`, `account-reuse-retention`, `gift-request-expiry`, and `identity-l3-expiry`. Their database mutation lifecycle should be inventoried separately; do not conflate them with filesystem writers.
@@ -185,7 +187,7 @@ The following services also run periodic database maintenance commands, but do n
 - `restart: unless-stopped` means Docker can relaunch several consumers without the maintenance script being invoked. Stopping a Compose project and checking its current containers is not a durable launch barrier.
 - Package scripts expose direct worker and API commands (including `start:api`, `identity:l3-worker`, `photos:purge`, `voice-intros:purge`, and `voice-intros:migrate-once`). Local/manual operator invocations therefore also bypass a container-only wrapper. The private-media backup package command is the exception and now uses the admission helper.
 - `npm run backup:private-media` now enters `scripts/privacy-recovery-admission.sh writer` and the backup script verifies that inherited FD 9 holds the shared lock for the full operation. Direct script invocation is rejected. This covers the supported package command only; the cross-UID lock contract and host-wide enforcement remain unresolved.
-- The current admission helper opens the lock with `exec 9<>` in both writer and maintenance modes. Writer mode therefore requires write access, contrary to the proposed read-only shared-lock contract. It also enforces caller ownership and private permissions, so it cannot yet support the proposed root-owned dedicated-group lock.
+- The admission helper now opens writer FD 9 read-only and maintenance FD 9 read/write, validates the root-owned shared-group contract and retains the lock for the command. The remaining gap is that the actual Compose/API/worker launch paths are not wired to it.
 - The current helper is a cooperative primitive, not a mandatory guard. No Compose service, Dockerfile entrypoint, package command or boot-time unit shown in this inventory forces every relevant launch path through it.
 
 ### Integration rule
@@ -199,4 +201,4 @@ Before service integration, add tests for read-only shared-lock acquisition and 
 
 The private-media backup is a reader of the protected source tree. It now runs through the cooperative writer-admission helper (shared lock) and retains inherited FD 9 for the full archive, encryption, checksum and retention operation. The backup script independently verifies on Linux that FD 9 resolves to the configured lock path and carries a live shared flock; direct invocation without the admitted descriptor fails closed. It also rejects the sticky maintenance marker. The package command `npm run backup:private-media` invokes the admission helper, so the supported package entrypoint no longer bypasses the cooperative lock.
 
-This closes only the backup command's cooperative admission path. It does not resolve the cross-UID/root-owned lock contract, force every host/manual launch authority through admission, integrate API and all workers, or implement the independent host-level writer-isolation gate. Do not treat backup admission alone as proof that restore activation is safe. Until the complete admission and host-isolation requirements above are satisfied, real private-media restore activation remains blocked.
+This closes the backup command's cooperative admission path using the root-owned cross-UID lock contract. It does not force every host/manual launch authority through admission, integrate API and all workers, or implement the independent host-level writer-isolation gate. Do not treat backup admission alone as proof that restore activation is safe. Until the complete admission and host-isolation requirements above are satisfied, real private-media restore activation remains blocked.
