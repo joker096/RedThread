@@ -29,27 +29,30 @@ async function fixture() {
   await writeFile(path.join(restore, '.vow-restore-pending'), '');
   await chmod(path.join(restore, '.vow-restore-pending'), 0o600);
   await writeFile(log, '');
-  await writeFile(activationAdmission, `#!/usr/bin/env bash
-set -Eeuo pipefail
-mode="${1:?mode required}"
-shift
-[[ "${1:-}" == "--" ]] && shift
-exec 9<> "$PRIVACY_RECOVERY_WRITER_LOCK_FILE"
-marker="$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance"
-if [[ "$mode" == "writer" ]]; then
-  flock -s 9
-  if [[ -e "$marker" ]]; then echo "writer admission is closed" >&2; exit 75; fi
-  exec "$@"
-fi
-mkdir -m 700 -- "$marker"
-"$PRIVACY_RECOVERY_DRAIN_EXECUTABLE"
-timeout="${PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS:-30}"
-if ! flock -x -w "$timeout" 9; then
-  echo "writer admission locks did not drain" >&2
-  exit 1
-fi
-exec "$@"
-`);
+  const activationAdmissionScript = [
+    '#!/usr/bin/env bash',
+    'set -Eeuo pipefail',
+    'mode="${1:?mode required}"',
+    'shift',
+    '[[ "${1:-}" == "--" ]] && shift',
+    'exec 9<> "$PRIVACY_RECOVERY_WRITER_LOCK_FILE"',
+    'marker="$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance"',
+    'if [[ "$mode" == "writer" ]]; then',
+    '  flock -s 9',
+    '  if [[ -e "$marker" ]]; then echo "writer admission is closed" >&2; exit 75; fi',
+    '  exec "$@"',
+    'fi',
+    'mkdir -m 700 -- "$marker"',
+    '"$PRIVACY_RECOVERY_DRAIN_EXECUTABLE"',
+    'timeout="${PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS:-30}"',
+    'if ! flock -x -w "$timeout" 9; then',
+    '  echo "writer admission locks did not drain" >&2',
+    '  exit 1',
+    'fi',
+    'exec "$@"',
+    ''
+  ].join('\\n');
+  await writeFile(activationAdmission, activationAdmissionScript);
   const helperOwner = rootRun(['chown', '0:0', activationAdmission]);
   assert.equal(helperOwner.status, 0, helperOwner.stderr);
   const helperMode = rootRun(['chmod', '0755', activationAdmission]);
