@@ -18,6 +18,8 @@ async function fixture(scenario = 'readonly') {
   await writeFile(log, '');
   await writeFile(hostGate, '#!/usr/bin/env bash\nset -eu\necho host-gate >> "$CALL_LOG"\n');
   await chmod(hostGate, 0o700);
+  const gateOwner = spawnSync('sudo', ['-n', 'chown', '0:0', hostGate], { encoding: 'utf8' });
+  assert.equal(gateOwner.status, 0, gateOwner.stderr);
   const docker = [
     '#!/usr/bin/env bash','set -eu','if [[ "$1" == --context ]]; then [[ "$2" == "$RESTORE_DOCKER_CONTEXT" ]] || exit 80; shift 2; fi','[[ -z "${DOCKER_HOST:-}" ]] || exit 81','printf "docker:%s\\n" "$*" >> "$CALL_LOG"',
     'if [[ "$1" == context && "$2" == inspect ]]; then printf \'%s\\n\' "$DOCKER_ENDPOINT_OUTPUT"',
