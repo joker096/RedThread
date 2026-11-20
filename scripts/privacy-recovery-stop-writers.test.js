@@ -17,7 +17,7 @@ async function fixture(scenario = 'readonly') {
   await writeFile(composeFile, 'services: {}\n');
   await writeFile(log, '');
   await writeFile(hostGate, '#!/usr/bin/env bash\nset -eu\necho host-gate >> "$CALL_LOG"\n');
-  await chmod(hostGate, 0o700);
+  await chmod(hostGate, 0o755);
   const gateOwner = spawnSync('sudo', ['-n', 'chown', '0:0', hostGate], { encoding: 'utf8' });
   assert.equal(gateOwner.status, 0, gateOwner.stderr);
   const docker = [
