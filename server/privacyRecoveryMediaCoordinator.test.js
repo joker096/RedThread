@@ -267,8 +267,11 @@ test('coordinator blocks every non-media privacy domain before applying any medi
   const blockedTypes = [
     'account_erasure_requested',
     'ad_consent_revoked',
-    'gift_order_consent_withdrawn'
+    'gift_order_consent_withdrawn',
+    'gift_address_draft_consent_withdrawn'
   ];
+  const draftOrderId = '123e4567-e89b-42d3-a456-426614174088';
+  const draftOrderRef = createHmac('sha256', key).update(draftOrderId, 'utf8').digest('hex');
 
   for (const blockedType of blockedTypes) {
     const { pool } = poolFor({
@@ -283,9 +286,12 @@ test('coordinator blocks every non-media privacy domain before applying any medi
         event_id: '123e4567-e89b-42d3-a456-426614174007',
         event_type: blockedType,
         subject_ref: subjectRef,
-        resource_ref: null
+        resource_ref: blockedType === 'gift_address_draft_consent_withdrawn' ? draftOrderRef : null
       }],
-      photos: [{ id: photoId, user_id: userId }]
+      photos: [{ id: photoId, user_id: userId }],
+      giftOrders: blockedType === 'gift_address_draft_consent_withdrawn'
+        ? [{ id: draftOrderId, user_id: userId }]
+        : []
     });
     let appliedCount = 0;
     const result = await runPrivateMediaPrivacyRecovery({
