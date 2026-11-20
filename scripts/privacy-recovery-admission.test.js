@@ -1,18 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, lstat, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const script = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'privacy-recovery-admission.sh');
-const writerUid = 65534;
+const writerUid = process.getuid?.() ?? 1000;
+const writerPrimaryGid = process.getgid?.() ?? writerUid;
 const writerGid = 65534;
 const sudo = process.getuid?.() === 0 ? [] : ['sudo', '-n'];
 const rootAvailable = process.getuid?.() === 0 || spawnSync('sudo', ['-n', 'true'], { encoding: 'utf8' }).status === 0;
 const setprivAvailable = spawnSync('setpriv', ['--version'], { encoding: 'utf8' }).status === 0;
-const canRun = rootAvailable && setprivAvailable;
+const canRun = rootAvailable && setprivAvailable && writerUid !== 0;
 
 function runRoot(args, options = {}) {
   return spawnSync(...(sudo.length ? ['sudo', ['-n', ...args]] : [args[0], args.slice(1)]), options);
@@ -53,7 +54,7 @@ function commandFor(f, mode, command, extra = {}) {
   };
   const envArgs = Object.entries(env).map(([key, value]) => `${key}=${value}`);
   if (mode === 'writer') {
-    return [...sudo, 'setpriv', '--reuid', String(writerUid), '--regid', String(writerGid), '--clear-groups', '--', 'env', ...envArgs, 'bash', script, mode, '--', ...command];
+    return [...sudo, 'setpriv', '--reuid', String(writerUid), '--regid', String(writerPrimaryGid), '--groups', String(writerGid), '--', 'env', ...envArgs, 'bash', script, mode, '--', ...command];
   }
   return [...sudo, 'env', ...envArgs, 'bash', script, mode, '--', ...command];
 }
@@ -87,7 +88,7 @@ async function cleanup(f) {
 }
 
 test('cross-UID admission integration requires root and setpriv', { skip: !canRun }, async t => {
-  t.diagnostic('writer runs as UID/GID 65534; lock is root:65534 mode 0640; lock directory is root:65534 mode 2750');
+  t.diagnostic(`writer runs as unprivileged UID ${writerUid} with supplementary GID ${writerGid}; lock is root:${writerGid} mode 0640; lock directory is root:${writerGid} mode 2750`);
 
   await t.test('writer rejects admission after the root-owned sticky maintenance marker exists', async () => {
     const f = await fixture();
@@ -130,7 +131,7 @@ test('cross-UID admission integration requires root and setpriv', { skip: !canRu
       drain: `#!/usr/bin/env bash
 set -eu
 test -d "$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance"
-if setpriv --reuid 65534 --regid 65534 --clear-groups -- env PRIVACY_RECOVERY_WRITER_LOCK_FILE="$PRIVACY_RECOVERY_WRITER_LOCK_FILE" PRIVACY_RECOVERY_WRITER_GID="$PRIVACY_RECOVERY_WRITER_GID" bash "${script}" writer -- true; then exit 91; else status=$?; fi
+if setpriv --reuid ${writerUid} --regid ${writerPrimaryGid} --groups ${writerGid} -- env PRIVACY_RECOVERY_WRITER_LOCK_FILE="$PRIVACY_RECOVERY_WRITER_LOCK_FILE" PRIVACY_RECOVERY_WRITER_GID="$PRIVACY_RECOVERY_WRITER_GID" bash "${script}" writer -- true; then exit 91; else status=$?; fi
 test "$status" -eq 75
 `
     });
