@@ -120,7 +120,7 @@ if [[ "${1:-}" != "--vow-internal-activation" ]]; then
     echo "privacy-recovery admission helper must be an absolute, regular, non-symlink file" >&2
     exit 1
   fi
-  exec bash "$admission_helper" maintenance -- "$0" --vow-internal-activation
+  exec bash "$admission_helper" maintenance -- bash "$0" --vow-internal-activation
 fi
 shift
 
