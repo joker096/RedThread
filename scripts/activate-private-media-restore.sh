@@ -111,7 +111,11 @@ fi
 # protocol. The internal phase is accepted only with the helper's inherited
 # exclusive lock and its durable maintenance marker already present.
 if [[ "${1:-}" != "--vow-internal-activation" ]]; then
-  admission_helper="${PRIVACY_RECOVERY_ADMISSION_EXECUTABLE:-$(dirname -- "$0")/privacy-recovery-admission.sh}"
+  if [[ -n "${PRIVACY_RECOVERY_ADMISSION_EXECUTABLE:-}" ]]; then
+    admission_helper="$PRIVACY_RECOVERY_ADMISSION_EXECUTABLE"
+  else
+    admission_helper="$(realpath -e -- "$(dirname -- "$0")/privacy-recovery-admission.sh")"
+  fi
   if [[ "$admission_helper" != /* || ! -f "$admission_helper" || -L "$admission_helper" ]]; then
     echo "privacy-recovery admission helper must be an absolute, regular, non-symlink file" >&2
     exit 1
