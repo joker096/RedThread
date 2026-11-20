@@ -69,14 +69,20 @@ function run(f, mode, command, extra = {}) {
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-async function waitForPath(target, timeoutMs = 3000) {
+async function waitForPath(target, timeoutMs = 3000, asRoot = false) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    try {
-      await lstat(target);
-      return;
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
+    if (asRoot) {
+      const result = runRoot(['test', '-e', target]);
+      if (result.status === 0) return;
+      if (result.status !== 1) throw new Error(result.stderr || 'root path check failed');
+    } else {
+      try {
+        await lstat(target);
+        return;
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
     }
     await delay(10);
   }
@@ -316,7 +322,7 @@ fi
         'printf ready > "$CRITICAL_READY"; while :; do sleep 1; done'
       ], { CRITICAL_READY: criticalReady });
       maintenance = spawn(args[0], args.slice(1), { stdio: 'ignore', detached: true });
-      await waitForPath(f.marker);
+      await waitForPath(f.marker, 3000, true);
       await waitForPath(criticalReady);
       process.kill(-maintenance.pid, 'SIGKILL');
       await new Promise((resolve, reject) => {
@@ -358,7 +364,11 @@ fi
         }
         const result = run(f, 'maintenance', ['true']);
         assert.equal(result.status, 1, `${scenario}: ${result.stderr}`);
-        assert.match(result.stderr, /drain controller must be root-owned/);
+        if (scenario === 'symlink') {
+          assert.match(result.stderr, /drain controller must be an absolute regular executable non-symlink file/);
+        } else {
+          assert.match(result.stderr, /drain controller must be root-owned, singly-linked, executable and not group\/world writable/);
+        }
         assert.equal(runRoot(['test', '-d', f.marker]).status, 0, 'failed validation must leave admission closed');
       } finally {
         await cleanup(f);
