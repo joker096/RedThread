@@ -424,6 +424,32 @@ test('L3 withdrawal retries and inactive-consent cleanup remain behind the lifec
   assert.ok(route.includes('generation: `${expectedConsent.consent_version}:${expectedConsent.granted_at}`'));
   assert.equal(route.includes('applyWithdrawal(client, expectedConsent, false)'), false,
     'there must be no direct PostgreSQL cleanup path outside the ACK gate');
-  assert.ok(route.includes('identity_l3_consent_lifecycle_reconciliation_required'),
+  assert.ok(route.includes('identity_l3_consent_lifecycle_missing_reconciliation_required'),
     'orphaned state without a lifecycle must fail closed for reconciliation');
+  assert.ok(route.includes("error: 'identity_l3_consent_lifecycle_reconciliation_required'"),
+    'the API must return an explicit reconciliation response');
+});
+
+
+test('an already-ACKed operation can safely resume its failed purge obligation on duplicate requests', async () => {
+  const pool = fakePool();
+  const fetchImpl = async () => new Response(JSON.stringify({ accepted: true, event_id: operationId, sequence: 881 }), { status: 201 });
+  let initialApplyCount = 0;
+  await runAckGatedPrivacyRecoveryOperation({
+    pool, operationId, event, env, fetchImpl,
+    apply: async () => { initialApplyCount += 1; return 'withdrawal-applied'; }
+  });
+  let duplicateApplyCount = 0;
+  const retried = await runAckGatedPrivacyRecoveryOperation({
+    pool, operationId, event, env,
+    fetchImpl: async () => { throw new Error('a durable ACK must not require another Ledger call'); },
+    apply: async () => { throw new Error('initial apply must not run again'); },
+    applyDuplicate: async () => { duplicateApplyCount += 1; return 'purge-requeued'; }
+  });
+  assert.equal(retried.applied, true);
+  assert.equal(retried.duplicate, true);
+  assert.equal(retried.result, 'purge-requeued');
+  assert.equal(initialApplyCount, 1);
+  assert.equal(duplicateApplyCount, 1);
+  assert.equal(pool.state.row.status, 'applied');
 });
