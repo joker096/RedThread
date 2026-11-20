@@ -19,7 +19,7 @@ async function fixture() {
   const drain = path.join(temporaryRoot, 'drain');
   await writeFile(lock, '');
   await chmod(lock, 0o600);
-  await writeFile(drain, '#!/usr/bin/env bash\\nset -eu\\nexit 0\\n');
+  await writeFile(drain, '#!/usr/bin/env bash\nset -eu\nexit 0\n');
   await chmod(drain, 0o700);
   await mkdir(fakeBin);
   await mkdir(mediaRoot);
