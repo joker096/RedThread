@@ -34,7 +34,7 @@
     "cap:ensure:android": "node scripts/ensure-capacitor-platform.mjs android",
     "cap:ensure:ios": "node scripts/ensure-capacitor-platform.mjs ios",
     "voice-intros:purge": "node server/process-private-voice-intro-purge.js",
-    "backup:postgres": "bash scripts/backup-postgres.sh",
+    "backup:postgres": "bash scripts/privacy-recovery-admission.sh writer -- bash scripts/backup-postgres.sh",
     "backup:private-media": "bash scripts/privacy-recovery-admission.sh writer -- bash scripts/backup-private-media.sh",
     "ops:health": "node scripts/ops-health-report.js",
     "backup:verify": "node scripts/verify-encrypted-backups.js",
