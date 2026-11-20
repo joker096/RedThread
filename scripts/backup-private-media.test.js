@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access, chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { access, chmod, chown, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -10,6 +10,25 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const script = path.join(root, 'scripts', 'backup-private-media.sh');
 const admissionScript = path.join(root, 'scripts', 'privacy-recovery-admission.sh');
 
+const sharedGid = 65534;
+const writerUid = process.getuid?.() === 0 ? sharedGid : process.getuid();
+const writerPrimaryGid = process.getgid?.() === 0 ? sharedGid : process.getgid();
+const sudo = process.getuid?.() === 0 ? [] : ['sudo', '-n'];
+
+function rootRun(args, options = {}) {
+  return spawnSync(sudo.length ? 'sudo' : args[0], sudo.length ? ['-n', ...args] : args.slice(1), options);
+}
+
+function writerArgs(args, env) {
+  const vars = Object.entries({
+    ...env,
+    PRIVACY_RECOVERY_WRITER_LOCK_FILE: env.PRIVACY_RECOVERY_WRITER_LOCK_FILE || env.LOCK_FILE,
+    PRIVACY_RECOVERY_WRITER_GID: String(sharedGid)
+  }).map(([key, value]) => `${key}=${value}`);
+  return [...sudo, 'setpriv', '--reuid', String(writerUid), '--regid', String(writerPrimaryGid),
+    '--groups', String(sharedGid), '--', 'env', ...vars, ...args];
+}
+
 async function fixture() {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-private-media-backup-'));
   const fakeBin = path.join(temporaryRoot, 'bin');
@@ -17,10 +36,6 @@ async function fixture() {
   const backupDir = path.join(temporaryRoot, 'backups');
   const lock = path.join(temporaryRoot, 'writers.lock');
   const drain = path.join(temporaryRoot, 'drain');
-  await writeFile(lock, '');
-  await chmod(lock, 0o600);
-  await writeFile(drain, '#!/usr/bin/env bash\nset -eu\nexit 0\n');
-  await chmod(drain, 0o700);
   await mkdir(fakeBin);
   await mkdir(mediaRoot);
   await writeFile(path.join(mediaRoot, 'private-photo.jpg'), 'fixture-private-photo-content');
@@ -40,19 +55,42 @@ while (($#)); do
   esac
 done
 test -n "$output"
-input="\${output}.input"
+input="${output}.input"
 cat > "$input"
 { printf 'AGE-ENCRYPTED-FIXTURE:'; sha256sum "$input" | cut -d ' ' -f 1; } > "$output"
 rm -f "$input"
 `);
-  await chmod(tar, 0o700);
-  await chmod(age, 0o700);
+  await chmod(tar, 0o750);
+  await chmod(age, 0o750);
+  await chmod(fakeBin, 0o750);
+  await chmod(mediaRoot, 0o750);
+  await chown(fakeBin, writerUid, sharedGid);
+  await chown(mediaRoot, writerUid, sharedGid);
+  await chown(path.join(mediaRoot, 'private-photo.jpg'), writerUid, sharedGid);
+  await chown(tar, writerUid, sharedGid);
+  await chown(age, writerUid, sharedGid);
+  await writeFile(drain, '#!/usr/bin/env bash\\nset -eu\\nexit 0\\n');
+  const rootOwner = rootRun(['chown', `0:${sharedGid}`, temporaryRoot]);
+  assert.equal(rootOwner.status, 0, rootOwner.stderr);
+  const rootMode = rootRun(['chmod', '2750', temporaryRoot]);
+  assert.equal(rootMode.status, 0, rootMode.stderr);
+  const lockCreate = rootRun(['install', '-o', '0', '-g', String(sharedGid), '-m', '0640', '/dev/null', lock]);
+  assert.equal(lockCreate.status, 0, lockCreate.stderr);
+  const drainOwner = rootRun(['chown', '0:0', drain]);
+  assert.equal(drainOwner.status, 0, drainOwner.stderr);
+  const drainMode = rootRun(['chmod', '0755', drain]);
+  assert.equal(drainMode.status, 0, drainMode.stderr);
   return { temporaryRoot, fakeBin, mediaRoot, backupDir, lock, drain };
 }
 
 function run(env, { direct = false } = {}) {
-  const command = direct ? [script] : [admissionScript, 'writer', '--', 'bash', script];
-  return spawnSync('bash', command, { encoding: 'utf8', env: { ...env, PRIVACY_RECOVERY_WRITER_LOCK_FILE: env.PRIVACY_RECOVERY_WRITER_LOCK_FILE || env.LOCK_FILE } });
+  const command = direct ? ['bash', script] : ['bash', admissionScript, 'writer', '--', 'bash', script];
+  const args = writerArgs(command, env);
+  return spawnSync(args[0], args.slice(1), { encoding: 'utf8', timeout: 10000 });
+}
+
+async function cleanup(f) {
+  rootRun(['rm', '-rf', '--', f.temporaryRoot]);
 }
 
 test('private media backup streams archive into age and stores only encrypted output', async () => {
@@ -65,7 +103,9 @@ test('private media backup streams archive into age and stores only encrypted ou
       BACKUP_DIR: f.backupDir,
       BACKUP_AGE_RECIPIENT: 'age1fixturepublicrecipient',
       BACKUP_RETENTION_DAYS: '30',
-      LOCK_FILE: f.lock
+      LOCK_FILE: f.lock,
+      PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.lock,
+      PRIVACY_RECOVERY_WRITER_GID: String(sharedGid)
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const files = await readdir(f.backupDir);
@@ -81,7 +121,7 @@ test('private media backup streams archive into age and stores only encrypted ou
     const checksum = spawnSync('sha256sum', ['--check', path.join(f.backupDir, `${archiveName}.sha256`)], { encoding: 'utf8' });
     assert.equal(checksum.status, 0, checksum.stderr || checksum.stdout);
   } finally {
-    await rm(f.temporaryRoot, { recursive: true, force: true });
+    await cleanup(f);
   }
 });
 
@@ -187,10 +227,12 @@ printf 'fixture-archive-with-private-photo-content'
       BACKUP_DIR: f.backupDir,
       BACKUP_AGE_RECIPIENT: 'age1fixturepublicrecipient',
       PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.lock,
+      PRIVACY_RECOVERY_WRITER_GID: String(sharedGid),
       TAR_STARTED: started,
       TAR_RELEASE: release
     };
-    backup = spawn('bash', [admissionScript, 'writer', '--', 'bash', script], { env, stdio: 'ignore' });
+    const backupArgs = writerArgs(['bash', admissionScript, 'writer', '--', 'bash', script], env);
+    backup = spawn(backupArgs[0], backupArgs.slice(1), { stdio: 'ignore' });
     const deadline = Date.now() + 3000;
     while (Date.now() < deadline) {
       try { await access(started); break; } catch (error) {
@@ -199,14 +241,16 @@ printf 'fixture-archive-with-private-photo-content'
       }
     }
     await access(started);
-    const maintenance = spawnSync('bash', [admissionScript, 'maintenance', '--', 'true'], {
+    const maintenanceEnv = Object.entries({
+      PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.lock,
+      PRIVACY_RECOVERY_WRITER_GID: String(sharedGid),
+      PRIVACY_RECOVERY_DRAIN_EXECUTABLE: f.drain,
+      PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '0.2'
+    }).map(([key, value]) => `${key}=${value}`);
+    const maintenanceArgs = [...sudo, 'env', ...maintenanceEnv, 'bash', admissionScript, 'maintenance', '--', 'true'];
+    const maintenance = spawnSync(maintenanceArgs[0], maintenanceArgs.slice(1), {
       encoding: 'utf8',
-      timeout: 3000,
-      env: {
-        ...env,
-        PRIVACY_RECOVERY_DRAIN_EXECUTABLE: f.drain,
-        PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '0.2'
-      }
+      timeout: 3000
     });
     assert.notEqual(maintenance.status, 0, maintenance.stderr || 'maintenance must wait for backup reader');
     assert.match(maintenance.stderr, /did not drain/);
