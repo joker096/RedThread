@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { lstat, mkdtemp, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -286,7 +286,7 @@ fi
       assert.equal(runRoot(['test', '-e', replacement]).status, 1);
     } finally {
       await cleanup(f);
-      await import('node:fs/promises').then(({ rm }) => rm(binDir, { recursive: true, force: true }));
+      await rm(binDir, { recursive: true, force: true });
     }
   });
 
