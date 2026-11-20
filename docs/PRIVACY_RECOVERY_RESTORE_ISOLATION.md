@@ -111,3 +111,15 @@ Any missing capability, permission error, unsupported namespace/runtime, policy 
 At minimum, test that the gate rejects: a missing or replaced inherited lock descriptor; a second writer admission during the critical interval; a writer in a separate mount/PID namespace; a bind-mount alias; an open writable descriptor to a deleted file; an inaccessible `/proc` entry; a process appearing during the scan; an unexpected Docker daemon ID/socket; a new container admitted after initial enumeration; and a writable alias to any protected volume. Tests must demonstrate that admission remains blocked until the activation wrapper releases its lock, including on gate failure and signal/termination paths.
 
 The current repository does not yet contain this privileged host gate or these host-level integration tests. This contract is therefore an explicit unresolved prerequisite, not a claim that host-wide writer isolation has been implemented.
+
+
+## Writer admission primitive (foundational; not yet wired into services)
+
+`scripts/privacy-recovery-admission.sh` provides a small cooperative protocol for testing and later integration:
+
+- A writer acquires a shared `flock`, checks the adjacent `.maintenance` marker while holding that lock, and then `exec`s its workload while retaining the descriptor.
+- Maintenance atomically creates the marker directory first, fsyncs its parent, invokes a separately provisioned drain controller, and only then waits for the exclusive lock.
+- The marker is intentionally sticky. Drain failure, lock timeout, process termination, or reboot does not reopen admission.
+- If a writer checked for the marker before it was created, it is an already-admitted writer and must be stopped/drained before the exclusive lock can be acquired. If it checks after marker creation, it must reject startup.
+
+This primitive is currently a standalone building block only. It is **not yet mounted into Compose, used by the API entrypoint, or applied to purge/migration/manual launch paths**. It therefore does not currently protect any running Vow service and must not be treated as satisfying the host writer-isolation gate. Do not run restore activation on the assumption that this helper alone provides isolation. Integration requires a provisioned shared lock inode and marker path visible identically to host and every relevant container, an enforced launch policy that prevents bypass, a real drain controller, and the host-level attestation/evidence contract above.
