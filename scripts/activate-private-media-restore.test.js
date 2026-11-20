@@ -80,8 +80,8 @@ test('restored media is mounted only after the gate succeeds and receives a reco
     const result = run(f, { PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '2' });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const calls = await readFile(f.log, 'utf8');
-    assert.ok(calls.indexOf('drain\\n') >= 0);
-    assert.ok(calls.indexOf('writer:') > calls.indexOf('drain\\n'));
+    assert.ok(calls.indexOf('drain\n') >= 0);
+    assert.ok(calls.indexOf('writer:') > calls.indexOf('drain\n'));
     assert.ok(calls.indexOf('gate:') > calls.indexOf('writer:'));
     assert.ok(calls.indexOf('mount:') > calls.indexOf('gate:'));
     await assert.rejects(lstat(path.join(f.restore, '.vow-restore-pending')), { code: 'ENOENT' });
@@ -184,7 +184,7 @@ test('activation refuses a writer-admission lock already held by another process
     });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /writer admission locks did not drain/);
-    assert.equal(await readFile(f.log, 'utf8'), '');
+    assert.equal(await readFile(f.log, 'utf8'), 'drain\n');
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
@@ -445,8 +445,8 @@ test('activation closes writer admission before draining and waits for an alread
     const result = run(f);
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const calls = await readFile(f.log, 'utf8');
-    assert.ok(calls.indexOf('drain\\n') >= 0);
-    assert.ok(calls.indexOf('writer:') > calls.indexOf('drain\\n'));
+    assert.ok(calls.indexOf('drain\n') >= 0);
+    assert.ok(calls.indexOf('writer:') > calls.indexOf('drain\n'));
     assert.ok(calls.indexOf('mount:') > calls.indexOf('writer:'));
     await lstat(f.writerLock + '.maintenance');
     const denied = spawnSync('bash', [f.admission, 'writer', '--', 'true'], {
