@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -16,8 +16,11 @@ async function fixture() {
   const mediaRoot = path.join(temporaryRoot, 'private-media');
   const backupDir = path.join(temporaryRoot, 'backups');
   const lock = path.join(temporaryRoot, 'writers.lock');
+  const drain = path.join(temporaryRoot, 'drain');
   await writeFile(lock, '');
   await chmod(lock, 0o600);
+  await writeFile(drain, '#!/usr/bin/env bash\\nset -eu\\nexit 0\\n');
+  await chmod(drain, 0o700);
   await mkdir(fakeBin);
   await mkdir(mediaRoot);
   await writeFile(path.join(mediaRoot, 'private-photo.jpg'), 'fixture-private-photo-content');
@@ -44,7 +47,7 @@ rm -f "$input"
 `);
   await chmod(tar, 0o700);
   await chmod(age, 0o700);
-  return { temporaryRoot, fakeBin, mediaRoot, backupDir, lock };
+  return { temporaryRoot, fakeBin, mediaRoot, backupDir, lock, drain };
 }
 
 function run(env, { direct = false } = {}) {
@@ -160,6 +163,60 @@ test('private media backup rejects direct invocation without an admitted shared 
     assert.match(result.stderr, /requires the inherited admission lock/);
     assert.deepEqual(await readdir(f.backupDir).catch(() => []), []);
   } finally {
+    await rm(f.temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test('maintenance cannot overtake an admitted backup reader', async () => {
+  const f = await fixture();
+  let backup;
+  try {
+    const started = path.join(f.temporaryRoot, 'tar-started');
+    await writeFile(path.join(f.fakeBin, 'tar'), `#!/usr/bin/env bash
+set -Eeuo pipefail
+printf started > "$TAR_STARTED"
+sleep 0.8
+printf 'fixture-archive-with-private-photo-content'
+`);
+    await chmod(path.join(f.fakeBin, 'tar'), 0o700);
+    const env = {
+      ...process.env,
+      PATH: `${f.fakeBin}:${process.env.PATH || ''}`,
+      PRIVATE_MEDIA_DIR: f.mediaRoot,
+      BACKUP_DIR: f.backupDir,
+      BACKUP_AGE_RECIPIENT: 'age1fixturepublicrecipient',
+      PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.lock,
+      TAR_STARTED: started
+    };
+    backup = spawn('bash', [admissionScript, 'writer', '--', 'bash', script], { env, stdio: 'ignore' });
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      try { await access(started); break; } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    }
+    await access(started);
+    const maintenance = spawnSync('bash', [admissionScript, 'maintenance', '--', 'true'], {
+      encoding: 'utf8',
+      timeout: 3000,
+      env: {
+        ...env,
+        PRIVACY_RECOVERY_DRAIN_EXECUTABLE: f.drain,
+        PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '0.1'
+      }
+    });
+    assert.notEqual(maintenance.status, 0, maintenance.stderr || 'maintenance must wait for backup reader');
+    assert.match(maintenance.stderr, /did not drain/);
+    await new Promise((resolve, reject) => {
+      backup.once('error', reject);
+      backup.once('exit', code => code === 0 ? resolve() : reject(new Error('backup exited with ' + code)));
+    });
+    await access(f.lock + '.maintenance');
+    const files = await readdir(f.backupDir);
+    assert.ok(files.some(name => name.endsWith('.tar.age')));
+  } finally {
+    if (backup && backup.exitCode === null) backup.kill('SIGKILL');
     await rm(f.temporaryRoot, { recursive: true, force: true });
   }
 });
