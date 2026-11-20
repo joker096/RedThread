@@ -25,7 +25,7 @@ async function fixture() {
   await writeFile(log, '');
   await writeFile(writerLock, '');
   await chmod(writerLock, 0o600);
-  await writeFile(drain, '#!/usr/bin/env bash\\nset -eu\\nprintf "drain\\\\n" >> "$CALL_LOG"\\nif bash "$ADMISSION_HELPER" writer -- true; then exit 93; else status=$?; fi\\ntest "$status" -eq 75\\n');
+  await writeFile(drain, '#!/usr/bin/env bash\nset -eu\nprintf "drain\\n" >> "$CALL_LOG"\nif bash "$ADMISSION_HELPER" writer -- true; then exit 93; else status=$?; fi\ntest "$status" -eq 75\n');
   await chmod(drain, 0o700);
   await writeFile(gate, '#!/usr/bin/env bash\nset -eu\ntest "$PRIVACY_RECOVERY_WRITER_LOCK_FD" = 9\ntest -e "/proc/self/fd/$PRIVACY_RECOVERY_WRITER_LOCK_FD"\nif flock -n "$PRIVACY_RECOVERY_WRITER_LOCK_FILE" -c true; then echo "writer lock was not held during domain gate" >&2; exit 91; fi\nprintf "gate:%s\\n" "$RESTORE_DESTINATION" >> "$CALL_LOG"\nexit "${GATE_EXIT:-0}"\n');
   await chmod(gate, 0o700);
@@ -77,7 +77,7 @@ test('restored media cannot be mounted when privacy reconciliation gate fails', 
 test('restored media is mounted only after the gate succeeds and receives a reconciliation marker', async () => {
   const f = await fixture();
   try {
-    const result = run(f);
+    const result = run(f, { PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '2' });
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const calls = await readFile(f.log, 'utf8');
     assert.ok(calls.indexOf('drain\\n') >= 0);
@@ -175,6 +175,10 @@ test('activation refuses a writer-admission lock already held by another process
         PRIVACY_RECOVERY_GATE_EXECUTABLE: f.gate,
         PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE: f.writerGate,
         PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.writerLock,
+        PRIVACY_RECOVERY_ADMISSION_EXECUTABLE: f.admission,
+        PRIVACY_RECOVERY_DRAIN_EXECUTABLE: f.drain,
+        PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '0.1',
+        ADMISSION_HELPER: f.admission,
         CALL_LOG: f.log
       }
     });
