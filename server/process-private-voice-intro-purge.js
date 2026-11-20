@@ -1,3 +1,5 @@
+import { assertPrivacyRecoveryAdmission } from './privacyRecoveryAdmissionGuard.js';
+assertPrivacyRecoveryAdmission();
 import 'dotenv/config';
 import { unlink } from 'node:fs/promises';
 import path from 'node:path';
