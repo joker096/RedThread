@@ -39,6 +39,7 @@ async function fixture() {
   const drain = path.join(temporaryRoot, 'drain');
   await mkdir(fakeBin);
   await mkdir(mediaRoot);
+  await mkdir(backupDir);
   await writeFile(path.join(mediaRoot, 'private-photo.jpg'), 'fixture-private-photo-content');
   const tar = path.join(fakeBin, 'tar');
   const age = path.join(fakeBin, 'age');
@@ -70,6 +71,11 @@ rm -f "$input"
   await chown(path.join(mediaRoot, 'private-photo.jpg'), writerUid, sharedGid);
   await chown(tar, writerUid, sharedGid);
   await chown(age, writerUid, sharedGid);
+  await chown(backupDir, writerUid, sharedGid);
+  if (process.getuid?.() === 0) {
+    const rootMode = rootRun(['chmod', '0711', temporaryRoot]);
+    assert.equal(rootMode.status, 0, rootMode.stderr);
+  }
   await writeFile(drain, '#!/usr/bin/env bash\\nset -eu\\nexit 0\\n');
   const lockDirCreate = rootRun(['install', '-d', '-o', '0', '-g', String(sharedGid), '-m', '2750', lockDir]);
   assert.equal(lockDirCreate.status, 0, lockDirCreate.stderr);
@@ -143,7 +149,7 @@ test('private media backup refuses symlink roots and symlinks inside the media t
     assert.notEqual(nestedResult.status, 0);
     assert.deepEqual(await readdir(f.backupDir).catch(() => []), []);
   } finally {
-    await rm(f.temporaryRoot, { recursive: true, force: true });
+    await cleanup(f);
   }
 });
 
@@ -210,8 +216,8 @@ test('maintenance cannot overtake an admitted backup reader', async () => {
   const f = await fixture();
   let backup;
   try {
-    const started = path.join(f.temporaryRoot, 'tar-started');
-    const release = path.join(f.temporaryRoot, 'tar-release');
+    const started = `${f.temporaryRoot}.tar-started`;
+    const release = `${f.temporaryRoot}.tar-release`;
     await writeFile(path.join(f.fakeBin, 'tar'), `#!/usr/bin/env bash
 set -Eeuo pipefail
 printf started > "$TAR_STARTED"
