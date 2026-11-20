@@ -2,7 +2,13 @@ x-privacy-admission-env: &privacy-admission-env
   PRIVACY_RECOVERY_REQUIRE_ADMISSION: "true"
   PRIVACY_RECOVERY_WRITER_LOCK_FILE: /run/vow-privacy/writers.lock
   PRIVACY_RECOVERY_WRITER_GID: ${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric writer group ID}
-x-privacy-admission-volume: &privacy-admission-volume ${PRIVACY_RECOVERY_WRITER_LOCK_DIR:?Set the root-owned writer lock directory}:/run/vow-privacy:ro
+x-privacy-admission-volume: &privacy-admission-volume
+  type: bind
+  source: ${PRIVACY_RECOVERY_WRITER_LOCK_DIR:?Set the root-owned writer lock directory}
+  target: /run/vow-privacy
+  read_only: true
+  bind:
+    create_host_path: false
 
 services:
   db:
