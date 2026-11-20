@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const backupBundleScript = path.join(scriptsDir, 'backup-bundle.sh');
+const admissionScript = path.join(scriptsDir, 'privacy-recovery-admission.sh');
 const restoreBundleScript = path.join(scriptsDir, 'restore-bundle.sh');
 const stagingConfirmation = 'I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE';
 
@@ -55,6 +56,8 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
   const restoredMediaParent = path.join(temporaryRoot, 'restored');
   const restoredMedia = path.join(restoredMediaParent, 'private-media');
   const identityFile = path.join(temporaryRoot, 'age-identity.txt');
+  const lockFile = path.join(temporaryRoot, 'writers.lock');
+  const drainFile = path.join(temporaryRoot, 'drain');
   const admin = new Client({ connectionString: process.env.DATABASE_URL });
   let adminConnected = false;
   let sourceCreated = false;
@@ -69,6 +72,10 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
     const recipient = identity.match(/^# public key: (age1[0-9a-z]+)$/m)?.[1];
     assert.ok(recipient, 'age-keygen must produce an age recipient');
 
+    await writeFile(lockFile, '');
+    await chmod(lockFile, 0o600);
+    await writeFile(drainFile, '#!/usr/bin/env bash\nset -eu\nexit 0\n');
+    await chmod(drainFile, 0o700);
     await mkdir(mediaRoot, { mode: 0o700 });
     await mkdir(path.join(mediaRoot, 'voice'), { recursive: true, mode: 0o700 });
     await mkdir(restoredMediaParent, { mode: 0o700 });
@@ -94,13 +101,14 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
     await source.end();
     source = undefined;
 
-    run('bash', [backupBundleScript], {
+    run('bash', [admissionScript, 'writer', '--', 'bash', backupBundleScript], {
       DATABASE_URL: sourceUrl,
       PRIVATE_MEDIA_DIR: mediaRoot,
       BACKUP_AGE_RECIPIENT: recipient,
       BACKUP_DIR: backupRoot,
       BACKUP_SNAPSHOT_ID: snapshotId,
-      BACKUP_RETENTION_DAYS: '30'
+      BACKUP_RETENTION_DAYS: '30',
+      PRIVACY_RECOVERY_WRITER_LOCK_FILE: lockFile
     });
     const bundleDir = path.join(backupRoot, snapshotId);
     const manifest = await readFile(path.join(bundleDir, 'manifest.txt'), 'utf8');
