@@ -13,6 +13,7 @@ const writerGid = 65534;
 const sudo = process.getuid?.() === 0 ? [] : ['sudo', '-n'];
 const rootAvailable = process.getuid?.() === 0 || spawnSync('sudo', ['-n', 'true'], { encoding: 'utf8' }).status === 0;
 const setprivAvailable = spawnSync('setpriv', ['--version'], { encoding: 'utf8' }).status === 0;
+const setfaclAvailable = spawnSync('setfacl', ['--version'], { encoding: 'utf8' }).status === 0;
 const canRun = rootAvailable && setprivAvailable && writerUid !== 0;
 
 function runRoot(args, options = {}) {
@@ -200,9 +201,22 @@ exit 44
     }
   });
 
-  await t.test('rejects a writer whose supplementary groups omit the configured GID', async () => {
+  await t.test('rejects a writer whose supplementary groups omit the configured GID', async t => {
+    if (!setfaclAvailable) {
+      t.skip('setfacl is required to isolate the group-membership check from directory traversal permissions');
+      return;
+    }
     const f = await fixture();
     try {
+      // Grant this UID path traversal/read access through ACLs without adding
+      // the configured GID to its supplementary groups. This makes the helper
+      // reach and exercise its explicit id -G membership check.
+      for (const directory of [f.root, path.dirname(f.lock)]) {
+        const acl = runRoot(['setfacl', '-m', `u:${writerUid}:rx`, directory]);
+        assert.equal(acl.status, 0, acl.stderr);
+      }
+      const lockAcl = runRoot(['setfacl', '-m', `u:${writerUid}:r--`, f.lock]);
+      assert.equal(lockAcl.status, 0, lockAcl.stderr);
       const env = {
         PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.lock,
         PRIVACY_RECOVERY_WRITER_GID: String(writerGid),
@@ -213,7 +227,8 @@ exit 44
       const args = [...sudo, 'setpriv', '--reuid', String(writerUid), '--regid', String(writerPrimaryGid),
         '--groups', '65533', '--', 'env', ...envArgs, 'bash', script, 'writer', '--', 'true'];
       const result = spawnSync(args[0], args.slice(1), { encoding: 'utf8', timeout: 5000 });
-      assert.notEqual(result.status, 0, 'a process without the configured group must not enter writer admission');
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, /not a member of the configured shared group/);
     } finally {
       await cleanup(f);
     }
