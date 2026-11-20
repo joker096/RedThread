@@ -253,4 +253,41 @@ exit 44
     }
   });
 
+  await t.test('rejects lock inode replacement between initial stat and descriptor open', async () => {
+    const f = await fixture();
+    const binDir = await mkdtemp(path.join(os.tmpdir(), 'vow-privacy-admission-bin-'));
+    const statWrapper = path.join(binDir, 'stat');
+    const replacement = path.join(path.dirname(f.lock), 'replacement-lock');
+    const swappedFlag = path.join(binDir, 'swapped');
+    try {
+      const created = runRoot(['install', '-o', '0', '-g', String(writerGid), '-m', '0640', '/dev/null', replacement]);
+      assert.equal(created.status, 0, created.stderr);
+      await writeFile(statWrapper, `#!/usr/bin/env bash
+set -eu
+/usr/bin/stat "$@"
+if [[ "$*" == *"$LOCK_PATH"* && ! -e "$SWAPPED_FLAG" ]]; then
+  /usr/bin/sudo -n mv -- "$REPLACEMENT_LOCK" "$LOCK_PATH"
+  : > "$SWAPPED_FLAG"
+fi
+`);
+      const owner = runRoot(['chown', '0:0', statWrapper]);
+      assert.equal(owner.status, 0, owner.stderr);
+      const executable = runRoot(['chmod', '0755', statWrapper]);
+      assert.equal(executable.status, 0, executable.stderr);
+      const result = run(f, 'writer', ['true'], {
+        PATH: `${binDir}:/usr/bin:/bin`,
+        LOCK_PATH: f.lock,
+        REPLACEMENT_LOCK: replacement,
+        SWAPPED_FLAG: swappedFlag
+      });
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, /lock changed while opening/);
+      assert.equal(runRoot(['test', '-f', f.lock]).status, 0);
+      assert.equal(runRoot(['test', '-e', replacement]).status, 1);
+    } finally {
+      await cleanup(f);
+      await import('node:fs/promises').then(({ rm }) => rm(binDir, { recursive: true, force: true }));
+    }
+  });
+
 });
