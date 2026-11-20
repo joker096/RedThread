@@ -106,7 +106,7 @@ test('Docker database network is isolated from the public web proxy container', 
   }
   const dockerfileAdmission = await readFile(new URL('../Dockerfile', import.meta.url), 'utf8');
   assert.match(dockerfileAdmission, /PRIVACY_RECOVERY_REQUIRE_ADMISSION=true/);
-  assert.match(dockerfileAdmission, /ENTRYPOINT \\["bash", "scripts\\/privacy-recovery-admission\\.sh", "writer", "--"\\]/,
+  assert.ok(dockerfileAdmission.includes('ENTRYPOINT ["bash", "scripts/privacy-recovery-admission.sh", "writer", "--"]'),
     'overriding CMD must not bypass the shared admission wrapper');
 
   const photoPurgeWorker = serviceBlock('private-photo-purge');
