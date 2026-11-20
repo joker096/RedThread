@@ -140,8 +140,14 @@ export PRIVACY_RECOVERY_WRITER_LOCK_FD=9
 # Stop and audit writers before domain reconciliation. This gate must target a dedicated restore-only environment.
 # A non-zero result leaves the restore pending and prevents activation.
 exec 7< "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE"
+writer_gate_fd_identity="$(stat -Lc '%u:%a:%h:%d:%i' -- /proc/self/fd/7)"
 if [[ "$(stat -Lc '%d:%i' -- /proc/self/fd/7)" != "$(stat -Lc '%d:%i' -- "$PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE")" ]]; then
   echo "writer-isolation gate changed while opening; refusing activation" >&2
+  exit 1
+fi
+IFS=: read -r writer_gate_fd_owner writer_gate_fd_mode writer_gate_fd_links _ _ <<< "$writer_gate_fd_identity"
+if [[ "$writer_gate_fd_owner" != "0" || "$writer_gate_fd_links" != "1" ]] || (( (8#$writer_gate_fd_mode & 8#022) != 0 )); then
+  echo "opened writer-isolation gate is not trusted" >&2
   exit 1
 fi
 RESTORE_DESTINATION="$RESTORE_DESTINATION" bash /proc/self/fd/7
@@ -150,8 +156,14 @@ RESTORE_DESTINATION="$RESTORE_DESTINATION" bash /proc/self/fd/7
 # receipt/queue verification, consent checks, and account/gift reconciliation.
 # A non-zero result leaves the restore pending and prevents the bind mount.
 exec 6< "$PRIVACY_RECOVERY_GATE_EXECUTABLE"
+privacy_gate_fd_identity="$(stat -Lc '%u:%a:%h:%d:%i' -- /proc/self/fd/6)"
 if [[ "$(stat -Lc '%d:%i' -- /proc/self/fd/6)" != "$(stat -Lc '%d:%i' -- "$PRIVACY_RECOVERY_GATE_EXECUTABLE")" ]]; then
   echo "privacy recovery gate changed while opening; refusing activation" >&2
+  exit 1
+fi
+IFS=: read -r privacy_gate_fd_owner privacy_gate_fd_mode privacy_gate_fd_links _ _ <<< "$privacy_gate_fd_identity"
+if [[ "$privacy_gate_fd_owner" != "0" || "$privacy_gate_fd_links" != "1" ]] || (( (8#$privacy_gate_fd_mode & 8#022) != 0 )); then
+  echo "opened privacy recovery gate is not trusted" >&2
   exit 1
 fi
 RESTORE_DESTINATION="$RESTORE_DESTINATION" bash /proc/self/fd/6
