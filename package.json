@@ -35,7 +35,7 @@
     "cap:ensure:ios": "node scripts/ensure-capacitor-platform.mjs ios",
     "voice-intros:purge": "node server/process-private-voice-intro-purge.js",
     "backup:postgres": "bash scripts/backup-postgres.sh",
-    "backup:private-media": "bash scripts/backup-private-media.sh",
+    "backup:private-media": "bash scripts/privacy-recovery-admission.sh writer -- bash scripts/backup-private-media.sh",
     "ops:health": "node scripts/ops-health-report.js",
     "backup:verify": "node scripts/verify-encrypted-backups.js",
     "test:voice-api": "tsx --test server/voiceIntroApi.integration.test.js server/voiceIntroConsentSchema.integration.test.js",
