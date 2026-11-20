@@ -34,6 +34,25 @@ test('NODE_ENV=production activates the guard even when the opt-in flag is absen
   assert.match(result.stderr, /requires the inherited shared lock on FD 9/);
 });
 
+test('production entrypoint guard accepts the documented pinned host lock location', async () => {
+  const result = run({
+    NODE_ENV: 'production',
+    PRIVACY_RECOVERY_WRITER_LOCK_FILE: '/var/lib/vow-privacy-admission/writers.lock'
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /requires the inherited shared lock on FD 9/);
+  assert.doesNotMatch(result.stderr, /refuses a lock path outside the pinned host mount/);
+});
+
+test('production entrypoint guard rejects unpinned arbitrary lock paths', async () => {
+  const result = run({
+    NODE_ENV: 'production',
+    PRIVACY_RECOVERY_WRITER_LOCK_FILE: '/tmp/attacker-controlled-writers.lock'
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /refuses a lock path outside the pinned host mount/);
+});
+
 test('production entrypoint guard accepts only the configured live shared lock descriptor', async () => {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-admission-node-guard-'));
   try {
