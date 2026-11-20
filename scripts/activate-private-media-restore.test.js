@@ -410,6 +410,7 @@ test('termination during final directory sync restores the incomplete marker', a
     await writeFile(syncShim, [
       '#!/usr/bin/env bash',
       'set -eu',
+      'case "$*" in *"$RESTORE_DESTINATION"*) ;; *) "$REAL_SYNC" "$@"; exit 0 ;; esac',
       'count=0',
       'if [[ -f "$SYNC_COUNT_FILE" ]]; then read -r count < "$SYNC_COUNT_FILE"; fi',
       'count=$((count + 1))',
