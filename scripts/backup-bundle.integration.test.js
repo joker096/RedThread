@@ -39,6 +39,7 @@ function rootRun(args) {
 function runAsWriter(command, args, env = {}, timeout = 150_000) {
   const vars = Object.entries({
     ...env,
+    PATH: '/usr/lib/postgresql/16/bin:' + (process.env.PATH || ''),
     PRIVACY_RECOVERY_WRITER_GID: String(sharedGid)
   }).map(([key, value]) => `${key}=${value}`);
   const argv = [...sudo, 'setpriv', '--reuid', String(writerUid), '--regid', String(writerPrimaryGid),
