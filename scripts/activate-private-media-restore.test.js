@@ -63,7 +63,11 @@ async function fixture() {
   await chmod(drain, 0o700);
   await writeFile(gate, '#!/usr/bin/env bash\nset -eu\ntest "$PRIVACY_RECOVERY_WRITER_LOCK_FD" = 9\ntest -e "/proc/self/fd/$PRIVACY_RECOVERY_WRITER_LOCK_FD"\nif flock -n "$PRIVACY_RECOVERY_WRITER_LOCK_FILE" -c true; then echo "writer lock was not held during domain gate" >&2; exit 91; fi\nprintf "gate:%s\\n" "$RESTORE_DESTINATION" >> "$CALL_LOG"\nexit "${GATE_EXIT:-0}"\n');
   await chmod(gate, 0o700);
+  const gateOwner = rootRun(['chown', '0:0', gate]);
+  assert.equal(gateOwner.status, 0, gateOwner.stderr);
   await writeFile(writerGate, '#!/usr/bin/env bash\nset -eu\ntest "$PRIVACY_RECOVERY_WRITER_LOCK_FD" = 9\ntest -e "/proc/self/fd/$PRIVACY_RECOVERY_WRITER_LOCK_FD"\nif flock -n "$PRIVACY_RECOVERY_WRITER_LOCK_FILE" -c true; then echo "writer lock was not held during writer gate" >&2; exit 92; fi\nprintf "writer:%s\\n" "$RESTORE_DESTINATION" >> "$CALL_LOG"\nexit "${WRITER_GATE_EXIT:-0}"\n');
+  const writerGateOwner = rootRun(['chown', '0:0', writerGate]);
+  assert.equal(writerGateOwner.status, 0, writerGateOwner.stderr);
   await writeFile(path.join(bin, 'mountpoint'), '#!/usr/bin/env bash\n[[ -f "$MOUNT_STATE" ]]\n');
   await chmod(path.join(bin, 'mountpoint'), 0o700);
   await writeFile(path.join(bin, 'mount'), '#!/usr/bin/env bash\nset -eu\nprintf "mount:%s\\n" "$*" >> "$CALL_LOG"\nif [[ "${MOUNT_NOOP:-false}" != true && "${MOUNT_EXIT:-0}" == 0 ]]; then : > "$MOUNT_STATE"; fi\nexit "${MOUNT_EXIT:-0}"\n');
