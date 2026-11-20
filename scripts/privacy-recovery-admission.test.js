@@ -35,6 +35,20 @@ function run(f, mode, command, extra = {}) {
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+async function waitForPath(target, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await lstat(target);
+      return;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    await delay(10);
+  }
+  throw new Error('timed out waiting for admitted writer signal: ' + target);
+}
+
 test('writer rejects admission after the sticky maintenance marker exists', async () => {
   const f = await fixture();
   try {
@@ -52,11 +66,16 @@ test('writer retains its shared lock for the complete command lifetime', async (
   const f = await fixture();
   let writer;
   try {
-    writer = spawn('bash', [script, 'writer', '--', 'sleep', '0.7'], {
-      env: { ...process.env, PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.lock },
+    const readyFile = path.join(f.root, 'writer-ready');
+    writer = spawn('bash', [script, 'writer', '--', 'bash', '-c', 'printf ready > "$READY_FILE"; sleep 0.7'], {
+      env: {
+        ...process.env,
+        PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.lock,
+        READY_FILE: readyFile
+      },
       stdio: 'ignore'
     });
-    await delay(120);
+    await waitForPath(readyFile);
     const exclusive = spawnSync('flock', ['-n', '-x', f.lock, '-c', 'true'], { encoding: 'utf8' });
     assert.notEqual(exclusive.status, 0, 'exclusive lock must be blocked while writer command is alive');
     await new Promise((resolve, reject) => {
@@ -111,11 +130,16 @@ test('maintenance does not acquire EX lock while an existing writer remains acti
   const f = await fixture();
   let writer;
   try {
-    writer = spawn('bash', [script, 'writer', '--', 'sleep', '3'], {
-      env: { ...process.env, PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.lock },
+    const readyFile = path.join(f.root, 'writer-ready');
+    writer = spawn('bash', [script, 'writer', '--', 'bash', '-c', 'printf ready > "$READY_FILE"; sleep 3'], {
+      env: {
+        ...process.env,
+        PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.lock,
+        READY_FILE: readyFile
+      },
       stdio: 'ignore'
     });
-    await delay(120);
+    await waitForPath(readyFile);
     const result = run(f, 'maintenance', ['true'], {
       PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '0.1'
     });
