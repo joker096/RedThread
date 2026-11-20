@@ -97,11 +97,11 @@ test('Docker database network is isolated from the public web proxy container', 
   ];
   for (const name of admissionServices) {
     const block = serviceBlock(name);
-    assert.match(block, /<<: \\*privacy-admission-env/,
+    assert.match(block, /<<: \*privacy-admission-env/,
       name + ' must enable the fail-closed runtime admission environment');
-    assert.match(block, /group_add:[\\s\\S]*?PRIVACY_RECOVERY_WRITER_GID/,
+    assert.match(block, /group_add:[\s\S]*?PRIVACY_RECOVERY_WRITER_GID/,
       name + ' must join only the dedicated shared lock group');
-    assert.match(block, /volumes:[\\s\\S]*?\\*privacy-admission-volume/,
+    assert.match(block, /volumes:[\s\S]*?\*privacy-admission-volume/,
       name + ' must mount the host-owned admission lock directory read-only');
   }
   const dockerfileAdmission = await readFile(new URL('../Dockerfile', import.meta.url), 'utf8');
