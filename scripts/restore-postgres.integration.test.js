@@ -93,6 +93,7 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
 
     run('sudo', ['-n', 'setpriv', '--reuid', String(writerUid), '--regid', String(writerPrimaryGid),
       '--groups', String(writerGid), '--', 'env',
+      `PATH=/usr/lib/postgresql/16/bin:${process.env.PATH || ''}`,
       `PRIVACY_RECOVERY_WRITER_LOCK_FILE=${lockFile}`,
       `PRIVACY_RECOVERY_WRITER_GID=${writerGid}`,
       `DATABASE_URL=${sourceUrl}`,
