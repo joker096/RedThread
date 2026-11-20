@@ -76,7 +76,7 @@ function run(f, overrides = {}) {
       PRIVACY_RECOVERY_ADMISSION_EXECUTABLE: f.activationAdmission,
       PRIVACY_RECOVERY_DRAIN_EXECUTABLE: f.drain,
       PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '0.2',
-      ADMISSION_HELPER: f.admission,
+      ADMISSION_HELPER: f.activationAdmission,
       CALL_LOG: f.log,
       MOUNT_STATE: f.mountState,
       ...overrides
@@ -207,10 +207,10 @@ test('activation refuses a writer-admission lock already held by another process
         PRIVACY_RECOVERY_GATE_EXECUTABLE: f.gate,
         PRIVACY_RECOVERY_WRITER_ISOLATION_EXECUTABLE: f.writerGate,
         PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.writerLock,
-        PRIVACY_RECOVERY_ADMISSION_EXECUTABLE: f.admission,
+        PRIVACY_RECOVERY_ADMISSION_EXECUTABLE: f.activationAdmission,
         PRIVACY_RECOVERY_DRAIN_EXECUTABLE: f.drain,
         PRIVACY_RECOVERY_LOCK_TIMEOUT_SECONDS: '0.1',
-        ADMISSION_HELPER: f.admission,
+        ADMISSION_HELPER: f.activationAdmission,
         CALL_LOG: f.log
       }
     });
@@ -482,7 +482,7 @@ test('activation closes writer admission before draining and waits for an alread
     assert.ok(calls.indexOf('writer:') > calls.indexOf('drain\n'));
     assert.ok(calls.indexOf('mount:') > calls.indexOf('writer:'));
     await lstat(f.writerLock + '.maintenance');
-    const denied = spawnSync('bash', [f.admission, 'writer', '--', 'true'], {
+    const denied = spawnSync('bash', [f.activationAdmission, 'writer', '--', 'true'], {
       encoding: 'utf8',
       env: { ...process.env, PRIVACY_RECOVERY_WRITER_LOCK_FILE: f.writerLock }
     });
