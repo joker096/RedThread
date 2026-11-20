@@ -206,7 +206,8 @@ test('L3 consent withdrawal requires durable ACK before touching consent or medi
   assert.ok(route.includes("eventType: 'identity_l3_consent_withdrawn'"));
   assert.ok(route.includes('granted_at::text AS granted_at'));
   assert.ok(route.includes('withdrawn_at::text AS withdrawn_at'));
-  assert.ok(route.includes('apply: transactionClient => applyWithdrawal(transactionClient, expectedConsent, true)'));
+  assert.ok(route.includes('apply: transactionClient => applyWithdrawal(transactionClient, expectedConsent, wasActive)'));
+  assert.ok(route.includes('applyDuplicate: transactionClient => applyWithdrawal(transactionClient, expectedConsent, false)'));
   assert.ok(route.includes('current.granted_at === expectedConsent.granted_at'));
   assert.ok(route.includes('current.withdrawn_at === expectedConsent.withdrawn_at'));
   assert.ok(route.includes('FOR UPDATE'), 'the exact consent lifecycle must be rechecked under lock');
