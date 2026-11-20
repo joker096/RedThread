@@ -122,8 +122,8 @@ test('cross-UID admission integration requires root and setpriv', { skip: !canRu
   await t.test('root maintenance creates a group-visible marker before its critical command', async () => {
     const f = await fixture({
       drain: '#!/usr/bin/env bash\\nset -eu\\ntest -d "$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance"\\n'
-        + 'setpriv --reuid 65534 --regid 65534 --clear-groups -- env PRIVACY_RECOVERY_WRITER_LOCK_FILE="$PRIVACY_RECOVERY_WRITER_LOCK_FILE" PRIVACY_RECOVERY_WRITER_GID="$PRIVACY_RECOVERY_WRITER_GID" bash "' + script + '" writer -- true\\n'
-        + 'test "$?" -eq 75\\n'
+        + 'if setpriv --reuid 65534 --regid 65534 --clear-groups -- env PRIVACY_RECOVERY_WRITER_LOCK_FILE="$PRIVACY_RECOVERY_WRITER_LOCK_FILE" PRIVACY_RECOVERY_WRITER_GID="$PRIVACY_RECOVERY_WRITER_GID" bash "' + script + '" writer -- true; then exit 91; else status=$?; fi\\n'
+        + 'test "$status" -eq 75\\n'
     });
     const output = path.join(f.root + '.critical-output');
     try {
