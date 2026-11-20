@@ -34,7 +34,8 @@ async function fixture() {
   const fakeBin = path.join(temporaryRoot, 'bin');
   const mediaRoot = path.join(temporaryRoot, 'private-media');
   const backupDir = path.join(temporaryRoot, 'backups');
-  const lock = path.join(temporaryRoot, 'writers.lock');
+  const lockDir = path.join(temporaryRoot, 'admission');
+  const lock = path.join(lockDir, 'writers.lock');
   const drain = path.join(temporaryRoot, 'drain');
   await mkdir(fakeBin);
   await mkdir(mediaRoot);
@@ -70,10 +71,8 @@ rm -f "$input"
   await chown(tar, writerUid, sharedGid);
   await chown(age, writerUid, sharedGid);
   await writeFile(drain, '#!/usr/bin/env bash\\nset -eu\\nexit 0\\n');
-  const rootOwner = rootRun(['chown', `0:${sharedGid}`, temporaryRoot]);
-  assert.equal(rootOwner.status, 0, rootOwner.stderr);
-  const rootMode = rootRun(['chmod', '2750', temporaryRoot]);
-  assert.equal(rootMode.status, 0, rootMode.stderr);
+  const lockDirCreate = rootRun(['install', '-d', '-o', '0', '-g', String(sharedGid), '-m', '2750', lockDir]);
+  assert.equal(lockDirCreate.status, 0, lockDirCreate.stderr);
   const lockCreate = rootRun(['install', '-o', '0', '-g', String(sharedGid), '-m', '0640', '/dev/null', lock]);
   assert.equal(lockCreate.status, 0, lockCreate.stderr);
   const drainOwner = rootRun(['chown', '0:0', drain]);
@@ -259,7 +258,7 @@ printf 'fixture-archive-with-private-photo-content'
       backup.once('error', reject);
       backup.once('exit', code => code === 0 ? resolve() : reject(new Error('backup exited with ' + code)));
     });
-    await access(f.lock + '.maintenance');
+    assert.equal(rootRun(['test', '-d', f.lock + '.maintenance']).status, 0);
     const files = await readdir(f.backupDir);
     assert.ok(files.some(name => name.endsWith('.tar.age')));
   } finally {
