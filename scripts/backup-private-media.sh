@@ -2,6 +2,30 @@
 set -Eeuo pipefail
 umask 077
 
+# Backup is a private-media reader and must hold the same shared admission lock
+# for the entire archive operation. Direct/manual invocation without the helper
+# is rejected; FD 9 must still refer to the configured lock inode and carry a
+# shared Linux flock. The helper checks the sticky marker while holding this lock.
+: "${PRIVACY_RECOVERY_WRITER_LOCK_FILE:?Run through privacy-recovery-admission.sh writer}"
+if [[ ! -e /proc/self/fd/9 || ! -r /proc/self/fdinfo/9 ]]; then
+  echo "private-media backup requires the inherited admission lock on FD 9" >&2
+  exit 1
+fi
+lock_real="$(realpath -e -- "$PRIVACY_RECOVERY_WRITER_LOCK_FILE")"
+fd_real="$(readlink -f -- /proc/self/fd/9)"
+if [[ "$fd_real" != "$lock_real" ]]; then
+  echo "private-media backup admission descriptor does not match the configured lock inode" >&2
+  exit 1
+fi
+if ! grep -Eq '^lock:[[:space:]]*[0-9]+:[[:space:]]+FLOCK[[:space:]]+ADVISORY[[:space:]]+READ[[:space:]]' /proc/self/fdinfo/9; then
+  echo "private-media backup requires a live shared flock on FD 9" >&2
+  exit 1
+fi
+if [[ -e "$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance" || -L "$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance" ]]; then
+  echo "private-media backup admission is closed for privacy-recovery maintenance" >&2
+  exit 75
+fi
+
 : "${PRIVATE_MEDIA_DIR:?Set PRIVATE_MEDIA_DIR to the mounted private media directory}"
 : "${BACKUP_AGE_RECIPIENT:?Set BACKUP_AGE_RECIPIENT to an age public recipient; plaintext backups are disabled}"
 command -v tar >/dev/null 2>&1 || { echo "tar is required" >&2; exit 1; }
