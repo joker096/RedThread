@@ -2,6 +2,20 @@
 set -Eeuo pipefail
 umask 077
 
+# The public entrypoint must always enter the shared marker-first maintenance
+# protocol. The internal phase is accepted only with the helper's inherited
+# exclusive lock and its durable maintenance marker already present.
+if [[ "${1:-}" != "--vow-internal-activation" ]]; then
+  admission_helper="${PRIVACY_RECOVERY_ADMISSION_EXECUTABLE:-$(dirname -- "$0")/privacy-recovery-admission.sh}"
+  if [[ "$admission_helper" != /* || ! -f "$admission_helper" || -L "$admission_helper" || ! -x "$admission_helper" ]]; then
+    echo "privacy-recovery admission helper must be an absolute, regular, executable, non-symlink file" >&2
+    exit 1
+  fi
+  exec bash "$admission_helper" maintenance -- "$0" --vow-internal-activation
+fi
+shift
+
+
 : "${RESTORE_DESTINATION:?Set RESTORE_DESTINATION to the isolated restore staging directory}"
 : "${PRIVATE_MEDIA_MOUNTPOINT:?Set PRIVATE_MEDIA_MOUNTPOINT to an existing empty mountpoint}"
 : "${PRIVACY_RECOVERY_GATE_EXECUTABLE:?Set PRIVACY_RECOVERY_GATE_EXECUTABLE to the executable domain-reconciliation gate}"
@@ -38,12 +52,16 @@ fi
 # Use the canonical directory after validation so the opened path is unambiguous.
 PRIVACY_RECOVERY_WRITER_LOCK_FILE="$canonical_lock_dir/$lock_name"
 
-# Hold the admission lock through writer isolation, reconciliation and bind activation.
-# Every process capable of starting a media writer must use this same lock; the host gate
-# must independently verify that enforcement before it can authorize activation.
-exec 9<> "$PRIVACY_RECOVERY_WRITER_LOCK_FILE"
-if ! flock -n 9; then
-  echo "another restore or media-writer admission operation holds the lock" >&2
+# FD 9 must be the exclusive lock inherited from privacy-recovery-admission.sh.
+# Never reopen it here: that would create a separate open-file description and can
+# deadlock or invalidate the admission protocol.
+maintenance_marker="$PRIVACY_RECOVERY_WRITER_LOCK_FILE.maintenance"
+if [[ ! -d "$maintenance_marker" || -L "$maintenance_marker" || ! -e /proc/self/fd/9 ]]; then
+  echo "activation requires the inherited maintenance lock and durable admission marker" >&2
+  exit 1
+fi
+if flock -n "$PRIVACY_RECOVERY_WRITER_LOCK_FILE" -c true; then
+  echo "activation does not hold the exclusive writer-admission lock" >&2
   exit 1
 fi
 export PRIVACY_RECOVERY_WRITER_LOCK_FILE
