@@ -25,7 +25,9 @@ const readonlyRole = {
   has_column_write_privileges: false,
   has_sequence_write_privileges: false,
   has_schema_create_privileges: false,
-  has_database_create_privilege: false
+  has_database_create_privilege: false,
+  has_database_temp_privilege: false,
+  has_existing_temp_schema: false
 };
 
 function clientFor(databaseName = env.PRIVACY_RECOVERY_RESTORE_DATABASE_NAME,
@@ -72,6 +74,8 @@ test('restore target verifies database identity and effective read-only role pri
   assert.match(client.calls[1], /has_table_privilege/);
   assert.match(client.calls[1], /has_any_column_privilege/);
   assert.match(client.calls[1], /has_sequence_privilege/);
+  assert.match(client.calls[1], /has_database_privilege\(current_user, current_database\(\), 'TEMP'\)/);
+  assert.match(client.calls[1], /pg_my_temp_schema\(\)/);
 });
 
 test('restore target refuses a production database or application role even when configuration claims isolation', async () => {
@@ -99,7 +103,9 @@ test('restore target refuses a role with any elevated or write capability', asyn
     { has_column_write_privileges: true },
     { has_sequence_write_privileges: true },
     { has_schema_create_privileges: true },
-    { has_database_create_privilege: true }
+    { has_database_create_privilege: true },
+    { has_database_temp_privilege: true },
+    { has_existing_temp_schema: true }
   ];
   for (const override of dangerous) {
     await assert.rejects(
