@@ -84,7 +84,7 @@ SELECT target.database_name || '|' || target.object_count || '|' ||
        coalesce(owner_role.owns_database::text, '') || '|' ||
        coalesce(owner_role.can_create_database::text, '') || '|' ||
        coalesce(owner_role.can_create_public::text, '') || '|' ||
-       restore_login.rolname || '|' ||
+       restore_login.rolname::text || '|' ||
        restore_login.rolsuper::text || '|' ||
        restore_login.rolcreatedb::text || '|' ||
        restore_login.rolcreaterole::text || '|' ||
