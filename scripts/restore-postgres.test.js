@@ -28,7 +28,7 @@ printf 'RESTORED-PLAINTEXT-DUMP-FIXTURE'
 `);
   await writeFile(psql, `#!/usr/bin/env bash
 set -Eeuo pipefail
-printf '%s|%s\\n' "\${PSQL_DATABASE_NAME:-vow_restore_test}" "\${PSQL_EMPTY_STATE:-0}"
+printf '%s\\n' "\${PSQL_RESTORE_STATE:-\${PSQL_DATABASE_NAME:-vow_restore_test}|\${PSQL_EMPTY_STATE:-0}|vow_restore_owner_fixture|f|f|f|f|f|f|t|t|t|f|f|f|f|f|f|f|f|1|t|t|t|t}"
 `);
   await writeFile(pgRestore, `#!/usr/bin/env bash
 set -Eeuo pipefail
@@ -53,6 +53,7 @@ function run(f, overrides = {}) {
       AGE_IDENTITY_FILE: f.identity,
       RESTORE_DATABASE_URL: 'postgresql://staging-user:secret@example.invalid/vow_restore_test',
       RESTORE_CONFIRM_STAGING: 'I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE',
+      RESTORE_OWNER_ROLE: 'vow_restore_owner_fixture',
       RESTORE_CAPTURE: f.capture,
       RESTORE_ARGS_CAPTURE: f.pgRestoreArgs,
       ...overrides
@@ -71,6 +72,7 @@ test('PostgreSQL restore verifies checksum, requires an empty staging DB and str
     assert.match(args, /--single-transaction/);
     assert.match(args, /--no-owner/);
     assert.match(args, /--no-acl/);
+    assert.match(args, /--role=vow_restore_owner_fixture/);
     assert.ok(args.includes('--no-acl'));
     assert.equal(args.trim().endsWith('-'), false, 'pg_restore must read the archive from stdin without a filename');
     const files = await readdir(f.root, { recursive: true });
