@@ -127,6 +127,7 @@ if [[ "$owner_name" != "$RESTORE_OWNER_ROLE" || "$owner_login" != "f" ||
       "$membership_count" != "1" || "$membership_matches" != "t" ||
       "$membership_set" != "t" || "$membership_no_inherit" != "t" ||
       "$membership_no_admin" != "t" ]]; then
+  printf "restore preflight state (database|objects|owner and login grants): %s\\n" "$target_state" >&2
   echo "restore login/NOLOGIN owner role contract is invalid; refusing to restore" >&2
   exit 1
 fi
