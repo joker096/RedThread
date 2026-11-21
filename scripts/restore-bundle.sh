@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 : "${AGE_IDENTITY_FILE:?Set AGE_IDENTITY_FILE to the age private identity file}"
 : "${RESTORE_DATABASE_URL:?Set RESTORE_DATABASE_URL to a dedicated isolated staging database}"
 : "${RESTORE_CONFIRM_STAGING:?Explicit staging restore confirmation is required}"
+: "${RESTORE_OWNER_ROLE:?Set RESTORE_OWNER_ROLE to the dedicated NOLOGIN owner role}"
 : "${RESTORE_DESTINATION:?Set RESTORE_DESTINATION to a new isolated media directory}"
 command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required" >&2; exit 1; }
 if [[ ! -d "$BACKUP_BUNDLE_DIR" || -L "$BACKUP_BUNDLE_DIR" ]]; then
@@ -74,6 +75,7 @@ fi
 ARCHIVE_FILE="$POSTGRES_FILE" AGE_IDENTITY_FILE="$AGE_IDENTITY_FILE" \
   RESTORE_DATABASE_URL="$RESTORE_DATABASE_URL" \
   RESTORE_CONFIRM_STAGING="$RESTORE_CONFIRM_STAGING" \
+  RESTORE_OWNER_ROLE="$RESTORE_OWNER_ROLE" \
   bash "$SCRIPT_DIR/restore-postgres.sh"
 ARCHIVE_FILE="$MEDIA_FILE" AGE_IDENTITY_FILE="$AGE_IDENTITY_FILE" \
   RESTORE_DESTINATION="$RESTORE_DESTINATION" \
