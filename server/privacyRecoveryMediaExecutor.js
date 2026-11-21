@@ -1,7 +1,9 @@
 import { createHash, createHmac } from 'node:crypto';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { acquireGiftSafetyUserLocks } from './giftOrderCreationService.js';
+import { acquireGiftSafetyPairLock, acquireGiftSafetyUserLocks } from './giftOrderCreationService.js';
+import { withdrawGiftAddressDraft } from './giftAddressDraftService.js';
+import { GIFT_ADDRESS_DRAFT_CONSENT_VERSION } from './giftAddressDraft.js';
 import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
 import { resolvePrivatePhotoPath, queuePrivatePhotoPurges } from './photoPurge.js';
 import {
@@ -15,7 +17,8 @@ const EVENT_OUTCOMES = Object.freeze({
   private_photo_erasure_requested: ['photo_erasure_queued', 'photos'],
   voice_intro_erasure_requested: ['voice_intro_erasure_queued', 'voice'],
   voice_intro_consent_withdrawn: ['voice_intro_consent_withdrawn', 'voice_consent'],
-  identity_l3_consent_withdrawn: ['identity_l3_consent_withdrawn', 'identity_l3_consent']
+  identity_l3_consent_withdrawn: ['identity_l3_consent_withdrawn', 'identity_l3_consent'],
+  gift_address_draft_consent_withdrawn: ['gift_address_draft_consent_withdrawn', 'gift_address_draft']
 });
 
 function canonicalEvent(row) {
@@ -138,7 +141,19 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
 
     assertMapping(staged, mapping, pseudonymKey);
     const [outcome, kind] = EVENT_OUTCOMES[mapping.eventType];
-    await acquireGiftSafetyUserLocks(client, mapping.subjectUserId);
+    let giftOrder = null;
+    if (kind === 'gift_address_draft') {
+      const order = await client.query(
+        'SELECT sender_id, recipient_id FROM gift_delivery_orders WHERE id = $1 AND recipient_id = $2',
+        [mapping.resourceId, mapping.subjectUserId]
+      );
+      if (order.rowCount !== 1) throw new Error('privacy_recovery_gift_address_draft_order_conflict');
+      giftOrder = order.rows[0];
+      await acquireGiftSafetyUserLocks(client, giftOrder.sender_id, giftOrder.recipient_id);
+      await acquireGiftSafetyPairLock(client, giftOrder.sender_id, giftOrder.recipient_id);
+    } else {
+      await acquireGiftSafetyUserLocks(client, mapping.subjectUserId);
+    }
     const account = await client.query(
       'SELECT id FROM users WHERE id = $1',
       [mapping.subjectUserId]
@@ -306,6 +321,26 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
       purgeStoragePaths = [asset.rows[0].storage_path];
       await queuePrivateVoiceIntroPurges(client, [asset.rows[0].storage_path]);
       await client.query('DELETE FROM profile_voice_intros WHERE id = $1 AND user_id = $2', [mapping.resourceId, mapping.subjectUserId]);
+    } else if (kind === 'gift_address_draft') {
+      const current = await client.query(
+        `SELECT action, consent_version
+           FROM gift_address_draft_consent_events
+          WHERE order_id = $1 AND recipient_user_id = $2
+          ORDER BY id DESC LIMIT 1`,
+        [mapping.resourceId, mapping.subjectUserId]
+      );
+      if (current.rowCount !== 1 || current.rows[0].action !== 'granted' ||
+          Number(current.rows[0].consent_version) !== GIFT_ADDRESS_DRAFT_CONSENT_VERSION) {
+        throw new Error('privacy_recovery_gift_address_draft_consent_state_conflict');
+      }
+      const withdrawn = await withdrawGiftAddressDraft(client, {
+        orderId: mapping.resourceId,
+        recipientUserId: mapping.subjectUserId,
+        actorUserId: mapping.subjectUserId,
+        consentVersion: GIFT_ADDRESS_DRAFT_CONSENT_VERSION
+      });
+      if (!withdrawn.withdrawn) throw new Error('privacy_recovery_gift_address_draft_withdrawal_conflict');
+      replayEffectResourceId = mapping.resourceId;
     } else {
       const root = await ensurePrivateVoiceIntroStorageRoot(voiceStorageRoot);
       const consent = await client.query(
