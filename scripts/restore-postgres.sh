@@ -111,12 +111,15 @@ if ! [[ "$target_object_count" =~ ^[0-9]+$ ]] || [[ "$target_object_count" != "0
   echo "restore target is not an empty staging database; refusing to restore" >&2
   exit 1
 fi
+if ! [[ "$login_name" =~ ^vow_restore_login_[a-zA-Z0-9_]{1,40}$ ]]; then
+  echo "restore login role must use the dedicated vow_restore_login_ prefix" >&2
+  exit 1
+fi
 if [[ "$owner_name" != "$RESTORE_OWNER_ROLE" || "$owner_login" != "f" ||
       "$owner_super" != "f" || "$owner_createdb" != "f" ||
       "$owner_createrole" != "f" || "$owner_replication" != "f" ||
       "$owner_bypassrls" != "f" || "$owner_owns_database" != "t" ||
       "$owner_can_create_database" != "t" || "$owner_can_create_public" != "t" ||
-      ! "$login_name" =~ ^vow_restore_login_[a-zA-Z0-9_]{1,40}$ ||
       "$login_super" != "f" || "$login_createdb" != "f" ||
       "$login_createrole" != "f" || "$login_replication" != "f" ||
       "$login_bypassrls" != "f" || "$login_canlogin" != "t" || "$login_can_create_database" != "f" ||
