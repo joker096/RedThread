@@ -35,7 +35,7 @@ function fakePool({ receipt = null } = {}) {
       calls.push({ sql, params });
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK' || sql.includes('pg_advisory_xact_lock')) return { rowCount: null, rows: [] };
       if (sql.includes('SELECT current_database() AS database_name')) return { rowCount: 1, rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
-      if (sql.includes('FROM pg_roles r')) return { rows: [{ rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false, rolbypassrls: false, rolcanlogin: true, has_role_memberships: false, has_relation_write_privileges: false, has_sequence_write_privileges: false, has_schema_create_privileges: false, has_database_create_privilege: false }], rowCount: 1 };
+      if (sql.includes('FROM pg_roles r')) return { rows: [{ rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false, rolbypassrls: false, rolcanlogin: true, has_role_memberships: false, has_relation_write_privileges: false, has_column_write_privileges: false, has_sequence_write_privileges: false, has_schema_create_privileges: false, has_database_create_privilege: false }], rowCount: 1 };
       if (sql.includes('FROM privacy_recovery_replay_receipts')) {
         return { rowCount: receipt ? 1 : 0, rows: receipt ? [receipt] : [] };
       }
@@ -91,6 +91,72 @@ test('unresolved mapping without a receipt is rejected before any domain mutatio
   assert.equal(calls.filter(call => call.sql === 'ROLLBACK').length, 1);
   assert.equal(calls.some(call => call.sql.includes('INSERT INTO private_photo_purge_queue')), false);
   assert.equal(calls.some(call => call.sql.includes('DELETE FROM photo_assets')), false);
+});
+
+test('executor replays gift address draft consent withdrawal under recipient and pair locks', async () => {
+  const { createHmac } = await import('node:crypto');
+  const userId = '123e4567-e89b-42d3-a456-426614174010';
+  const senderId = '123e4567-e89b-42d3-a456-426614174011';
+  const orderId = '123e4567-e89b-42d3-a456-426614174012';
+  const eventId = '123e4567-e89b-42d3-a456-426614174013';
+  const key = 'gift-replay-test-key-material-that-is-long-enough';
+  const hmac = value => createHmac('sha256', key).update(value, 'utf8').digest('hex');
+  const giftEvent = {
+    ledger_sequence: '77', event_id: eventId, schema_version: 1,
+    event_type: 'gift_address_draft_consent_withdrawn',
+    subject_ref: hmac(userId), resource_ref: hmac(orderId),
+    occurred_at: new Date('2026-11-14T08:00:00.000Z'),
+    received_at: new Date('2026-11-14T08:00:01.000Z')
+  };
+  const giftDigest = createHash('sha256').update(JSON.stringify([
+    '77', eventId, '1', giftEvent.event_type, giftEvent.subject_ref,
+    giftEvent.resource_ref, giftEvent.occurred_at.toISOString(),
+    giftEvent.received_at.toISOString()
+  ])).digest('hex');
+  const calls = [];
+  const client = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK' || sql.includes('pg_advisory_xact_lock')) return { rowCount: null, rows: [] };
+      if (sql.includes('SELECT current_database() AS database_name')) return { rowCount: 1, rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
+      if (sql.includes('FROM pg_roles r')) return { rowCount: 1, rows: [{
+        rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false,
+        rolbypassrls: false, rolcanlogin: true, has_role_memberships: false,
+        has_relation_write_privileges: false, has_column_write_privileges: false,
+        has_sequence_write_privileges: false, has_schema_create_privileges: false,
+        has_database_create_privilege: false
+      }] };
+      if (sql.includes('FROM privacy_recovery_replay_receipts')) return { rowCount: 0, rows: [] };
+      if (sql.includes('FROM privacy_recovery_events')) return { rowCount: 1, rows: [giftEvent] };
+      if (sql.includes('FROM gift_delivery_orders')) return { rowCount: 1, rows: [{ sender_id: senderId, recipient_id: userId }] };
+      if (sql === 'SELECT id FROM users WHERE id = $1') return { rowCount: 1, rows: [{ id: userId }] };
+      if (sql.includes('FROM gift_address_draft_consent_events')) return { rowCount: 1, rows: [{ action: 'granted', consent_version: 1 }] };
+      if (sql.includes('DELETE FROM gift_address_drafts')) return { rowCount: 1, rows: [] };
+      if (sql.includes('INSERT INTO gift_address_draft_consent_events')) return { rowCount: 1, rows: [] };
+      if (sql.includes('INSERT INTO privacy_recovery_replay_receipts')) return { rowCount: 1, rows: [] };
+      if (sql.includes('INSERT INTO privacy_recovery_replay_effects')) return { rowCount: 1, rows: [] };
+      throw new Error('unexpected_query:' + sql);
+    },
+    release() {}
+  };
+  const result = await applyPrivateMediaPrivacyRecoveryEvent({
+    pool: { async connect() { return client; } },
+    mapping: {
+      sequence: '77', eventId, eventType: giftEvent.event_type,
+      status: 'matched', subjectUserId: userId, resourceId: orderId
+    },
+    env: isolatedEnv,
+    pseudonymKey: key
+  });
+  assert.deepEqual(result, {
+    applied: true, alreadyApplied: false,
+    outcome: 'gift_address_draft_consent_withdrawn'
+  });
+  assert.equal(calls.some(call => call.sql.includes('gift-safety-user:')), true);
+  assert.equal(calls.some(call => call.sql.includes('gift-safety:')), true);
+  assert.equal(calls.some(call => call.sql.includes('DELETE FROM gift_address_drafts')), true);
+  assert.equal(calls.some(call => call.sql.includes('INSERT INTO gift_address_draft_consent_events')), true);
+  assert.equal(calls.some(call => call.sql.includes('INSERT INTO privacy_recovery_replay_receipts')), true);
 });
 
 test('executor rejects event types outside the private-media allowlist', async () => {
