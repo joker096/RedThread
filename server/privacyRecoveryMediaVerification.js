@@ -198,7 +198,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
       }
     }
 
-    const obligationsResult = await client.query(    const obligationsResult = await client.query(
+    const obligationsResult = await client.query(
       `SELECT ledger_sequence, queue_name, storage_path_sha256
          FROM privacy_recovery_replay_purge_obligations
         WHERE ledger_sequence > $1 AND ledger_sequence <= $2`,
