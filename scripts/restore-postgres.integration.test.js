@@ -142,6 +142,14 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
       { id: 2, payload: 'second-private-fixture' }
     ]);
 
+    const owner = await target.query(
+      'SELECT r.rolname, r.rolcanlogin, c.relowner = r.oid AS owns_fixture ' +
+      'FROM pg_roles r CROSS JOIN pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace ' +
+      'WHERE r.rolname = $1 AND n.nspname = \'public\' AND c.relname = \'restore_drill_fixture\'',
+      [ownerRole]
+    );
+    assert.deepEqual(owner.rows, [{ rolname: ownerRole, rolcanlogin: false, owns_fixture: true }]);
+
     await target.query('CREATE TABLE restore_target_sentinel (id integer PRIMARY KEY)');
     await target.query('INSERT INTO restore_target_sentinel (id) VALUES (99)');
     await target.end();
