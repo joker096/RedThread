@@ -28,7 +28,7 @@ printf 'RESTORED-PLAINTEXT-DUMP-FIXTURE'
 `);
   await writeFile(psql, `#!/usr/bin/env bash
 set -Eeuo pipefail
-printf '%s\\n' "\${PSQL_RESTORE_STATE:-\${PSQL_DATABASE_NAME:-vow_restore_test}|\${PSQL_EMPTY_STATE:-0}|vow_restore_owner_fixture|f|f|f|f|f|f|t|t|t|f|f|f|f|f|t|f|f|f|1|t|t|t|t}"
+printf '%s\\n' "\${PSQL_RESTORE_STATE:-\${PSQL_DATABASE_NAME:-vow_restore_test}|\${PSQL_EMPTY_STATE:-0}|vow_restore_owner_fixture|f|f|f|f|f|f|t|t|t|vow_restore_login_fixture|f|f|f|f|f|t|f|f|f|1|t|t|t|t}"
 `);
   await writeFile(pgRestore, `#!/usr/bin/env bash
 set -Eeuo pipefail
