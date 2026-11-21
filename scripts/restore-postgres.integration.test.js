@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { chmod, chown, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -10,6 +10,11 @@ import { fileURLToPath } from 'node:url';
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const backupScript = path.join(scriptsDir, 'backup-postgres.sh');
 const restoreScript = path.join(scriptsDir, 'restore-postgres.sh');
+const admissionScript = path.join(scriptsDir, 'privacy-recovery-admission.sh');
+const writerUid = process.getuid?.() ?? 1000;
+const writerPrimaryGid = process.getgid?.() ?? writerUid;
+const writerGid = 65534;
+const sudoAvailable = spawnSync('sudo', ['-n', 'true'], { encoding: 'utf8' }).status === 0;
 const stagingConfirmation = 'I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE';
 
 function run(command, args, env) {
@@ -33,7 +38,7 @@ function databaseUrl(databaseName) {
 }
 
 test('PostgreSQL backup restores through real age and pg_restore into an isolated empty database', {
-  skip: !process.env.DATABASE_URL ? 'DATABASE_URL is not configured' : false,
+  skip: !process.env.DATABASE_URL ? 'DATABASE_URL is not configured' : (!sudoAvailable || writerUid === 0) ? 'unprivileged writer admission requires passwordless sudo on the integration runner' : false,
   timeout: 120_000
 }, async () => {
   const suffix = `${process.pid}_${Date.now()}`;
@@ -43,6 +48,8 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
   const targetUrl = databaseUrl(targetDatabase);
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-postgres-real-restore-'));
   const backupDir = path.join(temporaryRoot, 'backups');
+  const admissionDir = path.join(temporaryRoot, 'admission');
+  const lockFile = path.join(admissionDir, 'writers.lock');
   const identityFile = path.join(temporaryRoot, 'age-identity.txt');
   const admin = new Client({ connectionString: process.env.DATABASE_URL });
   let source;
@@ -53,6 +60,15 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
 
   try {
     run('age-keygen', ['-o', identityFile]);
+    // Provision a real root-owned lock just as the host bootstrap does. The
+    // backup itself runs as the ordinary CI UID with only the writer GID added.
+    // Keep the test's private parent owned by the runner; only the lock
+    // directory itself is root-owned and group-traversable by the writer.
+    run('sudo', ['-n', 'install', '-d', '-o', '0', '-g', String(writerGid), '-m', '2750', admissionDir]);
+    run('sudo', ['-n', 'install', '-o', '0', '-g', String(writerGid), '-m', '0640', '/dev/null', lockFile]);
+    await mkdir(backupDir);
+    await chown(backupDir, writerUid, writerPrimaryGid);
+    await chmod(backupDir, 0o700);
     await chmod(identityFile, 0o600);
     const identity = await readFile(identityFile, 'utf8');
     const recipient = identity.match(/^# public key: (age1[0-9a-z]+)$/m)?.[1];
@@ -75,12 +91,16 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
     await source.end();
     source = undefined;
 
-    run('bash', [backupScript], {
-      DATABASE_URL: sourceUrl,
-      BACKUP_AGE_RECIPIENT: recipient,
-      BACKUP_DIR: backupDir,
-      BACKUP_RETENTION_DAYS: '30'
-    });
+    run('sudo', ['-n', 'setpriv', '--reuid', String(writerUid), '--regid', String(writerPrimaryGid),
+      '--groups', String(writerGid), '--', 'env',
+      `PATH=/usr/lib/postgresql/16/bin:${process.env.PATH || ''}`,
+      `PRIVACY_RECOVERY_WRITER_LOCK_FILE=${lockFile}`,
+      `PRIVACY_RECOVERY_WRITER_GID=${writerGid}`,
+      `DATABASE_URL=${sourceUrl}`,
+      `BACKUP_AGE_RECIPIENT=${recipient}`,
+      `BACKUP_DIR=${backupDir}`,
+      'BACKUP_RETENTION_DAYS=30',
+      'bash', admissionScript, 'writer', '--', 'bash', backupScript], {});
     const artifacts = await readdir(backupDir);
     const archiveName = artifacts.find(name => name.endsWith('.dump.age'));
     assert.ok(archiveName, 'encrypted PostgreSQL backup should exist');
@@ -136,6 +156,6 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
       if (sourceCreated) await admin.query(`DROP DATABASE IF EXISTS "${sourceDatabase}" WITH (FORCE)`).catch(() => {});
       await admin.end().catch(() => {});
     }
-    await rm(temporaryRoot, { recursive: true, force: true });
+    spawnSync('sudo', ['-n', 'rm', '-rf', '--', temporaryRoot], { encoding: 'utf8' });
   }
 });

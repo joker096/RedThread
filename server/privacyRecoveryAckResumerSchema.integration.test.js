@@ -238,3 +238,87 @@ test('PostgreSQL ACK saga accepts address-draft withdrawal only with its pseudon
     await db.end();
   }
 });
+
+
+test('expired ACK lease takeover is safe when the stale worker returns after the replacement worker ACKs', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 30_000
+}, async () => {
+  const db = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
+  const ledger = await startTestPrivacyRecoveryLedger();
+  const operationId = randomUUID();
+  const payload = {
+    event_id: operationId,
+    schema_version: 1,
+    event_type: 'private_photo_erasure_requested',
+    subject_ref: 'f'.repeat(64),
+    resource_ref: 'e'.repeat(64),
+    occurred_at: '2026-11-20T08:00:00.000Z'
+  };
+  const env = {
+    NODE_ENV: 'test',
+    PRIVACY_RECOVERY_LEDGER_REQUIRED: 'true',
+    PRIVACY_RECOVERY_LEDGER_URL: ledger.url,
+    PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: 'test-ledger-hmac-secret-'.padEnd(40, 'x')
+  };
+  let signalFirstFetch;
+  const firstFetchStarted = new Promise(resolve => { signalFirstFetch = resolve; });
+  let releaseFirstFetch;
+  const firstFetchGate = new Promise(resolve => { releaseFirstFetch = resolve; });
+
+  try {
+    await db.query(
+      `INSERT INTO privacy_recovery_operations (operation_id, event_id, event_payload)
+       VALUES ($1, $1, $2::jsonb)`,
+      [operationId, JSON.stringify(payload)]
+    );
+
+    const staleWorker = resumePendingPrivacyRecoveryLedgerAcks({
+      pool: db, env, operationIds: [operationId], leaseMs: 10_000,
+      fetchImpl: async (url, options) => {
+        signalFirstFetch();
+        await firstFetchGate;
+        return fetch(url, options);
+      }
+    });
+    await firstFetchStarted;
+
+    // Simulate the first process being paused beyond its lease while its HTTP
+    // request is still in flight. A replacement worker may now claim the row.
+    await db.query(
+      `UPDATE privacy_recovery_operations
+          SET ack_lease_expires_at = statement_timestamp() - INTERVAL '1 second'
+        WHERE operation_id = $1`,
+      [operationId]
+    );
+
+    const replacement = await resumePendingPrivacyRecoveryLedgerAcks({
+      pool: db, env, operationIds: [operationId], fetchImpl: fetch
+    });
+    assert.deepEqual(replacement, { claimed: 1, acknowledged: 1, deferred: 0, leaseLost: 0 });
+
+    releaseFirstFetch();
+    const staleResult = await staleWorker;
+    assert.deepEqual(staleResult, { claimed: 1, acknowledged: 0, deferred: 0, leaseLost: 1 },
+      'the expired worker must not overwrite the replacement worker ACK');
+
+    const stored = await db.query(
+      `SELECT status, ledger_sequence, ack_attempts, ack_lease_token
+         FROM privacy_recovery_operations WHERE operation_id = $1`,
+      [operationId]
+    );
+    assert.deepEqual(stored.rows[0], {
+      status: 'acknowledged',
+      ledger_sequence: '1',
+      ack_attempts: 2,
+      ack_lease_token: null
+    });
+    assert.equal(ledger.events.length, 1,
+      'both deliveries must resolve to one durable Ledger event and sequence');
+  } finally {
+    releaseFirstFetch?.();
+    await db.query('DELETE FROM privacy_recovery_operations WHERE operation_id = $1', [operationId]).catch(() => {});
+    await db.end();
+    await ledger.close().catch(() => {});
+  }
+});

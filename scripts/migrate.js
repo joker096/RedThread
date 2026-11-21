@@ -1,3 +1,5 @@
+import { assertPrivacyRecoveryAdmission } from '../server/privacyRecoveryAdmissionGuard.js';
+assertPrivacyRecoveryAdmission();
 import 'dotenv/config';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';

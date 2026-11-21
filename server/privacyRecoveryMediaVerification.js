@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 import { assertPrivacyRecoveryRestoreTarget, assertPrivacyRecoveryRestoreTargetConfig } from './privacyRecoveryTargetGuard.js';
+import { verifyPhysicalPurgeAbsence } from './privacyRecoveryPhysicalPurgeVerification.js';
 
 const OUTCOMES = Object.freeze({
   private_photo_erasure_requested: ['photo_erasure_queued', 'photos'],
   voice_intro_erasure_requested: ['voice_intro_erasure_queued', 'voice'],
   voice_intro_consent_withdrawn: ['voice_intro_consent_withdrawn', 'voice_consent'],
-  identity_l3_consent_withdrawn: ['identity_l3_consent_withdrawn', 'identity_l3_consent']
+  identity_l3_consent_withdrawn: ['identity_l3_consent_withdrawn', 'identity_l3_consent'],
+  gift_address_draft_consent_withdrawn: ['gift_address_draft_consent_withdrawn', 'gift_address_draft']
 });
 
 function eventDigest(row) {
@@ -31,7 +33,9 @@ export async function verifyPrivateMediaPrivacyRecovery({
   pool,
   env = process.env,
   snapshotLedgerSequence,
-  throughSequence
+  throughSequence,
+  storageRoots,
+  verifyPhysicalAbsence = verifyPhysicalPurgeAbsence
 }) {
   assertIsolated(env);
   assertPrivacyRecoveryRestoreTargetConfig(env);
@@ -78,10 +82,15 @@ export async function verifyPrivateMediaPrivacyRecovery({
           row.outcome_code !== expected[0] || row.event_digest !== eventDigest(row)) {
         throw new Error('privacy_recovery_verification_receipt_mismatch');
       }
-      if (!row.subject_user_id ||
-          (['voice_consent', 'identity_l3_consent'].includes(expected[1]) ? row.resource_id !== null : !row.resource_id) ||
-          !Number.isSafeInteger(Number(row.purge_count)) || Number(row.purge_count) < 0 ||
-          (!['voice_consent', 'identity_l3_consent'].includes(expected[1]) && Number(row.purge_count) !== 1)) {
+      const zeroPurge = ['voice_consent', 'gift_address_draft'].includes(expected[1]);
+      const resourceMissing = ['voice_consent', 'identity_l3_consent'].includes(expected[1])
+        ? row.resource_id !== null
+        : expected[1] === 'gift_address_draft' ? !row.resource_id : !row.resource_id;
+      const purgeCount = Number(row.purge_count);
+      if (!row.subject_user_id || resourceMissing ||
+          !Number.isSafeInteger(purgeCount) || purgeCount < 0 ||
+          (zeroPurge && purgeCount !== 0) ||
+          (expected[1] !== 'identity_l3_consent' && !zeroPurge && purgeCount !== 1)) {
         throw new Error('privacy_recovery_verification_effect_missing');
       }
       effects.push(row);
@@ -163,6 +172,33 @@ export async function verifyPrivateMediaPrivacyRecovery({
       }
     }
 
+    const giftDraftEffects = effects.filter(row => row.event_type === 'gift_address_draft_consent_withdrawn');
+    for (const effect of giftDraftEffects) {
+      const order = await client.query(
+        'SELECT recipient_id FROM gift_delivery_orders WHERE id = $1',
+        [effect.resource_id]
+      );
+      if (order.rowCount !== 1 || order.rows[0].recipient_id !== effect.subject_user_id) {
+        throw new Error('privacy_recovery_verification_gift_address_draft_owner_mismatch');
+      }
+      const consent = await client.query(
+        `SELECT action FROM gift_address_draft_consent_events
+          WHERE order_id = $1 AND recipient_user_id = $2
+          ORDER BY id DESC LIMIT 1`,
+        [effect.resource_id, effect.subject_user_id]
+      );
+      if (consent.rowCount !== 1 || consent.rows[0].action !== 'withdrawn') {
+        throw new Error('privacy_recovery_verification_gift_address_draft_consent_active');
+      }
+      const draft = await client.query(
+        'SELECT order_id FROM gift_address_drafts WHERE order_id = $1 AND recipient_user_id = $2',
+        [effect.resource_id, effect.subject_user_id]
+      );
+      if (draft.rowCount !== 0) {
+        throw new Error('privacy_recovery_verification_gift_address_draft_remains');
+      }
+    }
+
     const obligationsResult = await client.query(
       `SELECT ledger_sequence, queue_name, storage_path_sha256
          FROM privacy_recovery_replay_purge_obligations
@@ -193,6 +229,10 @@ export async function verifyPrivateMediaPrivacyRecovery({
     if (completionRows.length !== obligationRows.length) {
       throw new Error('privacy_recovery_verification_purge_completion_missing');
     }
+    if (typeof verifyPhysicalAbsence !== 'function') {
+      throw new TypeError('privacy_recovery_verification_physical_adapter_invalid');
+    }
+    await verifyPhysicalAbsence({ obligations: obligationRows, storageRoots });
     const photoQueue = await client.query('SELECT storage_path FROM private_photo_purge_queue');
     const voiceQueue = await client.query('SELECT storage_path FROM private_voice_intro_purge_queue');
     const l3Objects = await client.query('SELECT storage_object_key FROM identity_l3_submissions WHERE storage_object_key IS NOT NULL');
@@ -223,6 +263,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
       verifiedPhotoErasureCount: photoIds.length,
       verifiedVoiceErasureCount: voiceIds.length,
       verifiedVoiceConsentWithdrawalCount: consentEffects.length,
+      verifiedGiftAddressDraftWithdrawalCount: giftDraftEffects.length,
       verifiedPurgeObligationCount: obligationRows.length,
       verifiedPurgeCompletionCount: completionRows.length,
       throughSequence

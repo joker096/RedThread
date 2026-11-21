@@ -160,39 +160,3 @@ test('ACK resumer validates bounded worker options', async () => {
     pool: fakePool(), limit: 101, env
   }), /privacy_recovery_ack_resumer_options_invalid/);
 });
-
-
-test('ACK resumer reclaims an expired worker lease and resends the exact persisted event payload', async () => {
-  const id = '123e4567-e89b-42d3-a456-426614174013';
-  const original = event(id);
-  const originalPayload = JSON.stringify(original.event_payload);
-  const pool = fakePool([{
-    ...original,
-    ack_lease_token: '123e4567-e89b-42d3-a456-426614174099',
-    ack_lease_expires_at: '2026-11-18T08:00:00.000Z',
-    ack_attempts: 1,
-    leaseExpired: true
-  }]);
-  const sent = [];
-  const result = await resumePendingPrivacyRecoveryLedgerAcks({
-    pool, env, now: () => Date.parse('2026-11-18T08:01:00.000Z'),
-    fetchImpl: async (_url, options) => {
-      sent.push(options.body);
-      assert.equal(pool.state.transactionDepth, 0, 'expired lease must be reclaimed and committed before HTTP');
-      const payload = JSON.parse(options.body);
-      return new Response(JSON.stringify({
-        accepted: true, event_id: payload.event_id, sequence: 503
-      }), { status: 201 });
-    }
-  });
-
-  assert.deepEqual(result, { claimed: 1, acknowledged: 1, deferred: 0, leaseLost: 0 });
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0], originalPayload, 'retry must resend the exact immutable event payload');
-  const row = pool.state.rows.get(id);
-  assert.equal(row.status, 'acknowledged');
-  assert.equal(row.ledger_sequence, 503);
-  assert.equal(row.ack_attempts, 2);
-  assert.equal(row.ack_lease_token, null);
-  assert.equal(row.ack_lease_expires_at, null);
-});

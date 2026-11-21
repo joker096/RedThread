@@ -1,3 +1,5 @@
+import { assertPrivacyRecoveryAdmission } from './privacyRecoveryAdmissionGuard.js';
+assertPrivacyRecoveryAdmission();
 import pg from 'pg';
 import { resumePendingPrivacyRecoveryLedgerAcks } from './privacyRecoveryAckResumer.js';
 

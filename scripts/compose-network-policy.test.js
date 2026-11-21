@@ -88,6 +88,30 @@ test('Docker database network is isolated from the public web proxy container', 
   assert.doesNotMatch(l3PurgeWorker, /clamav:/,
     'the purge-only worker must not depend on or access the malware scanner');
   assert.deepEqual(networksFor('api'), ['backend', 'frontend', 'egress']);
+
+  const admissionServices = [
+    'migrate', 'ad-event-retention', 'female-profile-exposure-retention',
+    'account-reuse-retention', 'gift-request-expiry', 'identity-l3-worker',
+    'identity-l3-purge-worker', 'identity-l3-expiry', 'private-photo-purge',
+    'private-voice-intro-purge', 'voice-intro-migration', 'api'
+  ];
+  for (const name of admissionServices) {
+    const block = serviceBlock(name);
+    assert.match(block, /<<: \*privacy-admission-env/,
+      name + ' must enable the fail-closed runtime admission environment');
+    assert.match(block, /group_add:[\s\S]*?PRIVACY_RECOVERY_WRITER_GID/,
+      name + ' must join only the dedicated shared lock group');
+    assert.match(block, /volumes:[\s\S]*?\*privacy-admission-volume/,
+      name + ' must mount the host-owned admission lock directory read-only');
+  }
+  const migrationService = serviceBlock('migrate');
+  assert.ok(migrationService.includes('command: ["node", "scripts/migrate.js"]'),
+    'migrations must run Node directly so FD 9 is preserved across exec');
+  const dockerfileAdmission = await readFile(new URL('../Dockerfile', import.meta.url), 'utf8');
+  assert.match(dockerfileAdmission, /PRIVACY_RECOVERY_REQUIRE_ADMISSION=true/);
+  assert.ok(dockerfileAdmission.includes('ENTRYPOINT ["bash", "scripts/privacy-recovery-admission.sh", "writer", "--"]'),
+    'overriding CMD must not bypass the shared admission wrapper');
+
   const photoPurgeWorker = serviceBlock('private-photo-purge');
   assert.doesNotMatch(photoPurgeWorker, /VOICE_INTRO_STORAGE_DIR|VOICE_INTRO_ENCRYPTION_KEY|private_voice_intros:/,
     'the photo purge worker must not receive or mount private voice introduction media');

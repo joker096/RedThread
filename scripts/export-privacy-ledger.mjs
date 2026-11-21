@@ -9,6 +9,8 @@ function hmacHex(secret, value) {
   return createHmac('sha256', secret).update(value, 'utf8').digest('hex');
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const EVENT_TYPES = new Set([
   'account_erasure_requested',
   'voice_intro_consent_withdrawn',
@@ -23,8 +25,8 @@ const EVENT_TYPES = new Set([
 function validEvent(event) {
   if (!event || typeof event !== 'object' || Array.isArray(event)) return false;
   return Number.isSafeInteger(event.sequence) && event.sequence > 0 &&
-    typeof event.event_id === 'string' &&
-    Number.isSafeInteger(event.schema_version) &&
+    typeof event.event_id === 'string' && UUID.test(event.event_id) &&
+    event.schema_version === 1 &&
     EVENT_TYPES.has(event.event_type) &&
     /^[a-f0-9]{64}$/i.test(event.subject_ref) &&
     (event.resource_ref === null || event.resource_ref === undefined || /^[a-f0-9]{64}$/i.test(event.resource_ref)) &&

@@ -1,3 +1,15 @@
+x-privacy-admission-env: &privacy-admission-env
+  PRIVACY_RECOVERY_REQUIRE_ADMISSION: "true"
+  PRIVACY_RECOVERY_WRITER_LOCK_FILE: /run/vow-privacy/writers.lock
+  PRIVACY_RECOVERY_WRITER_GID: ${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric writer group ID}
+x-privacy-admission-volume: &privacy-admission-volume
+  type: bind
+  source: ${PRIVACY_RECOVERY_WRITER_LOCK_DIR:?Set the root-owned writer lock directory}
+  target: /run/vow-privacy
+  read_only: true
+  bind:
+    create_host_path: false
+
 services:
   db:
     image: postgres:16-alpine
@@ -20,10 +32,15 @@ services:
       context: .
       target: api
     restart: "no"
+    group_add:
+      - "${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric writer group ID}"
     environment:
+      <<: *privacy-admission-env
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "false"
-    command: ["npm", "run", "db:migrate"]
+    command: ["node", "scripts/migrate.js"]
+    volumes:
+      - *privacy-admission-volume
     depends_on:
       db:
         condition: service_healthy
@@ -34,7 +51,10 @@ services:
       context: .
       target: api
     restart: unless-stopped
+    group_add:
+      - "${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric writer group ID}"
     environment:
+      <<: *privacy-admission-env
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "false"
       AD_EVENT_CLEANUP_BATCH_SIZE: ${AD_EVENT_CLEANUP_BATCH_SIZE:-1000}
@@ -46,6 +66,8 @@ services:
           node scripts/cleanup-ad-events.js || echo "Ad-event cleanup failed; retrying on the next daily cycle."
           sleep 86400
         done
+    volumes:
+      - *privacy-admission-volume
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -56,9 +78,12 @@ services:
       context: .
       target: api
     restart: unless-stopped
+    group_add:
+      - "${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric writer group ID}"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     environment:
+      <<: *privacy-admission-env
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "false"
       FEMALE_PROFILE_EXPOSURE_CLEANUP_BATCH_SIZE: ${FEMALE_PROFILE_EXPOSURE_CLEANUP_BATCH_SIZE:-1000}
@@ -70,6 +95,8 @@ services:
           node scripts/cleanup-female-profile-exposures.js || echo "Female profile exposure cleanup failed; retrying on the next hourly cycle."
           sleep 3600
         done
+    volumes:
+      - *privacy-admission-volume
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -80,9 +107,12 @@ services:
       context: .
       target: api
     restart: unless-stopped
+    group_add:
+      - "${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric writer group ID}"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     environment:
+      <<: *privacy-admission-env
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "false"
       ACCOUNT_REUSE_CLEANUP_BATCH_SIZE: ${ACCOUNT_REUSE_CLEANUP_BATCH_SIZE:-500}
@@ -94,6 +124,8 @@ services:
           node scripts/cleanup-account-reuse-restrictions.js || echo "Account reuse restriction cleanup failed; retrying on the next hourly cycle."
           sleep 3600
         done
+    volumes:
+      - *privacy-admission-volume
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -104,7 +136,10 @@ services:
       context: .
       target: api
     restart: unless-stopped
+    group_add:
+      - "${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric writer group ID}"
     environment:
+      <<: *privacy-admission-env
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "false"
       GIFT_EXPIRY_BATCH_SIZE: ${GIFT_EXPIRY_BATCH_SIZE:-100}
@@ -116,6 +151,8 @@ services:
           node server/expire-gift-requests.js || echo "Gift request expiry failed; retrying on the next minute."
           sleep 60
         done
+    volumes:
+      - *privacy-admission-volume
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -151,10 +188,13 @@ services:
       context: .
       target: api
     restart: unless-stopped
+    group_add:
+      - "${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric writer group ID}"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     profiles: ["identity-l3"]
     environment:
+      <<: *privacy-admission-env
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "${PGSSL:-false}"
       IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3
@@ -165,6 +205,7 @@ services:
       IDENTITY_L3_CLAMD_PORT: "3310"
     command: ["node", "server/process-identity-l3-queue.js"]
     volumes:
+      - *privacy-admission-volume
       - private_identity_l3:/app/uploads/private-identity-l3:ro
     tmpfs:
       - /run/identity-l3-tmp:rw,noexec,nosuid,nodev,size=256m,mode=0700,uid=1000,gid=1000
@@ -180,16 +221,20 @@ services:
       context: .
       target: api
     restart: unless-stopped
+    group_add:
+      - "${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric writer group ID}"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     # Privacy cleanup must continue even while new L3 uploads/moderation are disabled.
     environment:
+      <<: *privacy-admission-env
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "${PGSSL:-false}"
       IDENTITY_L3_STORAGE_DIR: /app/uploads/private-identity-l3
       IDENTITY_L3_REQUIRE_MOUNT: "true"
     command: ["node", "server/process-identity-l3-queue.js", "--purge-only"]
     volumes:
+      - *privacy-admission-volume
       - private_identity_l3:/app/uploads/private-identity-l3
     depends_on:
       migrate:
@@ -201,9 +246,12 @@ services:
       context: .
       target: api
     restart: unless-stopped
+    group_add:
+      - "${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric writer group ID}"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     environment:
+      <<: *privacy-admission-env
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "${PGSSL:-false}"
       IDENTITY_L3_EXPIRY_BATCH_SIZE: ${IDENTITY_L3_EXPIRY_BATCH_SIZE:-100}
@@ -215,6 +263,8 @@ services:
           node server/expire-identity-l3-approvals.js || echo "L3 approval expiry failed; retrying on the next minute."
           sleep 60
         done
+    volumes:
+      - *privacy-admission-volume
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -225,9 +275,12 @@ services:
       context: .
       target: api
     restart: unless-stopped
+    group_add:
+      - "${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric writer group ID}"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     environment:
+      <<: *privacy-admission-env
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "${PGSSL:-false}"
       PHOTO_STORAGE_DIR: /app/uploads/private-photos
@@ -241,6 +294,7 @@ services:
           sleep 60
         done
     volumes:
+      - *privacy-admission-volume
       - private_photos:/app/uploads/private-photos
     depends_on:
       migrate:
@@ -252,9 +306,12 @@ services:
       context: .
       target: api
     restart: unless-stopped
+    group_add:
+      - "${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric writer group ID}"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     environment:
+      <<: *privacy-admission-env
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "${PGSSL:-false}"
       VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros
@@ -268,6 +325,7 @@ services:
           sleep 60
         done
     volumes:
+      - *privacy-admission-volume
       - private_voice_intros:/app/uploads/private-voice-intros
     depends_on:
       migrate:
@@ -279,10 +337,13 @@ services:
       context: .
       target: api
     restart: "no"
+    group_add:
+      - "${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric writer group ID}"
     profiles: ["voice-intro-migration"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     environment:
+      <<: *privacy-admission-env
       DATABASE_URL: postgresql://${POSTGRES_USER:-vow_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-vow_app}
       PGSSL: "${PGSSL:-false}"
       VOICE_INTRO_STORAGE_DIR: /app/uploads/private-voice-intros
@@ -296,6 +357,7 @@ services:
       VOICE_INTRO_MIGRATION_JOURNAL_ID: ${VOICE_INTRO_MIGRATION_JOURNAL_ID:-}
     command: ["node", "server/runVoiceIntroMigration.js", "--apply"]
     volumes:
+      - *privacy-admission-volume
       - private_voice_intros:/app/uploads/private-voice-intros
     depends_on:
       migrate:
@@ -307,9 +369,12 @@ services:
       context: .
       target: api
     restart: unless-stopped
+    group_add:
+      - "${PRIVACY_RECOVERY_WRITER_GID:?Set the numeric writer group ID}"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     environment:
+      <<: *privacy-admission-env
       NODE_ENV: production
       API_PORT: "3001"
       # The native mobile apps reach the API through this Nginx gateway; no Vow SPA is served.
@@ -357,6 +422,7 @@ services:
       LOCAL_AI_ENABLED: ${LOCAL_AI_ENABLED:-false}
       LOCAL_AI_MODEL: ${LOCAL_AI_MODEL:-qwen2.5:3b}
     volumes:
+      - *privacy-admission-volume
       - private_photos:/app/uploads/private-photos
       - private_voice_intros:/app/uploads/private-voice-intros
       - private_identity_l3:/app/uploads/private-identity-l3
