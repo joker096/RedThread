@@ -64,7 +64,7 @@ async function readStagedEvent(client, mapping) {
             resource_ref, occurred_at, received_at
        FROM privacy_recovery_events
       WHERE ledger_sequence = $1 AND event_id = $2
-      FOR SHARE`,
+`,
     [mapping.sequence, mapping.eventId]
   );
   if (result.rowCount !== 1) throw new Error('privacy_recovery_staged_event_missing');
@@ -100,13 +100,23 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
     transactionOpen = true;
     await assertPrivacyRecoveryRestoreTarget(client, env);
 
+    // Serialize retries by immutable event identity and sequence. Evidence
+    // rows are append-only; row UPDATE locks would require write grants on them.
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('privacy-recovery-event:' || $1::uuid::text))",
+      [mapping.eventId]
+    );
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('privacy-recovery-sequence:' || $1::text))",
+      [mapping.sequence]
+    );
+
     // Check an existing receipt before requiring resource mapping: a successful
     // first execution intentionally removed that resource's live row.
     const receiptLookup = await client.query(
       `SELECT ledger_sequence, event_id, event_digest, event_type, outcome_code
          FROM privacy_recovery_replay_receipts
-        WHERE ledger_sequence = $1 OR event_id = $2
-        FOR UPDATE`,
+        WHERE ledger_sequence = $1 OR event_id = $2`,
       [mapping.sequence, mapping.eventId]
     );
     const staged = await readStagedEvent(client, mapping);
@@ -130,7 +140,7 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
     const [outcome, kind] = EVENT_OUTCOMES[mapping.eventType];
     await acquireGiftSafetyUserLocks(client, mapping.subjectUserId);
     const account = await client.query(
-      'SELECT id FROM users WHERE id = $1 FOR UPDATE',
+      'SELECT id FROM users WHERE id = $1',
       [mapping.subjectUserId]
     );
     if (account.rowCount !== 1) throw new Error('privacy_recovery_subject_missing');
@@ -141,8 +151,7 @@ export async function applyPrivateMediaPrivacyRecoveryEvent({
     const concurrentReceipt = await client.query(
       `SELECT ledger_sequence, event_id, event_digest, event_type, outcome_code
          FROM privacy_recovery_replay_receipts
-        WHERE ledger_sequence = $1 OR event_id = $2
-        FOR UPDATE`,
+        WHERE ledger_sequence = $1 OR event_id = $2`,
       [mapping.sequence, mapping.eventId]
     );
     if (concurrentReceipt.rowCount) {
