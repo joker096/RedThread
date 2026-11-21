@@ -44,7 +44,8 @@ export async function assertPrivacyRecoveryRestoreTarget(client, env = process.e
                    has_table_privilege(current_user, c.oid, 'DELETE') OR
                    has_table_privilege(current_user, c.oid, 'TRUNCATE') OR
                    has_table_privilege(current_user, c.oid, 'REFERENCES') OR
-                   has_table_privilege(current_user, c.oid, 'TRIGGER')
+                   has_table_privilege(current_user, c.oid, 'TRIGGER') OR
+                   has_any_column_privilege(current_user, c.oid, 'INSERT,UPDATE,REFERENCES')
                  )
             ) AS has_relation_write_privileges,
             EXISTS (
