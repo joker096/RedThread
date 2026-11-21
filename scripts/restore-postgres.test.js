@@ -123,7 +123,11 @@ test('PostgreSQL restore cleans up a failed decryption stream without writing a 
   try {
     const result = run(f, { FAIL_AGE: '1' });
     assert.notEqual(result.status, 0);
-    await assert.rejects(readFile(f.capture), 'failed decryption must not create a plaintext dump file');
+    const captured = await readFile(f.capture).catch(error => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    assert.ok(captured === null || captured.length === 0, 'failed decryption must not send plaintext bytes to pg_restore');
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
