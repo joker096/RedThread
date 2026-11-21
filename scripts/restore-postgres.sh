@@ -101,7 +101,7 @@ SELECT target.database_name || '|' || target.object_count || '|' ||
        restore_login.membership_no_admin::text
   FROM target CROSS JOIN owner_role CROSS JOIN restore_login;
 "
-target_state="$(psql --dbname="$RESTORE_DATABASE_URL" -X -A -t -v ON_ERROR_STOP=1 -v owner_role="$RESTORE_OWNER_ROLE" -c "$restore_target_sql")"
+target_state="$(psql --dbname="$RESTORE_DATABASE_URL" -X -A -t -v ON_ERROR_STOP=1 -v owner_role="$RESTORE_OWNER_ROLE" <<< "$restore_target_sql")"
 IFS='|' read -r target_database target_object_count owner_name owner_login owner_super owner_createdb owner_createrole owner_replication owner_bypassrls owner_owns_database owner_can_create_database owner_can_create_public login_name login_super login_createdb login_createrole login_replication login_bypassrls login_canlogin login_can_create_database login_can_temp login_can_create_public membership_count membership_matches membership_set membership_no_inherit membership_no_admin <<< "$target_state"
 if ! [[ "$target_database" =~ ^vow_restore_(test|dst_[a-zA-Z0-9_]+)$ ]]; then
   echo "restore target database name must use the dedicated vow_restore_test or vow_restore_dst_ prefix" >&2
