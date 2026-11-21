@@ -6,7 +6,8 @@ const OUTCOMES = Object.freeze({
   private_photo_erasure_requested: ['photo_erasure_queued', 'photos'],
   voice_intro_erasure_requested: ['voice_intro_erasure_queued', 'voice'],
   voice_intro_consent_withdrawn: ['voice_intro_consent_withdrawn', 'voice_consent'],
-  identity_l3_consent_withdrawn: ['identity_l3_consent_withdrawn', 'identity_l3_consent']
+  identity_l3_consent_withdrawn: ['identity_l3_consent_withdrawn', 'identity_l3_consent'],
+  gift_address_draft_consent_withdrawn: ['gift_address_draft_consent_withdrawn', 'gift_address_draft']
 });
 
 function eventDigest(row) {
@@ -166,7 +167,34 @@ export async function verifyPrivateMediaPrivacyRecovery({
       }
     }
 
-    const obligationsResult = await client.query(
+    const giftDraftEffects = effects.filter(row => row.event_type === 'gift_address_draft_consent_withdrawn');
+    for (const effect of giftDraftEffects) {
+      const order = await client.query(
+        'SELECT recipient_id FROM gift_delivery_orders WHERE id = $1',
+        [effect.resource_id]
+      );
+      if (order.rowCount !== 1 || order.rows[0].recipient_id !== effect.subject_user_id) {
+        throw new Error('privacy_recovery_verification_gift_address_draft_owner_mismatch');
+      }
+      const consent = await client.query(
+        `SELECT action FROM gift_address_draft_consent_events
+          WHERE order_id = $1 AND recipient_user_id = $2
+          ORDER BY id DESC LIMIT 1`,
+        [effect.resource_id, effect.subject_user_id]
+      );
+      if (consent.rowCount !== 1 || consent.rows[0].action !== 'withdrawn') {
+        throw new Error('privacy_recovery_verification_gift_address_draft_consent_active');
+      }
+      const draft = await client.query(
+        'SELECT order_id FROM gift_address_drafts WHERE order_id = $1 AND recipient_user_id = $2',
+        [effect.resource_id, effect.subject_user_id]
+      );
+      if (draft.rowCount !== 0) {
+        throw new Error('privacy_recovery_verification_gift_address_draft_remains');
+      }
+    }
+
+    const obligationsResult = await client.query(    const obligationsResult = await client.query(
       `SELECT ledger_sequence, queue_name, storage_path_sha256
          FROM privacy_recovery_replay_purge_obligations
         WHERE ledger_sequence > $1 AND ledger_sequence <= $2`,
@@ -230,6 +258,7 @@ export async function verifyPrivateMediaPrivacyRecovery({
       verifiedPhotoErasureCount: photoIds.length,
       verifiedVoiceErasureCount: voiceIds.length,
       verifiedVoiceConsentWithdrawalCount: consentEffects.length,
+      verifiedGiftAddressDraftWithdrawalCount: giftDraftEffects.length,
       verifiedPurgeObligationCount: obligationRows.length,
       verifiedPurgeCompletionCount: completionRows.length,
       throughSequence
