@@ -167,7 +167,7 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
       }
     });
     assert.notEqual(refused.status, 0, 'a non-empty target must be refused');
-    target = new Client({ connectionString: targetUrl });
+    target = new Client({ connectionString: targetAdminUrl });
     await target.connect();
     const sentinel = await target.query('SELECT id FROM restore_target_sentinel');
     assert.deepEqual(sentinel.rows, [{ id: 99 }], 'refused restore must leave existing data untouched');
