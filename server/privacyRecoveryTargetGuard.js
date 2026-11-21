@@ -76,7 +76,10 @@ export async function assertPrivacyRecoveryRestoreTarget(client, env = process.e
                  AND has_schema_privilege(current_user, n.oid, 'CREATE')
             ) AS has_schema_create_privileges,
             has_database_privilege(current_user, current_database(), 'CREATE')
-              AS has_database_create_privilege
+              AS has_database_create_privilege,
+            has_database_privilege(current_user, current_database(), 'TEMP')
+              AS has_database_temp_privilege,
+            (pg_my_temp_schema() <> 0) AS has_existing_temp_schema
        FROM pg_roles r
       WHERE r.rolname = current_user`
   );
@@ -85,7 +88,8 @@ export async function assertPrivacyRecoveryRestoreTarget(client, env = process.e
       role.rolsuper || role.rolcreatedb || role.rolcreaterole || role.rolreplication ||
       role.rolbypassrls || !role.rolcanlogin || role.has_role_memberships ||
       role.has_relation_write_privileges || role.has_column_write_privileges || role.has_sequence_write_privileges ||
-      role.has_schema_create_privileges || role.has_database_create_privilege) {
+      role.has_schema_create_privileges || role.has_database_create_privilege ||
+      role.has_database_temp_privilege || role.has_existing_temp_schema) {
     throw new Error('privacy_recovery_restore_database_role_not_read_only');
   }
   return { databaseName: row.database_name, databaseRole: row.database_role, readOnlyRole: true };
