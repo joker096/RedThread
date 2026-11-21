@@ -63,7 +63,7 @@ Keep the age identity out of the application host and shell history. Supply it t
 
 ```bash
 sha256sum --check /secure/backups/vow-postgres-YYYYMMDDTHHMMSSZ.dump.age.sha256
-RESTORE_DATABASE_URL='postgresql://vow_restore_login_example@staging-db/vow_restore_test' \\
+RESTORE_DATABASE_URL='postgresql://vow_restore_login_example@staging-db/vow_restore_test' \
 RESTORE_OWNER_ROLE='vow_restore_owner_example' \
 RESTORE_CONFIRM_STAGING=I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE \
 ARCHIVE_FILE=/secure/backups/vow-postgres-YYYYMMDDTHHMMSSZ.dump.age \
