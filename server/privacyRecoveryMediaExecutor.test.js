@@ -33,7 +33,7 @@ function fakePool({ receipt = null } = {}) {
   const client = {
     async query(sql, params = []) {
       calls.push({ sql, params });
-      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rowCount: null, rows: [] };
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK' || sql.includes('pg_advisory_xact_lock')) return { rowCount: null, rows: [] };
       if (sql.includes('SELECT current_database() AS database_name')) return { rowCount: 1, rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
       if (sql.includes('FROM pg_roles r')) return { rows: [{ rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false, rolbypassrls: false, rolcanlogin: true, has_role_memberships: false, has_relation_write_privileges: false, has_sequence_write_privileges: false, has_schema_create_privileges: false, has_database_create_privilege: false }], rowCount: 1 };
       if (sql.includes('FROM privacy_recovery_replay_receipts')) {
@@ -60,7 +60,9 @@ test('exact replay receipt is idempotent and checked before requiring a resource
   assert.deepEqual(result, { applied: false, alreadyApplied: true, outcome: 'photo_erasure_queued' });
   assert.equal(calls.filter(call => call.sql === 'COMMIT').length, 1);
   assert.equal(calls.some(call => call.sql === 'ROLLBACK'), false);
-  assert.equal(calls.some(call => call.sql.includes('pg_advisory_xact_lock')), false);
+  assert.equal(calls.filter(call => call.sql.includes('pg_advisory_xact_lock')).length, 2);
+  assert.equal(calls.some(call => call.sql.includes('FROM privacy_recovery_replay_receipts') && call.sql.includes('FOR UPDATE')), false);
+  assert.equal(calls.some(call => call.sql.includes('FROM privacy_recovery_events') && call.sql.includes('FOR SHARE')), false);
 });
 
 test('conflicting receipt identity or digest fails closed and rolls back', async () => {
