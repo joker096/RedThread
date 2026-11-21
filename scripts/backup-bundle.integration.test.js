@@ -55,9 +55,11 @@ function runAsWriter(command, args, env = {}, timeout = 150_000) {
   return result;
 }
 
-function databaseUrl(databaseName) {
+function databaseUrl(databaseName, roleName, password) {
   const url = new URL(process.env.DATABASE_URL);
   url.pathname = '/' + databaseName;
+  if (roleName) url.username = roleName;
+  if (password) url.password = password;
   return url.toString();
 }
 
@@ -76,8 +78,12 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
   const snapshotId = 'ci_' + suffix;
   const sourceDatabase = 'vow_bundle_src_' + suffix;
   const targetDatabase = 'vow_restore_dst_' + suffix;
+  const ownerRole = 'vow_restore_owner_' + suffix;
+  const restoreRole = 'vow_restore_login_' + suffix;
+  const restorePassword = 'BundleRestore-' + suffix + '-Aa1!';
   const sourceUrl = databaseUrl(sourceDatabase);
-  const targetUrl = databaseUrl(targetDatabase);
+  const targetUrl = databaseUrl(targetDatabase, restoreRole, restorePassword);
+  const targetAdminUrl = databaseUrl(targetDatabase);
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-coordinated-backup-'));
   const backupRoot = path.join(temporaryRoot, 'bundles');
   const mediaRoot = path.join(temporaryRoot, 'private-media');
@@ -91,6 +97,8 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
   let adminConnected = false;
   let sourceCreated = false;
   let targetCreated = false;
+  let ownerRoleCreated = false;
+  let restoreRoleCreated = false;
   let source;
   let target;
 
@@ -134,8 +142,15 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
     adminConnected = true;
     await admin.query('CREATE DATABASE "' + sourceDatabase + '"');
     sourceCreated = true;
-    await admin.query('CREATE DATABASE "' + targetDatabase + '"');
+    await admin.query('CREATE ROLE "' + ownerRole + '" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS');
+    ownerRoleCreated = true;
+    await admin.query('CREATE ROLE "' + restoreRole + '" LOGIN PASSWORD ' + quoteLiteral(restorePassword) + ' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS');
+    restoreRoleCreated = true;
+    await admin.query('GRANT "' + ownerRole + '" TO "' + restoreRole + '" WITH INHERIT FALSE, SET TRUE');
+    await admin.query('CREATE DATABASE "' + targetDatabase + '" OWNER "' + ownerRole + '"');
     targetCreated = true;
+    await admin.query('REVOKE TEMPORARY ON DATABASE "' + targetDatabase + '" FROM PUBLIC');
+    await admin.query('GRANT CONNECT ON DATABASE "' + targetDatabase + '" TO "' + restoreRole + '"');
 
     source = new Client({ connectionString: sourceUrl });
     await source.connect();
@@ -170,10 +185,11 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
       AGE_IDENTITY_FILE: identityFile,
       RESTORE_DATABASE_URL: targetUrl,
       RESTORE_CONFIRM_STAGING: stagingConfirmation,
+      RESTORE_OWNER_ROLE: ownerRole,
       RESTORE_DESTINATION: restoredMedia
     });
 
-    target = new Client({ connectionString: targetUrl });
+    target = new Client({ connectionString: targetAdminUrl });
     await target.connect();
     const rows = await target.query('SELECT id, payload FROM coordinated_restore_fixture ORDER BY id');
     assert.deepEqual(rows.rows, [
@@ -193,6 +209,9 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
     if (adminConnected) {
       if (targetCreated) await admin.query('DROP DATABASE IF EXISTS "' + targetDatabase + '" WITH (FORCE)').catch(() => {});
       if (sourceCreated) await admin.query('DROP DATABASE IF EXISTS "' + sourceDatabase + '" WITH (FORCE)').catch(() => {});
+      if (restoreRoleCreated) await admin.query('REVOKE "' + ownerRole + '" FROM "' + restoreRole + '"').catch(() => {});
+      if (restoreRoleCreated) await admin.query('DROP ROLE IF EXISTS "' + restoreRole + '"').catch(() => {});
+      if (ownerRoleCreated) await admin.query('DROP ROLE IF EXISTS "' + ownerRole + '"').catch(() => {});
       await admin.end().catch(() => {});
     }
     rootRun(['rm', '-rf', '--', temporaryRoot]);
@@ -246,6 +265,7 @@ test('coordinated restore rejects a tampered encrypted artifact before opening s
         AGE_IDENTITY_FILE: identityFile,
         RESTORE_DATABASE_URL: 'postgres://restore.invalid/never_opened',
         RESTORE_CONFIRM_STAGING: stagingConfirmation,
+        RESTORE_OWNER_ROLE: 'vow_restore_owner_tamper',
         RESTORE_DESTINATION: destination
       }
     });
@@ -296,6 +316,7 @@ test('restore rejects a false atomic-snapshot declaration before touching stagin
         AGE_IDENTITY_FILE: identityFile,
         RESTORE_DATABASE_URL: 'postgres://invalid/staging',
         RESTORE_CONFIRM_STAGING: stagingConfirmation,
+        RESTORE_OWNER_ROLE: 'vow_restore_owner_consistency',
         RESTORE_DESTINATION: destination
       }
     });
