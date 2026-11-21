@@ -73,11 +73,69 @@ test('post-replay verification confirms receipt, deleted metadata, hidden photo 
     verifiedPhotoErasureCount: 1,
     verifiedVoiceErasureCount: 0,
     verifiedVoiceConsentWithdrawalCount: 0,
+    verifiedGiftAddressDraftWithdrawalCount: 0,
     verifiedPurgeObligationCount: 1,
     verifiedPurgeCompletionCount: 1,
     throughSequence: 7
   });
   assert.equal(calls.includes('COMMIT'), true);
+});
+
+test('verification confirms withdrawn gift address consent and absence of encrypted draft', async () => {
+  const orderId = '123e4567-e89b-42d3-a456-426614174020';
+  const giftEvent = {
+    ...event,
+    event_type: 'gift_address_draft_consent_withdrawn',
+    resource_ref: 'c'.repeat(64),
+    receipt_event_type: 'gift_address_draft_consent_withdrawn',
+    effect_event_type: 'gift_address_draft_consent_withdrawn',
+    event_digest: createHash('sha256').update(JSON.stringify([
+      '7', event.event_id, '1', 'gift_address_draft_consent_withdrawn',
+      event.subject_ref, 'c'.repeat(64),
+      event.occurred_at.toISOString(), event.received_at.toISOString()
+    ])).digest('hex'),
+    outcome_code: 'gift_address_draft_consent_withdrawn',
+    resource_id: orderId,
+    purge_count: 0
+  };
+  const calls = [];
+  const client = {
+    async query(sql) {
+      calls.push(sql);
+      if (sql.startsWith('BEGIN TRANSACTION')) return { rows: [] };
+      if (sql.includes('SELECT current_database() AS database_name')) return { rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
+      if (sql.includes('FROM pg_roles r')) return { rows: [{
+        rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false,
+        rolbypassrls: false, rolcanlogin: true, has_role_memberships: false,
+        has_relation_write_privileges: false, has_column_write_privileges: false,
+        has_sequence_write_privileges: false, has_schema_create_privileges: false,
+        has_database_create_privilege: false
+      }] };
+      if (sql.includes('FROM privacy_recovery_events e')) return { rows: [giftEvent] };
+      if (sql.includes('FROM gift_delivery_orders')) return { rows: [{ recipient_id: event.subject_user_id }], rowCount: 1 };
+      if (sql.includes('FROM gift_address_draft_consent_events')) return { rows: [{ action: 'withdrawn' }], rowCount: 1 };
+      if (sql.includes('FROM gift_address_drafts')) return { rows: [], rowCount: 0 };
+      if (sql.includes('FROM privacy_recovery_replay_purge_obligations')) return { rows: [] };
+      if (sql.includes('FROM privacy_recovery_replay_purge_completions')) return { rows: [] };
+      if (sql.includes('FROM private_photo_purge_queue')) return { rows: [] };
+      if (sql.includes('FROM private_voice_intro_purge_queue')) return { rows: [] };
+      if (sql.includes('FROM identity_l3_submissions')) return { rows: [] };
+      if (sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+      throw new Error('unexpected_query:' + sql);
+    },
+    release() {}
+  };
+  const result = await verifyPrivateMediaPrivacyRecovery({
+    pool: { async connect() { return client; } },
+    env: isolatedEnv,
+    storageRoots: {},
+    snapshotLedgerSequence: 6,
+    throughSequence: 7,
+    verifyPhysicalAbsence: async () => {}
+  });
+  assert.equal(result.complete, true);
+  assert.equal(result.verifiedGiftAddressDraftWithdrawalCount, 1);
+  assert.equal(calls.some(sql => sql.includes('FROM gift_address_drafts')), true);
 });
 
 test('verification rejects a partially populated purge obligation set even when the queue is empty', async () => {
