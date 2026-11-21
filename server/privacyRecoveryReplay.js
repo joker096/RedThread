@@ -73,6 +73,16 @@ export async function stagePrivacyRecoveryEvents(client, {
         event.subject_ref.toLowerCase(), event.resource_ref?.toLowerCase() ?? null,
         event.occurred_at, event.received_at
       ];
+      // Serialize idempotent staging by immutable identity. The ledger table
+      // is append-only, so SELECT FOR SHARE would incorrectly require UPDATE.
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext('privacy-recovery-stage-event:' || $1::uuid::text))",
+        [event.event_id]
+      );
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext('privacy-recovery-stage-sequence:' || $1::text))",
+        [event.sequence]
+      );
       const inserted = await client.query(
         `INSERT INTO privacy_recovery_events
           (ledger_sequence, event_id, schema_version, event_type, subject_ref, resource_ref, occurred_at, received_at)
@@ -91,7 +101,7 @@ export async function stagePrivacyRecoveryEvents(client, {
                 resource_ref, occurred_at, received_at
            FROM privacy_recovery_events
           WHERE ledger_sequence = $1 OR event_id = $2
-          FOR SHARE`,
+`,
         [event.sequence, event.event_id]
       );
       if (existing.rowCount !== 1) throw new Error('privacy_recovery_stage_conflict_unresolved');
