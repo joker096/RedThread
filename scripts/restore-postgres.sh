@@ -115,18 +115,18 @@ if ! [[ "$login_name" =~ ^vow_restore_login_[a-zA-Z0-9_]{1,40}$ ]]; then
   echo "restore login role must use the dedicated vow_restore_login_ prefix" >&2
   exit 1
 fi
-if [[ "$owner_name" != "$RESTORE_OWNER_ROLE" || "$owner_login" != "f" ||
-      "$owner_super" != "f" || "$owner_createdb" != "f" ||
-      "$owner_createrole" != "f" || "$owner_replication" != "f" ||
-      "$owner_bypassrls" != "f" || "$owner_owns_database" != "t" ||
-      "$owner_can_create_database" != "t" || "$owner_can_create_public" != "t" ||
-      "$login_super" != "f" || "$login_createdb" != "f" ||
-      "$login_createrole" != "f" || "$login_replication" != "f" ||
-      "$login_bypassrls" != "f" || "$login_canlogin" != "t" || "$login_can_create_database" != "f" ||
-      "$login_can_temp" != "f" || "$login_can_create_public" != "f" ||
-      "$membership_count" != "1" || "$membership_matches" != "t" ||
-      "$membership_set" != "t" || "$membership_no_inherit" != "t" ||
-      "$membership_no_admin" != "t" ]]; then
+if [[ "$owner_name" != "$RESTORE_OWNER_ROLE" || "$owner_login" != "false" ||
+      "$owner_super" != "false" || "$owner_createdb" != "false" ||
+      "$owner_createrole" != "false" || "$owner_replication" != "false" ||
+      "$owner_bypassrls" != "false" || "$owner_owns_database" != "true" ||
+      "$owner_can_create_database" != "true" || "$owner_can_create_public" != "true" ||
+      "$login_super" != "false" || "$login_createdb" != "false" ||
+      "$login_createrole" != "false" || "$login_replication" != "false" ||
+      "$login_bypassrls" != "false" || "$login_canlogin" != "true" || "$login_can_create_database" != "false" ||
+      "$login_can_temp" != "false" || "$login_can_create_public" != "false" ||
+      "$membership_count" != "1" || "$membership_matches" != "true" ||
+      "$membership_set" != "true" || "$membership_no_inherit" != "true" ||
+      "$membership_no_admin" != "true" ]]; then
   printf "restore preflight state (database|objects|owner and login grants): %s\\n" "$target_state" >&2
   echo "restore login/NOLOGIN owner role contract is invalid; refusing to restore" >&2
   exit 1
