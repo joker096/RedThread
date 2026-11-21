@@ -31,9 +31,11 @@ function run(command, args, env) {
   return result;
 }
 
-function databaseUrl(databaseName) {
+function databaseUrl(databaseName, roleName, password) {
   const url = new URL(process.env.DATABASE_URL);
   url.pathname = `/${databaseName}`;
+  if (roleName) url.username = roleName;
+  if (password) url.password = password;
   return url.toString();
 }
 
@@ -44,8 +46,12 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
   const suffix = `${process.pid}_${Date.now()}`;
   const sourceDatabase = `vow_restore_src_${suffix}`;
   const targetDatabase = `vow_restore_dst_${suffix}`;
+  const ownerRole = `vow_restore_owner_${suffix}`;
+  const restoreRole = `vow_restore_login_${suffix}`;
+  const restorePassword = `Restore-${suffix}-Aa1!`;
   const sourceUrl = databaseUrl(sourceDatabase);
-  const targetUrl = databaseUrl(targetDatabase);
+  const targetUrl = databaseUrl(targetDatabase, restoreRole, restorePassword);
+  const targetAdminUrl = databaseUrl(targetDatabase);
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-postgres-real-restore-'));
   const backupDir = path.join(temporaryRoot, 'backups');
   const admissionDir = path.join(temporaryRoot, 'admission');
@@ -57,6 +63,8 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
   let adminConnected = false;
   let sourceCreated = false;
   let targetCreated = false;
+  let ownerRoleCreated = false;
+  let restoreRoleCreated = false;
 
   try {
     run('age-keygen', ['-o', identityFile]);
@@ -78,8 +86,15 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
     adminConnected = true;
     await admin.query(`CREATE DATABASE "${sourceDatabase}"`);
     sourceCreated = true;
-    await admin.query(`CREATE DATABASE "${targetDatabase}"`);
+    await admin.query(`CREATE ROLE "${ownerRole}" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`);
+    ownerRoleCreated = true;
+    await admin.query(`CREATE ROLE "${restoreRole}" LOGIN PASSWORD '${restorePassword}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`);
+    restoreRoleCreated = true;
+    await admin.query(`GRANT "${ownerRole}" TO "${restoreRole}" WITH INHERIT FALSE, SET TRUE`);
+    await admin.query(`CREATE DATABASE "${targetDatabase}" OWNER "${ownerRole}"`);
     targetCreated = true;
+    await admin.query(`REVOKE TEMPORARY ON DATABASE "${targetDatabase}" FROM PUBLIC`);
+    await admin.query(`GRANT CONNECT ON DATABASE "${targetDatabase}" TO "${restoreRole}"`);
 
     source = new Client({ connectionString: sourceUrl });
     await source.connect();
@@ -113,10 +128,11 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
       ARCHIVE_FILE: path.join(backupDir, archiveName),
       AGE_IDENTITY_FILE: identityFile,
       RESTORE_DATABASE_URL: targetUrl,
-      RESTORE_CONFIRM_STAGING: stagingConfirmation
+      RESTORE_CONFIRM_STAGING: stagingConfirmation,
+      RESTORE_OWNER_ROLE: ownerRole
     });
 
-    target = new Client({ connectionString: targetUrl });
+    target = new Client({ connectionString: targetAdminUrl });
     await target.connect();
     const restored = await target.query(
       'SELECT id, payload FROM restore_drill_fixture ORDER BY id'
@@ -138,7 +154,8 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
         ARCHIVE_FILE: path.join(backupDir, archiveName),
         AGE_IDENTITY_FILE: identityFile,
         RESTORE_DATABASE_URL: targetUrl,
-        RESTORE_CONFIRM_STAGING: stagingConfirmation
+        RESTORE_CONFIRM_STAGING: stagingConfirmation,
+        RESTORE_OWNER_ROLE: ownerRole
       }
     });
     assert.notEqual(refused.status, 0, 'a non-empty target must be refused');
@@ -154,6 +171,9 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
     if (adminConnected) {
       if (targetCreated) await admin.query(`DROP DATABASE IF EXISTS "${targetDatabase}" WITH (FORCE)`).catch(() => {});
       if (sourceCreated) await admin.query(`DROP DATABASE IF EXISTS "${sourceDatabase}" WITH (FORCE)`).catch(() => {});
+      if (restoreRoleCreated) await admin.query(`REVOKE "${ownerRole}" FROM "${restoreRole}"`).catch(() => {});
+      if (restoreRoleCreated) await admin.query(`DROP ROLE IF EXISTS "${restoreRole}"`).catch(() => {});
+      if (ownerRoleCreated) await admin.query(`DROP ROLE IF EXISTS "${ownerRole}"`).catch(() => {});
       await admin.end().catch(() => {});
     }
     spawnSync('sudo', ['-n', 'rm', '-rf', '--', temporaryRoot], { encoding: 'utf8' });
