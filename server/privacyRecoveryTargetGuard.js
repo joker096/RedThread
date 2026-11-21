@@ -54,6 +54,15 @@ export async function assertPrivacyRecoveryRestoreTarget(client, env = process.e
                 JOIN pg_namespace n ON n.oid = c.relnamespace
                WHERE n.nspname <> 'information_schema'
                  AND n.nspname NOT LIKE 'pg_%'
+                 AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+                 AND has_any_column_privilege(current_user, c.oid, 'INSERT,UPDATE,REFERENCES')
+            ) AS has_column_write_privileges,
+            EXISTS (
+              SELECT 1
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname <> 'information_schema'
+                 AND n.nspname NOT LIKE 'pg_%'
                  AND c.relkind = 'S'
                  AND (
                    has_sequence_privilege(current_user, c.oid, 'USAGE') OR
@@ -75,7 +84,7 @@ export async function assertPrivacyRecoveryRestoreTarget(client, env = process.e
   if (!role ||
       role.rolsuper || role.rolcreatedb || role.rolcreaterole || role.rolreplication ||
       role.rolbypassrls || !role.rolcanlogin || role.has_role_memberships ||
-      role.has_relation_write_privileges || role.has_sequence_write_privileges ||
+      role.has_relation_write_privileges || role.has_column_write_privileges || role.has_sequence_write_privileges ||
       role.has_schema_create_privileges || role.has_database_create_privilege) {
     throw new Error('privacy_recovery_restore_database_role_not_read_only');
   }
