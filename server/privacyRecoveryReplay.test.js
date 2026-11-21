@@ -37,10 +37,10 @@ function fakeClient(existingRows = [], identity = {}) {
       if (sql.includes('FROM pg_roles r')) return { rowCount: 1, rows: [{
         rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false,
         rolbypassrls: false, rolcanlogin: true, has_role_memberships: false,
-        has_relation_write_privileges: false, has_sequence_write_privileges: false,
+        has_relation_write_privileges: false, has_column_write_privileges: false, has_sequence_write_privileges: false,
         has_schema_create_privileges: false, has_database_create_privilege: false
       }] };
-      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rowCount: null, rows: [] };
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK' || sql.includes('pg_advisory_xact_lock')) return { rowCount: null, rows: [] };
       if (sql.includes('INSERT INTO privacy_recovery_events')) {
         const [sequence, eventId, schemaVersion, eventType, subjectRef, resourceRef, occurredAt, receivedAt] = values;
         const found = rows.some(row => row.ledger_sequence === sequence || row.event_id === eventId);
@@ -73,6 +73,8 @@ test('stages only events newer than the restored snapshot watermark', async () =
   assert.match(client.calls[1].sql, /FROM pg_roles r/);
   assert.equal(client.calls[2].sql, 'BEGIN');
   assert.equal(client.calls.at(-1).sql, 'COMMIT');
+  assert.equal(client.calls.filter(call => call.sql.includes('pg_advisory_xact_lock')).length, 4);
+  assert.equal(client.calls.some(call => call.sql.includes('FOR SHARE')), false);
 });
 
 test('repeated staging is idempotent when existing rows match exactly', async () => {
