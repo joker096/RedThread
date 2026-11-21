@@ -44,6 +44,7 @@ test('restore LOGIN can SET ROLE to a NOLOGIN owner without inheriting its privi
   let verifierCreated = false;
   let restore;
   let verifier;
+  let targetAdmin;
 
   try {
     await admin.connect();
@@ -59,6 +60,10 @@ test('restore LOGIN can SET ROLE to a NOLOGIN owner without inheriting its privi
     await admin.query('GRANT ' + ownerIdent + ' TO ' + restoreIdent + ' WITH INHERIT FALSE, SET TRUE');
     await admin.query('CREATE DATABASE ' + databaseIdent + ' OWNER ' + ownerIdent);
     databaseCreated = true;
+    await admin.query('REVOKE TEMPORARY ON DATABASE ' + databaseIdent + ' FROM PUBLIC');
+    targetAdmin = new Client({ connectionString: roleUrl(adminUrl, databaseName, new URL(adminUrl).username, new URL(adminUrl).password) });
+    await targetAdmin.connect();
+    await targetAdmin.query('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
 
     restore = new Client({
       connectionString: roleUrl(adminUrl, databaseName, restoreName, restorePassword)
@@ -132,11 +137,13 @@ test('restore LOGIN can SET ROLE to a NOLOGIN owner without inheriting its privi
   } finally {
     if (restore) await restore.end().catch(() => {});
     if (verifier) await verifier.end().catch(() => {});
+    if (targetAdmin) await targetAdmin.end().catch(() => {});
     if (adminConnected) {
       if (databaseCreated) {
         await admin.query('REVOKE CONNECT ON DATABASE ' + databaseIdent + ' FROM PUBLIC').catch(() => {});
         await admin.query('DROP DATABASE IF EXISTS ' + databaseIdent + ' WITH (FORCE)').catch(() => {});
       }
+      if (restoreCreated) await admin.query('REVOKE ' + ownerIdent + ' FROM ' + restoreIdent).catch(() => {});
       if (restoreCreated) await admin.query('DROP OWNED BY ' + restoreIdent).catch(() => {});
       if (verifierCreated) await admin.query('DROP OWNED BY ' + verifierIdent).catch(() => {});
       if (ownerCreated) await admin.query('DROP OWNED BY ' + ownerIdent).catch(() => {});
