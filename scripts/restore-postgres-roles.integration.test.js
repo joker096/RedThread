@@ -94,7 +94,7 @@ test('restore LOGIN can SET ROLE to a NOLOGIN owner without inheriting its privi
     await restore.query('GRANT SELECT ON public.restore_role_fixture TO ' + verifierIdent);
     await restore.query('RESET ROLE');
 
-    const ownerCheck = await admin.query(
+    const ownerCheck = await targetAdmin.query(
       'SELECT r.rolname, r.rolcanlogin, c.relowner = r.oid AS owns_fixture ' +
       'FROM pg_roles r CROSS JOIN pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace ' +
       'WHERE r.rolname = $1 AND n.nspname = \'public\' AND c.relname = \'restore_role_fixture\'',
