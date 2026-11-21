@@ -89,6 +89,7 @@ SELECT target.database_name || '|' || target.object_count || '|' ||
        restore_login.rolcreaterole::text || '|' ||
        restore_login.rolreplication::text || '|' ||
        restore_login.rolbypassrls::text || '|' ||
+       restore_login.rolcanlogin::text || '|' ||
        restore_login.can_create_database::text || '|' ||
        restore_login.can_temp::text || '|' ||
        restore_login.can_create_public::text || '|' ||
@@ -100,7 +101,7 @@ SELECT target.database_name || '|' || target.object_count || '|' ||
   FROM target CROSS JOIN owner_role CROSS JOIN restore_login;
 "
 target_state="$(psql --dbname="$RESTORE_DATABASE_URL" -X -A -t -v ON_ERROR_STOP=1 -v owner_role="$RESTORE_OWNER_ROLE" -c "$restore_target_sql")"
-IFS='|' read -r target_database target_object_count owner_name owner_login owner_super owner_createdb owner_createrole owner_replication owner_bypassrls owner_owns_database owner_can_create_database owner_can_create_public login_super login_createdb login_createrole login_replication login_bypassrls login_can_create_database login_can_temp login_can_create_public membership_count membership_matches membership_set membership_no_inherit membership_no_admin <<< "$target_state"
+IFS='|' read -r target_database target_object_count owner_name owner_login owner_super owner_createdb owner_createrole owner_replication owner_bypassrls owner_owns_database owner_can_create_database owner_can_create_public login_super login_createdb login_createrole login_replication login_bypassrls login_canlogin login_can_create_database login_can_temp login_can_create_public membership_count membership_matches membership_set membership_no_inherit membership_no_admin <<< "$target_state"
 if ! [[ "$target_database" =~ ^vow_restore_(test|dst_[a-zA-Z0-9_]+)$ ]]; then
   echo "restore target database name must use the dedicated vow_restore_test or vow_restore_dst_ prefix" >&2
   exit 1
@@ -116,7 +117,7 @@ if [[ "$owner_name" != "$RESTORE_OWNER_ROLE" || "$owner_login" != "f" ||
       "$owner_can_create_database" != "t" || "$owner_can_create_public" != "t" ||
       "$login_super" != "f" || "$login_createdb" != "f" ||
       "$login_createrole" != "f" || "$login_replication" != "f" ||
-      "$login_bypassrls" != "f" || "$login_can_create_database" != "f" ||
+      "$login_bypassrls" != "f" || "$login_canlogin" != "t" || "$login_can_create_database" != "f" ||
       "$login_can_temp" != "f" || "$login_can_create_public" != "f" ||
       "$membership_count" != "1" || "$membership_matches" != "t" ||
       "$membership_set" != "t" || "$membership_no_inherit" != "t" ||
