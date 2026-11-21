@@ -200,6 +200,14 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
       { id: 1, payload: 'database-fixture-one' },
       { id: 2, payload: 'database-fixture-two' }
     ]);
+
+    const owner = await target.query(
+      'SELECT r.rolname, r.rolcanlogin, c.relowner = r.oid AS owns_fixture ' +
+      'FROM pg_roles r CROSS JOIN pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace ' +
+      'WHERE r.rolname = $1 AND n.nspname = \'public\' AND c.relname = \'coordinated_restore_fixture\'',
+      [ownerRole]
+    );
+    assert.deepEqual(owner.rows, [{ rolname: ownerRole, rolcanlogin: false, owns_fixture: true }]);
     await target.end();
     target = undefined;
 
