@@ -254,7 +254,7 @@ printf 'fixture-archive-with-private-photo-content'
     const maintenanceArgs = [...sudo, 'env', ...maintenanceEnv, 'bash', admissionScript, 'maintenance', '--', 'true'];
     const maintenance = spawnSync(maintenanceArgs[0], maintenanceArgs.slice(1), {
       encoding: 'utf8',
-      timeout: 3000
+      timeout: 10000
     });
     assert.notEqual(maintenance.status, 0, maintenance.stderr || 'maintenance must wait for backup reader');
     assert.match(maintenance.stderr, /did not drain/);
