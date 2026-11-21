@@ -312,7 +312,8 @@ Restore both artifacts into isolated targets:
 ```bash
 BACKUP_BUNDLE_DIR=/secure/backups/vow-bundles/<snapshot-id> \
 AGE_IDENTITY_FILE=/secure/escrow/vow-age-identity.txt \
-RESTORE_DATABASE_URL='postgresql://restore_role@db-host/vow_restore_dst_example' \
+RESTORE_DATABASE_URL='postgresql://restore_login@db-host/vow_restore_dst_example' \
+RESTORE_OWNER_ROLE='vow_restore_owner_example' \
 RESTORE_CONFIRM_STAGING=I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE \
 RESTORE_DESTINATION=/srv/vow/restore-staging/private-media \
 npm run restore:bundle
