@@ -63,7 +63,7 @@ Keep the age identity out of the application host and shell history. Supply it t
 
 ```bash
 sha256sum --check /secure/backups/vow-postgres-YYYYMMDDTHHMMSSZ.dump.age.sha256
-RESTORE_DATABASE_URL='postgresql://restore_login@staging-db/vow_restore_test' \\
+RESTORE_DATABASE_URL='postgresql://vow_restore_login_example@staging-db/vow_restore_test' \\
 RESTORE_OWNER_ROLE='vow_restore_owner_example' \
 RESTORE_CONFIRM_STAGING=I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE \
 ARCHIVE_FILE=/secure/backups/vow-postgres-YYYYMMDDTHHMMSSZ.dump.age \
@@ -312,7 +312,7 @@ Restore both artifacts into isolated targets:
 ```bash
 BACKUP_BUNDLE_DIR=/secure/backups/vow-bundles/<snapshot-id> \
 AGE_IDENTITY_FILE=/secure/escrow/vow-age-identity.txt \
-RESTORE_DATABASE_URL='postgresql://restore_login@db-host/vow_restore_dst_example' \
+RESTORE_DATABASE_URL='postgresql://vow_restore_login_example@db-host/vow_restore_dst_example' \
 RESTORE_OWNER_ROLE='vow_restore_owner_example' \
 RESTORE_CONFIRM_STAGING=I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE \
 RESTORE_DESTINATION=/srv/vow/restore-staging/private-media \
