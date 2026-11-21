@@ -28,7 +28,7 @@ printf 'RESTORED-PLAINTEXT-DUMP-FIXTURE'
 `);
   await writeFile(psql, `#!/usr/bin/env bash
 set -Eeuo pipefail
-printf '%s\\n' "\${PSQL_RESTORE_STATE:-\${PSQL_DATABASE_NAME:-vow_restore_test}|\${PSQL_EMPTY_STATE:-0}|vow_restore_owner_fixture|f|f|f|f|f|f|t|t|t|vow_restore_login_fixture|f|f|f|f|f|t|f|f|f|1|t|t|t|t}"
+printf '%s\\n' "\${PSQL_RESTORE_STATE:-\${PSQL_DATABASE_NAME:-vow_restore_test}|\${PSQL_EMPTY_STATE:-0}|vow_restore_owner_fixture|false|false|false|false|false|false|true|true|true|vow_restore_login_fixture|false|false|false|false|false|true|false|false|false|1|true|true|true|true}"
 `);
   await writeFile(pgRestore, `#!/usr/bin/env bash
 set -Eeuo pipefail
@@ -123,7 +123,7 @@ test('PostgreSQL restore cleans up a failed decryption stream without writing a 
   try {
     const result = run(f, { FAIL_AGE: '1' });
     assert.notEqual(result.status, 0);
-    assert.equal(await readFile(f.capture, 'utf8'), '', 'failed decryption must not send plaintext to pg_restore');
+    await assert.rejects(readFile(f.capture), 'failed decryption must not create a plaintext dump file');
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
