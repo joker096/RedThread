@@ -82,14 +82,15 @@ export async function verifyPrivateMediaPrivacyRecovery({
           row.outcome_code !== expected[0] || row.event_digest !== eventDigest(row)) {
         throw new Error('privacy_recovery_verification_receipt_mismatch');
       }
-      const consentOnly = ['voice_consent', 'identity_l3_consent', 'gift_address_draft'].includes(expected[1]);
-      const resourceMissing = expected[1] === 'gift_address_draft'
-        ? !row.resource_id
-        : consentOnly ? row.resource_id !== null : !row.resource_id;
-      const expectedPurgeCount = consentOnly ? 0 : 1;
+      const zeroPurge = ['voice_consent', 'gift_address_draft'].includes(expected[1]);
+      const resourceMissing = ['voice_consent', 'identity_l3_consent'].includes(expected[1])
+        ? row.resource_id !== null
+        : expected[1] === 'gift_address_draft' ? !row.resource_id : !row.resource_id;
+      const purgeCount = Number(row.purge_count);
       if (!row.subject_user_id || resourceMissing ||
-          !Number.isSafeInteger(Number(row.purge_count)) ||
-          Number(row.purge_count) !== expectedPurgeCount) {
+          !Number.isSafeInteger(purgeCount) || purgeCount < 0 ||
+          (zeroPurge && purgeCount !== 0) ||
+          (expected[1] !== 'identity_l3_consent' && !zeroPurge && purgeCount !== 1)) {
         throw new Error('privacy_recovery_verification_effect_missing');
       }
       effects.push(row);
