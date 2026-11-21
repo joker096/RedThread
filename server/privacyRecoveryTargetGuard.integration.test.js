@@ -10,7 +10,7 @@ function quoteIdentifier(value) {
   return '"' + value.replaceAll('"', '""') + '"';
 }
 
-function roleUrl(databaseUrl, databaseName, roleName, password) {
+function quoteLiteral(value) {\n  return "'" + value.replaceAll("'", "''") + "'";\n}\n\nfunction roleUrl(databaseUrl, databaseName, roleName, password) {
   const url = new URL(databaseUrl);
   url.pathname = '/' + databaseName;
   url.username = roleName;
@@ -47,7 +47,7 @@ test('PostgreSQL 16 verifier rejects TEMP grants and pre-existing temporary sche
     adminConnected = true;
     await admin.query('CREATE DATABASE ' + databaseIdent);
     databaseCreated = true;
-    await admin.query('CREATE ROLE ' + roleIdent + ' LOGIN PASSWORD $1', [password]);
+    await admin.query('CREATE ROLE ' + roleIdent + ' LOGIN PASSWORD ' + quoteLiteral(password));
     roleCreated = true;
     await admin.query('REVOKE TEMPORARY ON DATABASE ' + databaseIdent + ' FROM PUBLIC');
     await admin.query('GRANT CONNECT ON DATABASE ' + databaseIdent + ' TO ' + roleIdent);
