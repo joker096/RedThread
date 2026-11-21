@@ -10,7 +10,11 @@ function quoteIdentifier(value) {
   return '"' + value.replaceAll('"', '""') + '"';
 }
 
-function quoteLiteral(value) {\n  return "'" + value.replaceAll("'", "''") + "'";\n}\n\nfunction roleUrl(databaseUrl, databaseName, roleName, password) {
+function quoteLiteral(value) {
+  return "'" + value.replaceAll("'", "''") + "'";
+}
+
+function roleUrl(databaseUrl, databaseName, roleName, password) {
   const url = new URL(databaseUrl);
   url.pathname = '/' + databaseName;
   url.username = roleName;
