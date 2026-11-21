@@ -22,6 +22,7 @@ const readonlyRole = {
   rolcanlogin: true,
   has_role_memberships: false,
   has_relation_write_privileges: false,
+  has_column_write_privileges: false,
   has_sequence_write_privileges: false,
   has_schema_create_privileges: false,
   has_database_create_privilege: false
@@ -69,6 +70,7 @@ test('restore target verifies database identity and effective read-only role pri
   assert.equal(client.calls.length, 2);
   assert.match(client.calls[0], /current_database\(\).*current_user/);
   assert.match(client.calls[1], /has_table_privilege/);
+  assert.match(client.calls[1], /has_any_column_privilege/);
   assert.match(client.calls[1], /has_sequence_privilege/);
 });
 
@@ -94,6 +96,7 @@ test('restore target refuses a role with any elevated or write capability', asyn
     { rolcanlogin: false },
     { has_role_memberships: true },
     { has_relation_write_privileges: true },
+    { has_column_write_privileges: true },
     { has_sequence_write_privileges: true },
     { has_schema_create_privileges: true },
     { has_database_create_privilege: true }
