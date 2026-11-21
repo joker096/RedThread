@@ -93,7 +93,6 @@ test('matched events from unsupported domains do not report replay readiness', a
 test('all non-media event domains remain explicitly blocked even with matched subjects', async () => {
   const eventTypes = [
     'account_erasure_requested',
-    'identity_l3_consent_withdrawn',
     'ad_consent_revoked',
     'gift_order_consent_withdrawn'
   ];
@@ -111,8 +110,23 @@ test('all non-media event domains remain explicitly blocked even with matched su
   assert.equal(report.matchedCount, eventTypes.length);
   assert.equal(report.unresolvedCount, 0);
   assert.equal(report.unsupportedEventCount, eventTypes.length);
-  assert.deepEqual(report.unsupportedEventSequences, [1, 2, 3, 4]);
+  assert.deepEqual(report.unsupportedEventSequences, [1, 2, 3]);
   assert.equal(report.readyForDomainReplay, false);
+});
+
+test('recognizes L3 consent withdrawal as supported by the isolated replay executor', async () => {
+  const pool = fakePool({
+    events: [{
+      sequence: 1, event_id: randomUUID(), event_type: 'identity_l3_consent_withdrawn',
+      subject_ref: ref(userId), resource_ref: null
+    }],
+    users: [{ id: userId }]
+  });
+  const report = await runPrivacyRecoveryInventory({ pool, env });
+  assert.equal(report.matchedCount, 1);
+  assert.equal(report.supportedEventCount, 1);
+  assert.equal(report.unsupportedEventCount, 0);
+  assert.equal(report.readyForDomainReplay, true);
 });
 
 test('refuses production or non-isolated execution before opening a connection', async () => {

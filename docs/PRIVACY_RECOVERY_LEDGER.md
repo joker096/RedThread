@@ -24,6 +24,7 @@ The ledger accepts only a strict allowlist of versioned event types:
 - `identity_l3_consent_withdrawn`
 - `ad_consent_revoked`
 - `gift_order_consent_withdrawn`
+- `gift_address_draft_consent_withdrawn` (temporary encrypted address-draft consent; staged and mapped for inventory only, not approved for domain replay)
 
 Each event contains:
 - a caller-generated UUID `event_id` for idempotency;
@@ -95,6 +96,7 @@ This stage is deliberately non-destructive: it does not map pseudonymous referen
 - voice-introduction erasure → `profile_voice_intros.id`;
 - private-photo erasure → `photo_assets.id`;
 - gift-order consent withdrawal → `gift_delivery_orders.id`;
+- gift-address-draft consent withdrawal → `gift_delivery_orders.id` as a conservative order-level candidate only; this event remains blocked from domain replay until its dedicated executor and purge verification are implemented;
 - account erasure, voice consent withdrawal, L3 consent withdrawal and ad-consent revocation → subject only.
 
 The function is read-only and accepts candidate rows supplied by a caller; it performs no SQL, filesystem or network operations. Every event is classified as matched, unmatched, ambiguous, or missing a required resource reference. It never guesses across entity types and returns null identifiers for unresolved matches. The pseudonym key must be the same key used when the event was appended. A wrong key therefore yields unmatched references and cannot silently select a different account.
