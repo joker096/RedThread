@@ -133,7 +133,6 @@ jobs:
             tail -n 160 "$RUNNER_TEMP/android-emulator.log" >&2 || true
             exit 1
           fi
-          # Wait for the input and package services before running the app smoke test.
           services_ready=0
           for attempt in $(seq 1 60); do
             package_service="$(adb shell service check package 2>&1 || true)"
