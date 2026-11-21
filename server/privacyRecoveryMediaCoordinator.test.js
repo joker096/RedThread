@@ -181,6 +181,36 @@ test('coordinator inventories gift-order recipients but keeps gift withdrawal bl
   });
 });
 
+test('coordinator permits address-draft consent withdrawal after mapping recipient-owned order', async () => {
+  const orderId = '123e4567-e89b-42d3-a456-426614174088';
+  const orderRef = createHmac('sha256', key).update(orderId, 'utf8').digest('hex');
+  const { pool, calls } = poolFor({
+    events: [{
+      sequence: '1',
+      event_id: '123e4567-e89b-42d3-a456-426614174089',
+      event_type: 'gift_address_draft_consent_withdrawn',
+      subject_ref: subjectRef,
+      resource_ref: orderRef
+    }],
+    giftOrders: [{ id: orderId, user_id: userId }]
+  });
+  const applied = [];
+  const result = await runPrivateMediaPrivacyRecovery({
+    pool, env: isolatedEnv, snapshotLedgerSequence: 0, throughSequence: 1,
+    applyEvent: async ({ mapping }) => {
+      applied.push(mapping);
+      return { applied: true, alreadyApplied: false };
+    }
+  });
+  assert.equal(calls.includes('SELECT id, recipient_id AS user_id FROM gift_delivery_orders'), true);
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].eventType, 'gift_address_draft_consent_withdrawn');
+  assert.equal(applied[0].status, 'matched');
+  assert.equal(applied[0].resourceId, orderId);
+  assert.equal(result.complete, true);
+  assert.equal(result.processedCount, 1);
+});
+
 test('coordinator rejects an incomplete staged sequence range', async () => {
   const { pool, calls } = poolFor({ events: [] });
   await assert.rejects(
@@ -267,8 +297,7 @@ test('coordinator blocks every non-media privacy domain before applying any medi
   const blockedTypes = [
     'account_erasure_requested',
     'ad_consent_revoked',
-    'gift_order_consent_withdrawn',
-    'gift_address_draft_consent_withdrawn'
+    'gift_order_consent_withdrawn'
   ];
   const draftOrderId = '123e4567-e89b-42d3-a456-426614174088';
   const draftOrderRef = createHmac('sha256', key).update(draftOrderId, 'utf8').digest('hex');
