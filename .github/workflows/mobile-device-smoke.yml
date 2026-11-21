@@ -2,7 +2,7 @@ name: Virtual device smoke tests
 
 on:
   push:
-    branches: ["feat/**"]
+    branches: ["feat/**", "fix/**"]
     paths:
       - "src/**"
       - "capacitor.config.ts"
@@ -20,7 +20,7 @@ on:
       - ".github/workflows/mobile-device-smoke.yml"
       - ".github/workflows/mobile-build.yml"
   pull_request:
-    branches: [main, feat/compatibility-explanations]
+    branches: [main, "feat/**", "fix/**"]
     paths:
       - "src/**"
       - "capacitor.config.ts"
@@ -133,7 +133,6 @@ jobs:
             tail -n 160 "$RUNNER_TEMP/android-emulator.log" >&2 || true
             exit 1
           fi
-          # Wait for the input and package services before running the app smoke test.
           services_ready=0
           for attempt in $(seq 1 60); do
             package_service="$(adb shell service check package 2>&1 || true)"

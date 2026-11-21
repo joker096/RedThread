@@ -199,3 +199,63 @@ test('verification is restricted to explicitly isolated non-production restores'
   );
   assert.equal(calls.length, 0);
 });
+
+
+test('L3 verification fails closed while a consent row is missing or still active', async () => {
+  const l3Event = makeL3Event(0);
+  const missing = makePool({
+    receiptRows: [l3Event], obligations: [], completionRows: [], profiles: [], l3ConsentRows: []
+  });
+  await assert.rejects(
+    verifyPrivateMediaPrivacyRecovery({ pool: missing.pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    /privacy_recovery_verification_identity_l3_consent_active/
+  );
+  assert.equal(missing.calls.includes('ROLLBACK'), true);
+
+  const active = makePool({
+    receiptRows: [l3Event], obligations: [], completionRows: [], profiles: [],
+    l3ConsentRows: [{ withdrawn_at: null }]
+  });
+  await assert.rejects(
+    verifyPrivateMediaPrivacyRecovery({ pool: active.pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    /privacy_recovery_verification_identity_l3_consent_active/
+  );
+  assert.equal(active.calls.includes('ROLLBACK'), true);
+});
+
+test('L3 verification rejects unrevoked upload tokens and retained submissions', async () => {
+  const l3Event = makeL3Event(0);
+  const activeToken = makePool({
+    receiptRows: [l3Event], obligations: [], completionRows: [], profiles: [],
+    l3TokenRows: [{ id: 'token-1' }]
+  });
+  await assert.rejects(
+    verifyPrivateMediaPrivacyRecovery({ pool: activeToken.pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    /privacy_recovery_verification_identity_l3_upload_token_active/
+  );
+  assert.equal(activeToken.calls.includes('ROLLBACK'), true);
+
+  const retainedSubmission = makePool({
+    receiptRows: [l3Event], obligations: [], completionRows: [], profiles: [],
+    l3SubmissionRows: [{ id: 'submission-1' }]
+  });
+  await assert.rejects(
+    verifyPrivateMediaPrivacyRecovery({ pool: retainedSubmission.pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    /privacy_recovery_verification_identity_l3_media_remains/
+  );
+  assert.equal(retainedSubmission.calls.includes('ROLLBACK'), true);
+});
+
+test('L3 verification rejects any purge job that is not completed', async () => {
+  const l3Event = makeL3Event(0);
+  const { pool, calls } = makePool({
+    receiptRows: [l3Event], obligations: [], completionRows: [], profiles: [],
+    l3PurgeJobRows: [{ id: 'job-1' }]
+  });
+  await assert.rejects(
+    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    /privacy_recovery_verification_identity_l3_purge_incomplete/
+  );
+  assert.equal(calls.includes('ROLLBACK'), true);
+  assert.equal(calls.includes('COMMIT'), false);
+});
