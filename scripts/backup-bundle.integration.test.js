@@ -63,6 +63,10 @@ function databaseUrl(databaseName, roleName, password) {
   return url.toString();
 }
 
+function quoteLiteral(value) {
+  return "'" + value.replaceAll("'", "''") + "'";
+}
+
 function commandAvailable(command) {
   return spawnSync('bash', ['-lc', 'command -v ' + command], { encoding: 'utf8' }).status === 0;
 }
