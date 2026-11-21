@@ -42,8 +42,9 @@ done
 POSTGRES_SHA256="$(sha256sum "$POSTGRES_FILE" | awk '{ print $1 }')"
 MEDIA_SHA256="$(sha256sum "$MEDIA_FILE" | awk '{ print $1 }')"
 cat > "$BUNDLE_DIR/manifest.txt" <<MANIFEST
-format=vow-backup-bundle-v1
+format=vow-backup-bundle-v2
 snapshot_id=$SNAPSHOT_ID
+snapshot_consistency=best_effort_non_atomic
 postgres_archive=postgres/$POSTGRES_NAME
 postgres_sha256=$POSTGRES_SHA256
 private_media_archive=private-media/$MEDIA_NAME
@@ -54,6 +55,6 @@ chmod 600 "$BUNDLE_DIR/manifest.txt"
 chmod 600 "$BUNDLE_DIR/manifest.sha256"
 complete=1
 trap - EXIT
-printf 'Created coordinated encrypted Vow backup bundle: %s\n' "$BUNDLE_DIR"
+printf 'Created encrypted Vow backup artifact pair (not an atomic cross-system snapshot): %s\n' "$BUNDLE_DIR"
 printf 'Snapshot ID: %s\n' "$SNAPSHOT_ID"
-printf 'Keep the PostgreSQL and private-media artifacts together; restore only into isolated staging targets.\n'
+printf 'Database and media capture times are not synchronized; restore only into isolated staging and reconcile the privacy Ledger before any release.\n'

@@ -50,6 +50,12 @@ For an erasure or consent withdrawal:
 
 This ordering deliberately prefers a conservative extra deletion/revocation over resurrecting data or consent. Event append must be idempotent so retries are safe. Domain-specific preconditions (for example, gift dispatch/payment safety and Paddle cancellation) must be checked before appending an event; do not turn the ledger into a bypass around those workflows.
 
+## Current backup consistency limitation
+
+The current `backup-bundle.sh` implementation creates two encrypted artifacts sequentially: a PostgreSQL dump and a private-media archive. A shared snapshot ID and checksums prove artifact pairing and integrity, but **do not prove that the database and media represent the same point in time**. The v2 manifest therefore declares `snapshot_consistency=best_effort_non_atomic`; legacy v1 bundles are treated as `legacy_unverified`. The restore command accepts both formats only into explicitly isolated staging targets and must never be interpreted as a release-ready recovery.
+
+The bundle does not yet capture a PostgreSQL WAL/LSN recovery point, an immutable media snapshot/version ID, or a privacy-Ledger watermark coordinated with the database/outbox state. Do not populate those fields with operator-supplied estimates. A future atomic protocol must establish a write barrier shared by all relevant domain mutations, drain or explicitly account for privacy delivery/outbox work, capture the Ledger boundary, and obtain an immutable media snapshot/version before releasing the barrier. If any component cannot participate in that protocol, the bundle must remain explicitly non-atomic and recovery must fail closed until reconciliation and independent verification complete.
+
 ## Restore protocol
 
 Every PostgreSQL backup manifest must record:
