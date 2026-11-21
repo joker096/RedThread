@@ -38,7 +38,26 @@ The script streams pg_dump directly into age, so plaintext database contents are
 
 ## Restore drill
 
-A restore must target a newly provisioned, isolated staging database. The wrapper never creates, drops, truncates or cleans a database: it checks that the target has no user schemas or objects and refuses to continue otherwise. It also verifies the connected database name uses the dedicated `vow_restore_test` or `vow_restore_dst_` naming convention, so a normal application/production database name is rejected before restore. Use a dedicated staging role with only the privileges needed for that database. Do not point it at the live application database.
+A restore must target a newly provisioned, isolated staging database. The wrapper never creates, drops, truncates or cleans a database: it checks that the target has no user schemas or objects and refuses to continue otherwise. It also verifies the connected database name uses the dedicated `vow_restore_test` or `vow_restore_dst_` naming convention, so a normal application/production database name is rejected before restore. Do not point it at the live application database.
+
+The restore path uses three separate identities; do not reuse one role for all stages:
+
+1. A short-lived bootstrap/admin identity provisions the database and roles. It is never supplied to `pg_restore` or the verifier.
+2. A dedicated `NOLOGIN` owner role owns the empty staging database and all restored objects. A dedicated restore LOGIN is granted membership with `INHERIT FALSE, SET TRUE` and no other role memberships. It must not be a superuser, database/schema creator, or have TEMP or direct object write privileges. The wrapper verifies this contract and runs `pg_restore --role="$RESTORE_OWNER_ROLE"`; it refuses to proceed if the owner is not the database owner, is login-capable/elevated, or the restore login inherits owner rights.
+3. A separate read-only verifier LOGIN is provisioned after restore. Grant it only the required SELECT privileges on restored schemas, relations and sequences. It must not be a member of owner or restore roles and must not have TEMP, CREATE, or write privileges. The privacy-recovery target guard remains strict; do not run it as the restore login or owner.
+
+Example provisioning SQL (replace suffixes and use a secret manager for the password; run as the isolated staging bootstrap administrator):
+
+```sql
+CREATE ROLE vow_restore_owner_example NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE vow_restore_login_example LOGIN PASSWORD '<secret>' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT vow_restore_owner_example TO vow_restore_login_example WITH INHERIT FALSE, SET TRUE;
+CREATE DATABASE vow_restore_dst_example OWNER vow_restore_owner_example;
+GRANT CONNECT ON DATABASE vow_restore_dst_example TO vow_restore_login_example;
+REVOKE TEMPORARY ON DATABASE vow_restore_dst_example FROM PUBLIC;
+```
+
+The database owner role receives its database/schema ownership capabilities; the restore LOGIN does not inherit them. Do not grant the verifier membership in either role. After restore, provision the verifier's narrow read-only grants and validate it through an independent connection before any inventory/replay operation.
 
 Keep the age identity out of the application host and shell history. Supply it through a protected secret file and use a separate `RESTORE_DATABASE_URL` so the restore target cannot be confused with the application's `DATABASE_URL`:
 
@@ -51,9 +70,9 @@ AGE_IDENTITY_FILE=/secure/keys/vow-backup-identity.txt \
 bash scripts/restore-postgres.sh
 ```
 
-The wrapper validates that archive, checksum and identity are regular non-symlink files, verifies SHA-256 before connecting to PostgreSQL, requires an empty target, then streams age decryption directly to `pg_restore`. It does not write a plaintext dump to disk and does not use `--clean`, `DROP DATABASE`, or overwrite existing objects. It uses `--exit-on-error --single-transaction --no-owner --no-acl` so a failed restore rolls back instead of leaving a partially restored staging database; pipeline failures are fatal. Never put the private identity or database password in a command committed to the repository.
+The wrapper validates that archive, checksum and identity are regular non-symlink files, verifies SHA-256 before connecting to PostgreSQL, requires an empty target, then streams age decryption directly to `pg_restore`. It does not write a plaintext dump to disk and does not use `--clean`, `DROP DATABASE`, or overwrite existing objects. It uses `--role="$RESTORE_OWNER_ROLE" --exit-on-error --single-transaction --no-owner --no-acl` so restored objects belong to the dedicated NOLOGIN owner and a failed restore rolls back instead of leaving a partially restored staging database; pipeline failures are fatal. Never put the private identity or database password in a command committed to the repository.
 
-Automated regression coverage is included in `npm test`: `scripts/restore-postgres.test.js` exercises checksum, empty-target and pipeline failure handling with isolated fake client commands; `scripts/restore-postgres.integration.test.js` performs a real encrypted backup and restore against two disposable PostgreSQL databases using `age`, `pg_dump` and `pg_restore`. The CI job installs these tools and runs the integration drill when `DATABASE_URL` is configured. It verifies restored rows and confirms that a second restore into a now-non-empty target is refused without changing existing data. A production-grade restore drill must additionally verify application invariants and record elapsed recovery time.
+Automated regression coverage is included in `npm test`: `scripts/restore-postgres.test.js` exercises checksum, empty-target and pipeline failure handling with isolated fake client commands; `scripts/restore-postgres.integration.test.js` performs a real encrypted backup and restore against disposable PostgreSQL databases using `age`, `pg_dump` and `pg_restore`, with a non-inheriting restore LOGIN and NOLOGIN database/object owner. `scripts/restore-postgres-roles.integration.test.js` separately proves the PostgreSQL 16 role membership, object ownership and read-only verifier boundaries. The CI job installs these tools and runs the integration drill when `DATABASE_URL` is configured. It verifies restored rows and confirms that a second restore into a now-non-empty target is refused without changing existing data. A production-grade restore drill must additionally verify application invariants and record elapsed recovery time.
 
 Verify schema/migrations, account access, profiles, matches, messages, photo metadata and billing state. Do not restore production data into an unapproved development environment. Delete staging copies after verification. The database restore does not restore private media; use the separate private-media restore procedure and reconcile deletion tombstones, consent and moderation state before enabling access.
 
