@@ -244,6 +244,42 @@ test('PostgreSQL ACK saga accepts address-draft withdrawal only with its pseudon
     assert.equal(requiredPayloadConstraint.rowCount, 1,
       'migration 249 must require identity, schema version, subject and timestamp fields');
 
+    const ackMetadataConstraint = await client.query(
+      `SELECT conname FROM pg_constraint
+        WHERE conrelid = 'privacy_recovery_operations'::regclass
+          AND conname = 'privacy_recovery_operations_ack_metadata_required_check'`
+    );
+    assert.equal(ackMetadataConstraint.rowCount, 1,
+      'migration 250 must require a ledger sequence and acknowledgement timestamp');
+
+    for (const invalidAck of [
+      { status: 'acknowledged', ledger_sequence: null, acknowledged_at: '2026-11-18T08:00:00.000Z', applied_at: null },
+      { status: 'acknowledged', ledger_sequence: 19, acknowledged_at: null, applied_at: null },
+      { status: 'applied', ledger_sequence: null, acknowledged_at: '2026-11-18T08:00:00.000Z', applied_at: '2026-11-18T08:01:00.000Z' }
+    ]) {
+      const invalidId = randomUUID();
+      const savepoint = `invalid_ack_metadata_${invalidId.replaceAll('-', '')}`;
+      await client.query(`SAVEPOINT ${savepoint}`);
+      await assert.rejects(
+        client.query(
+          `INSERT INTO privacy_recovery_operations
+             (operation_id, event_id, event_payload, status, ledger_sequence, acknowledged_at, applied_at)
+           VALUES ($1, $1, $2::jsonb, $3, $4, $5, $6)`,
+          [
+            invalidId,
+            JSON.stringify({ ...payload, event_id: invalidId }),
+            invalidAck.status,
+            invalidAck.ledger_sequence,
+            invalidAck.acknowledged_at,
+            invalidAck.applied_at
+          ]
+        ),
+        error => error.code === '23514',
+        `ACK saga must reject incomplete metadata for ${invalidAck.status} operations`
+      );
+      await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+    }
+
     const unsupportedId = randomUUID();
     await client.query('SAVEPOINT unsupported_event');
     await assert.rejects(
