@@ -55,7 +55,7 @@ $migration$;
 
 ALTER TABLE privacy_recovery_operations
   ADD CONSTRAINT privacy_recovery_operations_event_type_check
-  CHECK (event_payload->>'event_type' IN (
+  CHECK (COALESCE(event_payload->>'event_type', '') IN (
     'account_erasure_requested',
     'voice_intro_consent_withdrawn',
     'voice_intro_erasure_requested',
