@@ -236,6 +236,14 @@ test('PostgreSQL ACK saga accepts address-draft withdrawal only with its pseudon
       'privacy_recovery_operations_event_type_check'
     ], 'migration 247 must install explicit event-type and address-draft resource constraints');
 
+    const requiredPayloadConstraint = await client.query(
+      `SELECT conname FROM pg_constraint
+        WHERE conrelid = 'privacy_recovery_operations'::regclass
+          AND conname = 'privacy_recovery_operations_required_payload_fields_check'`
+    );
+    assert.equal(requiredPayloadConstraint.rowCount, 1,
+      'migration 249 must require identity, schema version, subject and timestamp fields');
+
     const unsupportedId = randomUUID();
     await client.query('SAVEPOINT unsupported_event');
     await assert.rejects(
@@ -265,6 +273,24 @@ test('PostgreSQL ACK saga accepts address-draft withdrawal only with its pseudon
       'ACK saga must reject payloads that omit event_type'
     );
     await client.query('ROLLBACK TO SAVEPOINT missing_event_type');
+
+    for (const field of ['event_id', 'schema_version', 'subject_ref']) {
+      const invalidId = randomUUID();
+      const invalidPayload = { ...payload, event_id: invalidId };
+      delete invalidPayload[field];
+      const savepoint = `missing_required_${field}`;
+      await client.query(`SAVEPOINT ${savepoint}`);
+      await assert.rejects(
+        client.query(
+          `INSERT INTO privacy_recovery_operations (operation_id, event_id, event_payload)
+           VALUES ($1, $1, $2::jsonb)`,
+          [invalidId, JSON.stringify(invalidPayload)]
+        ),
+        error => error.code === '23514',
+        `ACK saga must reject payloads missing ${field}`
+      );
+      await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+    }
 
     const malformedId = randomUUID();
     await client.query('SAVEPOINT malformed_resource');
