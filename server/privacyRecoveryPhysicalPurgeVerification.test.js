@@ -159,6 +159,21 @@ test('physical attestation rejects any leftover plaintext L3 scratch entry', asy
   }
 });
 
+test('physical attestation rejects overlapping encrypted and plaintext L3 roots', async () => {
+  const { base, roots } = await fixture();
+  try {
+    await assert.rejects(
+      verifyPhysicalPurgeAbsence({
+        obligations: [],
+        storageRoots: { ...roots, identity_l3_temp: roots.identity_l3_media }
+      }),
+      /privacy_recovery_physical_storage_roots_overlap:identity_l3_temp/
+    );
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test('physical attestation requires the separate L3 scratch root', async () => {
   const { base, roots } = await fixture();
   try {
