@@ -18,7 +18,8 @@ async function fixture() {
   const roots = {
     private_photo: path.join(base, 'photos'),
     private_voice_intro: path.join(base, 'voice'),
-    identity_l3_media: path.join(base, 'l3')
+    identity_l3_media: path.join(base, 'l3'),
+    identity_l3_temp: path.join(base, 'l3-temp')
   };
   await Promise.all(Object.values(roots).map(root => mkdir(root, { mode: 0o700 })));
   return { base, roots };
@@ -138,6 +139,33 @@ test('physical attestation rejects abandoned encrypted L3 staging objects', asyn
         storageRoots: roots
       }),
       /privacy_recovery_physical_temporary_object_remains:identity_l3_media/
+    );
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+
+test('physical attestation rejects any leftover plaintext L3 scratch entry', async () => {
+  const { base, roots } = await fixture();
+  try {
+    await writeFile(path.join(roots.identity_l3_temp, '.decrypt-' + ids.l3), 'synthetic plaintext staging fixture');
+    await assert.rejects(
+      verifyPhysicalPurgeAbsence({ obligations: [], storageRoots: roots }),
+      /privacy_recovery_physical_temporary_object_remains:identity_l3_temp/
+    );
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('physical attestation requires the separate L3 scratch root', async () => {
+  const { base, roots } = await fixture();
+  try {
+    const { identity_l3_temp, ...withoutScratch } = roots;
+    await assert.rejects(
+      verifyPhysicalPurgeAbsence({ obligations: [], storageRoots: withoutScratch }),
+      /privacy_recovery_physical_storage_root_missing:identity_l3_temp/
     );
   } finally {
     await rm(base, { recursive: true, force: true });
