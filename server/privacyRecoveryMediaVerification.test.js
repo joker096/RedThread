@@ -142,7 +142,7 @@ test('verification confirms withdrawn gift address consent and absence of encryp
 test('verification rejects a partially populated purge obligation set even when the queue is empty', async () => {
   const { pool, calls } = makePool({ obligations: [], queuePaths: [], completionRows: [] });
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp' }, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' }, verifyPhysicalAbsence: noPhysicalFilesystem, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_purge_obligation_missing/
   );
   assert.equal(calls.includes('ROLLBACK'), true);
@@ -152,7 +152,7 @@ test('verification rejects a partially populated purge obligation set even when 
 test('verification fails closed when a purge obligation has no immutable completion receipt', async () => {
   const { pool, calls } = makePool({ completionRows: [] });
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp' }, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' }, verifyPhysicalAbsence: noPhysicalFilesystem, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_purge_completion_missing/
   );
   assert.equal(calls.includes('ROLLBACK'), true);
@@ -163,7 +163,7 @@ test('verification fails closed when a purge obligation has no immutable complet
 test('verification refuses activation while a purge obligation remains in the operational queue', async () => {
   const { pool, calls } = makePool({ queuePaths: [storagePath] });
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp' }, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' }, verifyPhysicalAbsence: noPhysicalFilesystem, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_purge_still_queued/
   );
   assert.equal(calls.includes('ROLLBACK'), true);
@@ -174,7 +174,7 @@ test('verification rejects a missing receipt or changed event digest', async () 
   const missingReceipt = { ...event, event_digest: null, receipt_event_type: null, outcome_code: null };
   const { pool } = makePool({ receiptRows: [missingReceipt] });
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp' }, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' }, verifyPhysicalAbsence: noPhysicalFilesystem, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_receipt_mismatch/
   );
 });
@@ -222,7 +222,7 @@ test('L3 verification accepts zero retained media purge obligations', async () =
     l3ConsentRows: [{ withdrawn_at: new Date('2026-11-18T00:00:00.000Z') }]
   });
   const result = await verifyPrivateMediaPrivacyRecovery({
-    pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp' }, snapshotLedgerSequence: 6, throughSequence: 7
+    pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' }, verifyPhysicalAbsence: noPhysicalFilesystem, snapshotLedgerSequence: 6, throughSequence: 7
   });
   assert.equal(result.complete, true);
   assert.equal(result.verifiedEventCount, 1);
@@ -273,7 +273,7 @@ test('L3 verification accepts multiple purge obligations and matching completion
     l3ConsentRows: [{ withdrawn_at: new Date('2026-11-18T00:00:00.000Z') }]
   });
   const result = await verifyPrivateMediaPrivacyRecovery({
-    pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp' }, snapshotLedgerSequence: 6, throughSequence: 7
+    pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' }, verifyPhysicalAbsence: noPhysicalFilesystem, snapshotLedgerSequence: 6, throughSequence: 7
   });
   assert.equal(result.complete, true);
   assert.equal(result.verifiedPurgeObligationCount, 2);
