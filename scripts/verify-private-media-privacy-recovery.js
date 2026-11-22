@@ -33,7 +33,8 @@ async function main() {
   const storageRoots = {
     private_photo: process.env.PHOTO_STORAGE_DIR,
     private_voice_intro: process.env.VOICE_INTRO_STORAGE_DIR,
-    identity_l3_media: process.env.IDENTITY_L3_STORAGE_DIR
+    identity_l3_media: process.env.IDENTITY_L3_STORAGE_DIR,
+    identity_l3_temp: process.env.IDENTITY_L3_TEMP_DIR
   };
   for (const [name, root] of Object.entries(storageRoots)) {
     if (typeof root !== 'string' || !root.trim()) {
