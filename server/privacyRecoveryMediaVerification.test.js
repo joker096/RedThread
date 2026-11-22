@@ -27,6 +27,7 @@ const event = {
 const storagePath = '/tmp/123e4567-e89b-42d3-a456-426614174002.jpg';
 const pathDigest = createHash('sha256').update(storagePath).digest('hex');
 const isolatedEnv = { NODE_ENV: 'test', PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true', PRIVACY_RECOVERY_RESTORE_DATABASE_NAME: 'vow_restore_test', PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner', PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY' };
+const noPhysicalFilesystem = async () => {};
 
 function makePool({ receiptRows = [event], obligations = [{
   ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest
@@ -65,7 +66,7 @@ function makePool({ receiptRows = [event], obligations = [{
 test('post-replay verification confirms receipt, deleted metadata, hidden photo URL and completed physical purge receipt', async () => {
   const { pool, calls } = makePool();
   const result = await verifyPrivateMediaPrivacyRecovery({
-    pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp' }, snapshotLedgerSequence: 6, throughSequence: 7
+    pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' }, verifyPhysicalAbsence: noPhysicalFilesystem, snapshotLedgerSequence: 6, throughSequence: 7
   });
   assert.deepEqual(result, {
     complete: true,
@@ -248,7 +249,8 @@ test('L3 verification rejects an outstanding purge job even when obligation rece
   await assert.rejects(
     verifyPrivateMediaPrivacyRecovery({
       pool, env: isolatedEnv,
-      storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp' },
+      storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' },
+      verifyPhysicalAbsence: noPhysicalFilesystem,
       snapshotLedgerSequence: 6, throughSequence: 7
     }),
     /privacy_recovery_verification_identity_l3_purge_incomplete/
