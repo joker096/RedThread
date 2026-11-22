@@ -39,6 +39,14 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
       report_purge: true, screening_purge: true
     });
 
+    const consentActorConstraint = await client.query(
+      `SELECT conname FROM pg_constraint
+        WHERE conrelid = 'gift_address_draft_consent_events'::regclass
+          AND conname = 'gift_address_draft_consent_grant_actor_required_check'`
+    );
+    assert.equal(consentActorConstraint.rowCount, 1,
+      'migration 251 must require a recipient actor for granted consent');
+
     await client.query('BEGIN');
     await client.query(
       `INSERT INTO users (id, email, role, status, email_verified_at)
@@ -50,6 +58,20 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
        VALUES ($1, LEAST($2::uuid, $3::uuid), GREATEST($2::uuid, $3::uuid), 'active', NOW())`,
       [matchId, senderId, recipientId]
     );
+
+    await client.query('SAVEPOINT missing_consent_actor');
+    await assert.rejects(
+      client.query(
+        `INSERT INTO gift_address_draft_consent_events
+           (order_id, recipient_user_id, consent_version, action, actor_user_id)
+         VALUES ($1, $2, 1, 'granted', NULL)`,
+        [orderId, recipientId]
+      ),
+      error => error.code === '23514',
+      'granted consent must not pass with a missing actor'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT missing_consent_actor');
+    await client.query('RELEASE SAVEPOINT missing_consent_actor');
 
     for (const id of [orderId, ttlOrderId, accountDeleteOrderId]) {
       await client.query(
