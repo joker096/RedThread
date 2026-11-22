@@ -251,6 +251,21 @@ test('PostgreSQL ACK saga accepts address-draft withdrawal only with its pseudon
     );
     await client.query('ROLLBACK TO SAVEPOINT unsupported_event');
 
+    const missingEventTypeId = randomUUID();
+    await client.query('SAVEPOINT missing_event_type');
+    await assert.rejects(
+      client.query(
+        `INSERT INTO privacy_recovery_operations (operation_id, event_id, event_payload)
+         VALUES ($1, $1, $2::jsonb)`,
+        [missingEventTypeId, JSON.stringify({
+          ...payload, event_id: missingEventTypeId, event_type: undefined
+        })]
+      ),
+      error => error.code === '23514',
+      'ACK saga must reject payloads that omit event_type'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT missing_event_type');
+
     const malformedId = randomUUID();
     await client.query('SAVEPOINT malformed_resource');
     await assert.rejects(
