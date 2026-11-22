@@ -33,7 +33,7 @@ DECLARE
   matching_constraint_count INTEGER;
   matching_constraint_name TEXT;
 BEGIN
-  SELECT count(*), min(conname)
+  SELECT count(*), (array_agg(conname))[1]
     INTO matching_constraint_count, matching_constraint_name
     FROM pg_constraint
    WHERE conrelid = 'privacy_recovery_operations'::regclass
@@ -73,9 +73,6 @@ ALTER TABLE privacy_recovery_operations
     OR (
       event_payload ? 'resource_ref'
       AND jsonb_typeof(event_payload->'resource_ref') = 'string'
-      AND event_payload->>'resource_ref' ~ '^[a-f0-9]{64}
-    )
-  );
-
+      AND event_payload->>'resource_ref' ~ '^[a-f0-9]{64}$'
     )
   );
