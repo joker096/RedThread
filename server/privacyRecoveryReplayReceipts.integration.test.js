@@ -196,3 +196,86 @@ test('L3 consent replay receipt and purge proof are accepted by the extended sch
     await pool.end();
   }
 });
+
+test('gift address draft replay receipt and effect are accepted by the extended schema', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 10_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const eventId = randomUUID();
+  const sequence = (BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000))).toString();
+  const subjectRef = 'e'.repeat(64);
+  const resourceRef = 'f'.repeat(64);
+  const subjectId = randomUUID();
+  const orderId = randomUUID();
+  const digest = createHash('sha256').update(JSON.stringify([
+    sequence, eventId, '1', 'gift_address_draft_consent_withdrawn',
+    subjectRef, resourceRef, '2026-11-22T00:00:00.000Z', '2026-11-22T00:00:01.000Z'
+  ])).digest('hex');
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO privacy_recovery_events
+         (ledger_sequence, event_id, schema_version, event_type, subject_ref, resource_ref, occurred_at, received_at)
+       VALUES ($1, $2, 1, 'gift_address_draft_consent_withdrawn', $3, $4, $5, $6)`,
+      [sequence, eventId, subjectRef, resourceRef,
+        new Date('2026-11-22T00:00:00.000Z'), new Date('2026-11-22T00:00:01.000Z')]
+    );
+    await client.query(
+      `INSERT INTO privacy_recovery_replay_receipts
+         (ledger_sequence, event_id, event_digest, event_type, outcome_code)
+       VALUES ($1, $2, $3, 'gift_address_draft_consent_withdrawn',
+               'gift_address_draft_consent_withdrawn')`,
+      [sequence, eventId, digest]
+    );
+    await client.query(
+      `INSERT INTO privacy_recovery_replay_effects
+         (ledger_sequence, event_id, event_type, subject_user_id, resource_id, purge_count)
+       VALUES ($1, $2, 'gift_address_draft_consent_withdrawn', $3, $4, 0)`,
+      [sequence, eventId, subjectId, orderId]
+    );
+    const evidence = await client.query(
+      `SELECT r.event_type, r.outcome_code, e.subject_user_id, e.resource_id, e.purge_count
+         FROM privacy_recovery_replay_receipts r
+         JOIN privacy_recovery_replay_effects e USING (ledger_sequence, event_id)
+        WHERE r.ledger_sequence = $1`,
+      [sequence]
+    );
+    assert.equal(evidence.rowCount, 1);
+    assert.equal(evidence.rows[0].event_type, 'gift_address_draft_consent_withdrawn');
+    assert.equal(evidence.rows[0].outcome_code, 'gift_address_draft_consent_withdrawn');
+    assert.equal(evidence.rows[0].subject_user_id, subjectId);
+    assert.equal(evidence.rows[0].resource_id, orderId);
+    assert.equal(evidence.rows[0].purge_count, 0);
+
+    await client.query('SAVEPOINT reject_gift_draft_wrong_outcome');
+    await assert.rejects(
+      client.query(
+        `INSERT INTO privacy_recovery_replay_receipts
+           (ledger_sequence, event_id, event_digest, event_type, outcome_code)
+         VALUES ($1, $2, $3, 'gift_address_draft_consent_withdrawn', 'photo_erasure_queued')`,
+        [(BigInt(sequence) + 1n).toString(), randomUUID(), digest]
+      ),
+      error => error.code === '23514'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT reject_gift_draft_wrong_outcome');
+
+    await client.query('SAVEPOINT reject_gift_draft_missing_resource');
+    await assert.rejects(
+      client.query(
+        `INSERT INTO privacy_recovery_replay_effects
+           (ledger_sequence, event_id, event_type, subject_user_id, resource_id, purge_count)
+         VALUES ($1, $2, 'gift_address_draft_consent_withdrawn', $3, NULL, 0)`,
+        [(BigInt(sequence) + 2n).toString(), randomUUID(), subjectId]
+      ),
+      error => error.code === '23514'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT reject_gift_draft_missing_resource');
+  } finally {
+    await client.query('ROLLBACK').catch(() => {});
+    client.release();
+    await pool.end();
+  }
+});
+
