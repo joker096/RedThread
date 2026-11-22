@@ -55,7 +55,7 @@ The host-level executable is an independent, operator-supplied control; this rep
 
 - It is connected to the explicitly named restore database using the explicitly named least-privilege login role.
 - The role has no detected direct or inherited relation/sequence write privileges, schema/database CREATE privileges, or role memberships.
-- All three configured media roots are covered by read-only mounts in the verifier process's current mount namespace.
+- All three encrypted media roots and the separate L3 plaintext scratch root (`IDENTITY_L3_TEMP_DIR`) are covered by read-only mounts in the verifier process's current mount namespace. The L3 scratch root must be empty; any remaining entry blocks verification.
 - The database snapshot, recovery ledger, replay receipts, purge obligations/completions, operational queues, and physical object absence checks pass.
 
 ## What it does not prove
@@ -68,7 +68,7 @@ The verifier does not prove erasure from snapshots, backups, replicas, filesyste
 
 ## Fail-closed behavior
 
-The verifier exits before connecting to PostgreSQL if any media root lacks read-only mount coverage. It also rejects a restore database role with elevated attributes, role memberships, relation/sequence write privileges, or schema/database CREATE privileges. Do not weaken these checks to make a restore pass; correct the isolated restore environment instead.
+The verifier exits before connecting to PostgreSQL if any encrypted media root or the L3 plaintext scratch root lacks read-only mount coverage. It also fails if the L3 scratch root contains any entry, including abandoned `.decrypt-*` plaintext staging files. It also rejects a restore database role with elevated attributes, role memberships, relation/sequence write privileges, or schema/database CREATE privileges. Do not weaken these checks to make a restore pass; correct the isolated restore environment instead.
 
 
 ## Host writer-isolation gate: mandatory acceptance contract
