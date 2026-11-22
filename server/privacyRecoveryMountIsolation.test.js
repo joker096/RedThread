@@ -5,13 +5,15 @@ import { assertPrivateMediaRootsReadOnly, parseMountInfo } from './privacyRecove
 const roots = {
   private_photo: '/restore/media/photos',
   private_voice_intro: '/restore/media/voice',
-  identity_l3_media: '/restore/media/l3'
+  identity_l3_media: '/restore/media/l3',
+  identity_l3_temp: '/restore/scratch/l3'
 };
 
 const readonlyMounts = [
   '31 25 0:28 / / rw,relatime - ext4 /dev/root rw',
   '42 31 0:45 / /restore rw,relatime - ext4 /dev/restore rw',
-  '43 42 0:46 / /restore/media rw,relatime,ro - ext4 /dev/restore-media rw'
+  '43 42 0:46 / /restore/media rw,relatime,ro - ext4 /dev/restore-media rw',
+  '46 42 0:49 / /restore/scratch rw,relatime,ro - tmpfs tmpfs rw'
 ].join('\n');
 
 test('mountinfo parser decodes escaped mount paths and preserves per-mount read-only options', () => {
@@ -22,7 +24,7 @@ test('mountinfo parser decodes escaped mount paths and preserves per-mount read-
 
 test('all private media roots must be covered by a read-only mount', () => {
   const result = assertPrivateMediaRootsReadOnly({ mountInfo: readonlyMounts, storageRoots: roots });
-  assert.equal(result.verifiedReadOnlyMountCount, 3);
+  assert.equal(result.verifiedReadOnlyMountCount, 4);
 });
 
 test('a writable mount fails closed even when its parent mount is read-only', () => {
