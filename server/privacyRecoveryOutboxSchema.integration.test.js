@@ -122,6 +122,38 @@ test('outbox accepts address-draft withdrawal only with a valid pseudonymized or
     assert.equal(stored.rowCount, 1);
     assert.match(stored.rows[0].event_payload.resource_ref, /^[a-f0-9]{64}$/);
 
+    const migrationConstraints = await pool.query(
+      `SELECT conname
+         FROM pg_constraint
+        WHERE conrelid = 'privacy_recovery_ledger_outbox'::regclass
+          AND conname IN (
+            'privacy_recovery_outbox_event_type_allowed_check',
+            'privacy_recovery_outbox_address_draft_resource_check'
+          )
+        ORDER BY conname`
+    );
+    assert.deepEqual(migrationConstraints.rows.map(row => row.conname), [
+      'privacy_recovery_outbox_address_draft_resource_check',
+      'privacy_recovery_outbox_event_type_allowed_check'
+    ], 'migration 248 must install both explicit event-type and address-draft resource constraints');
+
+    const unsupportedEventId = randomUUID();
+    const unsupportedEventPayload = {
+      event_id: unsupportedEventId,
+      schema_version: 1,
+      event_type: 'unrecognized_privacy_event',
+      subject_ref: 'c'.repeat(64),
+      occurred_at: new Date().toISOString()
+    };
+    await assert.rejects(
+      pool.query(
+        'INSERT INTO privacy_recovery_ledger_outbox (event_id, event_payload) VALUES ($1, $2::jsonb)',
+        [unsupportedEventId, JSON.stringify(unsupportedEventPayload)]
+      ),
+      error => error.code === '23514',
+      'outbox must reject event types outside the migration allowlist'
+    );
+
     const missingResourceId = randomUUID();
     const missingResourcePayload = {
       event_id: missingResourceId,
