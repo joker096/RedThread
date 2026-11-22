@@ -154,6 +154,22 @@ test('outbox accepts address-draft withdrawal only with a valid pseudonymized or
       'outbox must reject event types outside the migration allowlist'
     );
 
+    const missingEventTypeId = randomUUID();
+    const missingEventTypePayload = {
+      event_id: missingEventTypeId,
+      schema_version: 1,
+      subject_ref: 'd'.repeat(64),
+      occurred_at: new Date().toISOString()
+    };
+    await assert.rejects(
+      pool.query(
+        'INSERT INTO privacy_recovery_ledger_outbox (event_id, event_payload) VALUES ($1, $2::jsonb)',
+        [missingEventTypeId, JSON.stringify(missingEventTypePayload)]
+      ),
+      error => error.code === '23514',
+      'outbox must reject payloads that omit event_type'
+    );
+
     const missingResourceId = randomUUID();
     const missingResourcePayload = {
       event_id: missingResourceId,
