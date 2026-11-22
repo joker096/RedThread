@@ -3,19 +3,19 @@
 -- rewriting historical migration files that may already have been applied.
 DO $privacy_recovery_outbox_event_type$
 DECLARE
+  matching_constraint_count INTEGER;
   existing_constraint TEXT;
 BEGIN
-  SELECT constraint_row.conname
-    INTO existing_constraint
+  SELECT count(*), min(constraint_row.conname)
+    INTO matching_constraint_count, existing_constraint
     FROM pg_constraint AS constraint_row
    WHERE constraint_row.conrelid = 'privacy_recovery_ledger_outbox'::regclass
      AND constraint_row.contype = 'c'
-     AND pg_get_constraintdef(constraint_row.oid) LIKE '%event_type%'
-   ORDER BY constraint_row.oid
-   LIMIT 1;
+     AND pg_get_constraintdef(constraint_row.oid) LIKE '%event_type%';
 
-  IF existing_constraint IS NULL THEN
-    RAISE EXCEPTION 'privacy_recovery_outbox_event_type_constraint_missing';
+  IF matching_constraint_count <> 1 THEN
+    RAISE EXCEPTION 'privacy_recovery_outbox_event_type_constraint_count_invalid: %',
+      matching_constraint_count;
   END IF;
 
   EXECUTE format(
