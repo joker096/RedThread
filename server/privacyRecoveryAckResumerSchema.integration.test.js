@@ -220,6 +220,52 @@ test('PostgreSQL ACK saga accepts address-draft withdrawal only with its pseudon
        VALUES ($1, $1, $2::jsonb)`,
       [operationId, JSON.stringify(payload)]
     );
+
+    const migrationConstraints = await client.query(
+      `SELECT conname
+         FROM pg_constraint
+        WHERE conrelid = 'privacy_recovery_operations'::regclass
+          AND conname IN (
+            'privacy_recovery_operations_event_type_check',
+            'privacy_recovery_operations_draft_resource_check'
+          )
+        ORDER BY conname`
+    );
+    assert.deepEqual(migrationConstraints.rows.map(row => row.conname), [
+      'privacy_recovery_operations_draft_resource_check',
+      'privacy_recovery_operations_event_type_check'
+    ], 'migration 247 must install explicit event-type and address-draft resource constraints');
+
+    const unsupportedId = randomUUID();
+    await client.query('SAVEPOINT unsupported_event');
+    await assert.rejects(
+      client.query(
+        `INSERT INTO privacy_recovery_operations (operation_id, event_id, event_payload)
+         VALUES ($1, $1, $2::jsonb)`,
+        [unsupportedId, JSON.stringify({
+          ...payload, event_id: unsupportedId, event_type: 'unrecognized_privacy_event'
+        })]
+      ),
+      error => error.code === '23514',
+      'ACK saga must reject event types outside its allowlist'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT unsupported_event');
+
+    const malformedId = randomUUID();
+    await client.query('SAVEPOINT malformed_resource');
+    await assert.rejects(
+      client.query(
+        `INSERT INTO privacy_recovery_operations (operation_id, event_id, event_payload)
+         VALUES ($1, $1, $2::jsonb)`,
+        [malformedId, JSON.stringify({
+          ...payload, event_id: malformedId, resource_ref: 'z'.repeat(64)
+        })]
+      ),
+      error => error.code === '23514',
+      'address-draft resource reference must be 64 lowercase hexadecimal characters'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT malformed_resource');
+
     await client.query('SAVEPOINT missing_resource');
     await assert.rejects(
       client.query(
