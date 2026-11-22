@@ -109,6 +109,12 @@ export async function verifyPhysicalPurgeAbsence({ obligations, storageRoots } =
   }
 
   const roots = storageRoots || {};
+  const temporaryRoot = roots.identity_l3_temp;
+  const temporaryEntries = await readPrivateRoot(temporaryRoot, 'identity_l3_temp');
+  if (temporaryEntries.length > 0) {
+    throw new Error('privacy_recovery_physical_temporary_object_remains:identity_l3_temp');
+  }
+
   for (const [queueName, expectedDigests] of grouped) {
     const root = roots[queueName];
     // Scan every configured root, even when its obligation set is empty.
