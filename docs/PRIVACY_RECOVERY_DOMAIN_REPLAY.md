@@ -1,19 +1,19 @@
 # Privacy recovery domain replay: workflow gates
 
-This document records the domain-level constraints that a future replay executor must preserve. The current inventory remains read-only. No function in this stage changes consent, account status, gift orders, database rows, or media.
+This document records the domain-level constraints and current disposition of the isolated restore replay executor. The executor is restricted to a newly restored, non-production database with services, workers, webhooks and egress disabled. It does not run against the live application database and never unlinks media files.
 
 ## Event-to-workflow matrix
 
 | Ledger event | Required domain workflow | Current replay disposition |
 | --- | --- | --- |
 | `account_erasure_requested` | Full account deletion orchestration, including Paddle reconciliation/cancellation, session revocation, gift suspension/payment reconciliation, profile anonymization, consent-history purge, and durable media purge queues | **Manual reconciliation required.** Do not translate this event into a direct `users.status` update. The live HTTP workflow can make an external Paddle call and has safety-lock and checkout-state prerequisites. |
-| `voice_intro_consent_withdrawn` | Lock account; append withdrawal history; revoke access by withdrawing consent; queue every owned voice clip for purge; delete clip metadata | Eligible only after all clips for the mapped user are enumerated and queue insertion can be verified in the same transaction. |
-| `voice_intro_erasure_requested` | Resolve the exact clip; queue its validated private storage path; delete that clip's metadata | Eligible only when the exact clip belongs to the mapped subject and the path is validated by the existing voice-intro storage policy. |
-| `private_photo_erasure_requested` | Resolve exact photo; queue its private storage path; remove the profile URL and photo metadata | Eligible only when exact ownership is verified and the path passes the existing private-photo path guard. Queue worker deletion is a separate operation. |
-| `identity_l3_consent_withdrawn` | Lock account; withdraw consent and append immutable history; revoke unused upload tokens; transition all eligible submissions to terminal withdrawn/revoked states; let the database trigger create purge jobs | Eligible only after enumerating every L3 submission for the user. A subject-level event does not identify one submission. Never insert directly into the L3 purge queue: its guarded trigger is the enqueue authority. |
+| `voice_intro_consent_withdrawn` | Lock account; append withdrawal history; revoke access by withdrawing consent; queue every owned voice clip for purge; delete clip metadata | **Implemented in the isolated executor.** Each event commits atomically with its receipt; exact retries are idempotent. |
+| `voice_intro_erasure_requested` | Resolve the exact clip; queue its validated private storage path; delete that clip's metadata | **Implemented in the isolated executor.** Requires a unique subject/resource mapping and the existing voice-intro path guard. |
+| `private_photo_erasure_requested` | Resolve exact photo; queue its private storage path; remove the profile URL and photo metadata | **Implemented in the isolated executor.** Requires exact ownership and the existing private-photo path guard. Queue worker deletion remains separate. |
+| `identity_l3_consent_withdrawn` | Lock account; withdraw consent and append immutable history; revoke unused upload tokens; transition all eligible submissions to terminal withdrawn/revoked states; let the database trigger create purge jobs | **Implemented in the isolated executor.** It enumerates all eligible submissions and relies on the database transition trigger for purge-job creation; it never inserts directly into that queue. |
 | `ad_consent_revoked` | Apply the master opt-out to all purposes/categories; append a new consent-history snapshot; ensure ad eligibility reads the revoked state | Eligible only as a full opt-out. The external event has no category/resource detail, so replay must not infer a narrower set of revoked categories. |
 | `gift_order_consent_withdrawn` | Resolve exact order; check both accounts and locks; re-evaluate status/payment/dispatched eligibility; cancel only eligible orders; clear address-vault reference; append order event; run payment reconciliation if required | **Blocked unless the current order state passes the existing withdrawal policy.** Never cancel dispatched, paid/reconciling, or otherwise ineligible orders by replay assumption. |
-| `gift_address_draft_consent_withdrawn` | Resolve the exact temporary address draft by order ID and recipient; confirm the same consent grant lifecycle; delete the live ciphertext row and append the local withdrawal event | **Inventory-only; replay is not authorized.** This event is distinct from gift-order consent withdrawal. Do not cancel the order or touch the verified address vault. |
+| `gift_address_draft_consent_withdrawn` | Resolve the exact temporary address draft by order ID and recipient; confirm the same consent grant lifecycle; delete the live ciphertext row and append the local withdrawal event | **Implemented in the isolated executor, with receipt/effect schema support added by migration 252.** It deletes only the temporary draft and appends withdrawal history; it does not cancel the order or touch the verified-address Vault. |
 
 ## Findings from existing workflows
 
@@ -39,18 +39,20 @@ A future executor must refuse the entire batch unless all of the following are t
 
 No account erasure or gift-order cancellation is currently replayable solely from the privacy ledger event. The ledger records a privacy intent, not all business/payment facts needed to safely repeat the original operation.
 
-## Transactional executor design: private photo and voice events
+## Implemented isolated replay executor
 
-The first executable domain-replay slice is limited to:
+The current executor supports exactly these five event types:
 - `private_photo_erasure_requested`
 - `voice_intro_erasure_requested`
 - `voice_intro_consent_withdrawn`
+- `identity_l3_consent_withdrawn`
+- `gift_address_draft_consent_withdrawn`
 
-It must enqueue database-backed deletion obligations only. It must never unlink media during event replay. The existing purge workers remain the only file-deletion authority and are not started by replay.
+Photo, voice and L3 events create database-backed purge obligations only. The executor never unlinks media; existing purge workers remain the only file-deletion authority. Gift-address-draft withdrawal has no media purge obligation and never mutates the gift order or verified-address Vault.
 
 ### Durable idempotency receipt
 
-Before implementing the executor, add an append-only `privacy_recovery_replay_receipts` table in a new migration. Each receipt must bind:
+The append-only `privacy_recovery_replay_receipts` table is already implemented. Each receipt binds:
 - the original `event_id` and `ledger_sequence`;
 - a SHA-256 digest of the canonical staged event fields;
 - the event type and a non-sensitive outcome code;
@@ -67,7 +69,7 @@ Enforce uniqueness on both event ID and ledger sequence. Prevent UPDATE/DELETE w
 5. Validate every storage path with the exact live storage-path guard before queue insertion. For photos, reuse the private-photo worker's root/UUID/extension policy; for voice, reuse `resolvePrivateVoiceIntroPath`. Never normalize an unsafe path into an accepted path.
 6. For photo erasure, remove the matching `/api/photos/<uuid>` entry from the owner's `profiles.photo_urls`, insert the exact storage path into `private_photo_purge_queue`, then delete the `photo_assets` row. All three operations must commit together.
 7. For one voice-clip erasure, insert its exact storage path into `private_voice_intro_purge_queue`, then delete only the mapped `profile_voice_intros` row. For subject-level voice-consent withdrawal, lock the consent row and every owned clip, queue every clip, delete the clip rows, set `withdrawn_at`, and append the immutable withdrawal-history event in the same transaction. A missing consent row or unexpected already-withdrawn state without a matching receipt is a conflict requiring inventory review.
-8. Insert receipts only after each event's domain operations have succeeded, but before commit. Any failure rolls back all queue changes, metadata changes, consent-history changes, and receipts in the batch.
+8. Insert the receipt, effect and any purge obligations in the same transaction as that event's domain operations. Each event is individually atomic. If a later event fails, earlier committed events remain safely resumable through their immutable receipts; the coordinator stops at the first failure.
 9. After commit, run a fresh read-only inventory and compare expected queue obligations and consent state. File deletion remains a separately approved maintenance operation; no replay code invokes a worker or filesystem unlink.
 
 ### Required test matrix before enabling writes
@@ -83,7 +85,7 @@ Enforce uniqueness on both event ID and ledger sequence. Prevent UPDATE/DELETE w
 - A failed purge worker leaves its queue row retryable; replay never attempts direct file deletion.
 - The test suite uses disposable PostgreSQL and temporary private-media roots only. No VPS, external ledger, Paddle, webhook, or production resource is involved.
 
-The executor remains disabled until the receipt migration, lock integration, path-guard reuse, full PostgreSQL concurrency/rollback tests, and exact-HEAD six-check validation are complete. This design does not authorize account erasure, L3 replay, advertising preference replay, or gift/payment actions.
+The executor remains restricted to isolated, non-production restores. Account erasure, advertising preference replay and gift-order cancellation remain unsupported and require their own domain-specific reconciliation workflows. The role boundary between the read-only restore verifier and the least-privilege replay writer, host-level writer isolation, full PostgreSQL integration coverage, and exact-HEAD CI/browser/mobile/virtual-device checks remain release blockers.
 
 
 ## Implemented first media-replay executor slice
