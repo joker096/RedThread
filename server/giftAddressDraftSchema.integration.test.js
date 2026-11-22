@@ -59,20 +59,6 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
       [matchId, senderId, recipientId]
     );
 
-    await client.query('SAVEPOINT missing_consent_actor');
-    await assert.rejects(
-      client.query(
-        `INSERT INTO gift_address_draft_consent_events
-           (order_id, recipient_user_id, consent_version, action, actor_user_id)
-         VALUES ($1, $2, 1, 'granted', NULL)`,
-        [orderId, recipientId]
-      ),
-      error => error.code === '23514',
-      'granted consent must not pass with a missing actor'
-    );
-    await client.query('ROLLBACK TO SAVEPOINT missing_consent_actor');
-    await client.query('RELEASE SAVEPOINT missing_consent_actor');
-
     for (const id of [orderId, ttlOrderId, accountDeleteOrderId]) {
       await client.query(
         `INSERT INTO gift_delivery_orders
@@ -90,6 +76,20 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
         [id, recipientId]
       );
     }
+
+    await client.query('SAVEPOINT missing_consent_actor');
+    await assert.rejects(
+      client.query(
+        `INSERT INTO gift_address_draft_consent_events
+           (order_id, recipient_user_id, consent_version, action, actor_user_id)
+         VALUES ($1, $2, 1, 'granted', NULL)`,
+        [orderId, recipientId]
+      ),
+      error => error.code === '23514',
+      'granted consent must not pass with a missing actor'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT missing_consent_actor');
+    await client.query('RELEASE SAVEPOINT missing_consent_actor');
 
     const nonce = Buffer.alloc(12, 11);
     const tag = Buffer.alloc(16, 12);
