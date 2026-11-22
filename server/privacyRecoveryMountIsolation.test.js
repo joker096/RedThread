@@ -36,7 +36,7 @@ test('a writable mount fails closed even when its parent mount is read-only', ()
 });
 
 test('a writable L3 plaintext scratch mount fails closed', () => {
-  const mountInfo = readonlyMounts + '\\n47 46 0:50 / /restore/scratch/l3 rw,relatime - tmpfs tmpfs rw';
+  const mountInfo = readonlyMounts + '\n47 46 0:50 / /restore/scratch/l3 rw,relatime - tmpfs tmpfs rw';
   assert.throws(
     () => assertPrivateMediaRootsReadOnly({ mountInfo, storageRoots: roots }),
     /privacy_recovery_storage_mount_not_read_only:identity_l3_temp/
