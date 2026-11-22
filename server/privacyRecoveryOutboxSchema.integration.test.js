@@ -137,6 +137,14 @@ test('outbox accepts address-draft withdrawal only with a valid pseudonymized or
       'privacy_recovery_outbox_event_type_allowed_check'
     ], 'migration 248 must install both explicit event-type and address-draft resource constraints');
 
+    const requiredPayloadConstraint = await pool.query(
+      `SELECT conname FROM pg_constraint
+        WHERE conrelid = 'privacy_recovery_ledger_outbox'::regclass
+          AND conname = 'privacy_recovery_outbox_required_payload_fields_check'`
+    );
+    assert.equal(requiredPayloadConstraint.rowCount, 1,
+      'migration 249 must require identity, schema version, subject and timestamp fields');
+
     const unsupportedEventId = randomUUID();
     const unsupportedEventPayload = {
       event_id: unsupportedEventId,
@@ -153,6 +161,26 @@ test('outbox accepts address-draft withdrawal only with a valid pseudonymized or
       error => error.code === '23514',
       'outbox must reject event types outside the migration allowlist'
     );
+
+    for (const field of ['event_id', 'schema_version', 'subject_ref']) {
+      const invalidId = randomUUID();
+      const invalidPayload = {
+        event_id: invalidId,
+        schema_version: 1,
+        event_type: 'account_erasure_requested',
+        subject_ref: 'e'.repeat(64),
+        occurred_at: new Date().toISOString()
+      };
+      delete invalidPayload[field];
+      await assert.rejects(
+        pool.query(
+          'INSERT INTO privacy_recovery_ledger_outbox (event_id, event_payload) VALUES ($1, $2::jsonb)',
+          [invalidId, JSON.stringify(invalidPayload)]
+        ),
+        error => error.code === '23514',
+        `outbox must reject payloads missing ${field}`
+      );
+    }
 
     const missingEventTypeId = randomUUID();
     const missingEventTypePayload = {
