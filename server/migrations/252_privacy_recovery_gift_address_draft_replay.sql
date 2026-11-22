@@ -14,8 +14,14 @@ ALTER TABLE privacy_recovery_replay_receipts
     'gift_address_draft_consent_withdrawn'
   ));
 
+-- Earlier migrations used both generated and explicit names for this
+-- predicate. Drop every legacy variant so no narrower duplicate CHECK remains.
+ALTER TABLE privacy_recovery_replay_receipts
+  DROP CONSTRAINT IF EXISTS privacy_recovery_replay_receipts_outcome_code_check;
 ALTER TABLE privacy_recovery_replay_receipts
   DROP CONSTRAINT IF EXISTS privacy_recovery_replay_receipts_event_outcome_check;
+ALTER TABLE privacy_recovery_replay_receipts
+  DROP CONSTRAINT IF EXISTS privacy_recovery_replay_receipts_check;
 ALTER TABLE privacy_recovery_replay_receipts
   ADD CONSTRAINT privacy_recovery_replay_receipts_event_outcome_check
   CHECK (
