@@ -110,6 +110,22 @@ export async function verifyPhysicalPurgeAbsence({ obligations, storageRoots } =
 
   const roots = storageRoots || {};
   const temporaryRoot = roots.identity_l3_temp;
+  if (typeof temporaryRoot !== 'string' || !temporaryRoot.trim()) {
+    throw new Error('privacy_recovery_physical_storage_root_missing:identity_l3_temp');
+  }
+  const absoluteTemporaryRoot = path.resolve(temporaryRoot);
+  const encryptedRoot = roots.identity_l3_media;
+  if (typeof encryptedRoot !== 'string' || !encryptedRoot.trim()) {
+    throw new Error('privacy_recovery_physical_storage_root_missing:identity_l3_media');
+  }
+  const absoluteEncryptedRoot = path.resolve(encryptedRoot);
+  const scratchRelative = path.relative(absoluteEncryptedRoot, absoluteTemporaryRoot);
+  const encryptedRelative = path.relative(absoluteTemporaryRoot, absoluteEncryptedRoot);
+  if (scratchRelative === '' || encryptedRelative === '' ||
+      (scratchRelative !== '..' && !scratchRelative.startsWith('..' + path.sep) && !path.isAbsolute(scratchRelative)) ||
+      (encryptedRelative !== '..' && !encryptedRelative.startsWith('..' + path.sep) && !path.isAbsolute(encryptedRelative))) {
+    throw new Error('privacy_recovery_physical_storage_roots_overlap:identity_l3_temp');
+  }
   const temporaryEntries = await readPrivateRoot(temporaryRoot, 'identity_l3_temp');
   if (temporaryEntries.length > 0) {
     throw new Error('privacy_recovery_physical_temporary_object_remains:identity_l3_temp');
