@@ -55,7 +55,7 @@ The host-level executable is an independent, operator-supplied control; this rep
 
 - It is connected to the explicitly named restore database using the explicitly named least-privilege login role.
 - The role has no detected direct or inherited relation/sequence write privileges, schema/database CREATE privileges, or role memberships.
-- All three encrypted media roots and the separate L3 plaintext scratch root (`IDENTITY_L3_TEMP_DIR`) are covered by read-only mounts in the verifier process's current mount namespace. The L3 scratch root must be empty; any remaining entry blocks verification.
+- The photo, voice-intro, and encrypted L3 media roots plus the separate L3 plaintext scratch root (`IDENTITY_L3_TEMP_DIR`) are covered by read-only mounts in the verifier process's current mount namespace. The L3 scratch root must be empty; any remaining entry blocks verification.
 - The database snapshot, recovery ledger, replay receipts, purge obligations/completions, operational queues, and physical object absence checks pass.
 
 ## What it does not prove
