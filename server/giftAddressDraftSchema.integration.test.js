@@ -322,6 +322,31 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     assert.equal(actorSnapshotBefore.rows[0].actor_user_id, auditActorId);
     assert.equal(actorSnapshotBefore.rows[0].actor_ref, auditActorId);
 
+    await client.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_user_id, actor_type, event_type, metadata)
+       VALUES ($1, $2, 'system', 'safety_hold', '{}'::jsonb)`,
+      [accountDeleteOrderId, auditActorId]
+    );
+    const giftEventBefore = await client.query(
+      'SELECT actor_user_id, actor_ref FROM gift_delivery_order_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1',
+      [accountDeleteOrderId]
+    );
+    assert.equal(giftEventBefore.rows[0].actor_user_id, auditActorId);
+    assert.equal(giftEventBefore.rows[0].actor_ref, auditActorId);
+
+    await client.query('SAVEPOINT forbid_direct_gift_event_actor_null');
+    await assert.rejects(
+      client.query(
+        'UPDATE gift_delivery_order_events SET actor_user_id = NULL WHERE order_id = $1 AND actor_user_id = $2',
+        [accountDeleteOrderId, auditActorId]
+      ),
+      error => error.code === '55000',
+      'direct gift-event actor nulling must be rejected'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT forbid_direct_gift_event_actor_null');
+    await client.query('RELEASE SAVEPOINT forbid_direct_gift_event_actor_null');
+
     await client.query('SAVEPOINT forbid_direct_actor_null');
     await assert.rejects(
       client.query(
@@ -343,6 +368,15 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
       'FK account erasure may clear only the live actor reference');
     assert.equal(actorSnapshotAfter.rows[0].actor_ref, auditActorId,
       'immutable actor snapshot must preserve original provenance');
+
+    const giftEventAfter = await client.query(
+      'SELECT actor_user_id, actor_ref FROM gift_delivery_order_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1',
+      [accountDeleteOrderId]
+    );
+    assert.equal(giftEventAfter.rows[0].actor_user_id, null,
+      'FK account erasure may clear only the gift-event live actor reference');
+    assert.equal(giftEventAfter.rows[0].actor_ref, auditActorId,
+      'gift-event actor provenance must remain immutable after account erasure');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     throw error;
