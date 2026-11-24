@@ -383,6 +383,7 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
   } finally {
     await client.query('ALTER TABLE gift_address_draft_consent_events DISABLE TRIGGER gift_address_draft_consent_events_immutable').catch(() => {});
     await client.query('ALTER TABLE gift_delivery_order_events DISABLE TRIGGER gift_delivery_order_events_append_only').catch(() => {});
+    await client.query('ALTER TABLE gift_delivery_orders DISABLE TRIGGER gift_delivery_orders_no_delete').catch(() => {});
     await client.query('DELETE FROM gift_address_drafts WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
     await client.query('DELETE FROM gift_address_draft_consent_events WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
     await client.query('DELETE FROM gift_delivery_order_events WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
@@ -392,6 +393,7 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     await client.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[senderId, recipientId]]).catch(() => {});
     await client.query('ALTER TABLE gift_address_draft_consent_events ENABLE TRIGGER gift_address_draft_consent_events_immutable').catch(() => {});
     await client.query('ALTER TABLE gift_delivery_order_events ENABLE TRIGGER gift_delivery_order_events_append_only').catch(() => {});
+    await client.query('ALTER TABLE gift_delivery_orders ENABLE TRIGGER gift_delivery_orders_no_delete').catch(() => {});
     await client.query('SELECT pg_advisory_unlock(434236)').catch(() => {});
     client.release();
     await pool.end();
