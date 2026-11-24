@@ -2050,6 +2050,9 @@ test('photo and safety screening review states require matching moderator or aut
 
     // Physical account removal may clear the live screening FK, but its
     // immutable owner UUID and classification evidence must survive.
+    // The hard-delete guard requires private media to be queued and its metadata removed first.
+    // Tombstoning performs that purge transition while preserving immutable moderation evidence.
+    await client.query("UPDATE users SET status = 'deleted' WHERE id = $1", [ownerId]);
     await client.query('DELETE FROM users WHERE id = $1', [ownerId]);
     const retainedOwnerSnapshot = await client.query(
       'SELECT user_id, user_ref, severity, flags, scope FROM user_safety_screenings WHERE id = $1',
