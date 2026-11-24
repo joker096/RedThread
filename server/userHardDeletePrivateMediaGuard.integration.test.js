@@ -21,6 +21,7 @@ test('physical user/provider deletion cannot cascade private object metadata bef
   const providerStorageKey = `private/provider-verification/${randomUUID()}.enc`;
 
   try {
+    await client.query('BEGIN');
     const constraints = await client.query(
       `SELECT conname, confdeltype
          FROM pg_constraint
@@ -124,7 +125,9 @@ test('physical user/provider deletion cannot cascade private object metadata bef
     await client.query('DELETE FROM provider_verification_documents WHERE id = $1', [documentId]);
     await client.query('DELETE FROM partner_providers WHERE id = $1', [providerId]);
     await client.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[photoUserId, voiceUserId, providerUserId]]);
+    await client.query('COMMIT');
   } finally {
+    await client.query('ROLLBACK').catch(() => {});
     await client.query('DELETE FROM photo_assets WHERE user_id = ANY($1::uuid[])', [[photoUserId, voiceUserId, providerUserId]]).catch(() => {});
     await client.query('DELETE FROM profile_voice_intros WHERE user_id = ANY($1::uuid[])', [[photoUserId, voiceUserId, providerUserId]]).catch(() => {});
     await client.query('DELETE FROM provider_verification_documents WHERE id = $1', [documentId]).catch(() => {});
