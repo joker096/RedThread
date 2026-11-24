@@ -20,6 +20,7 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
   const ttlOrderId = randomUUID();
   const accountDeleteOrderId = randomUUID();
   const matchPurgeOrderId = randomUUID();
+  const auditActorId = randomUUID();
   try {
     const installed = await client.query(`
       SELECT
@@ -304,7 +305,6 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     assert.equal(deletedConsent.rows[0].action, 'withdrawn');
 
     // A non-recipient actor can be erased without rewriting immutable consent history.
-    const auditActorId = randomUUID();
     await client.query(
       "INSERT INTO users (id, email, role, status, email_verified_at) VALUES ($1, $2, 'member', 'active', NOW())",
       [auditActorId, `draft-audit-actor-${auditActorId}@example.invalid`]
@@ -382,12 +382,16 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     throw error;
   } finally {
     await client.query('ALTER TABLE gift_address_draft_consent_events DISABLE TRIGGER gift_address_draft_consent_events_immutable').catch(() => {});
+    await client.query('ALTER TABLE gift_delivery_order_events DISABLE TRIGGER gift_delivery_order_events_append_only').catch(() => {});
     await client.query('DELETE FROM gift_address_drafts WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
     await client.query('DELETE FROM gift_address_draft_consent_events WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
+    await client.query('DELETE FROM gift_delivery_order_events WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
     await client.query('DELETE FROM gift_delivery_orders WHERE id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
+    await client.query('DELETE FROM users WHERE id = $1', [auditActorId]).catch(() => {});
     await client.query('DELETE FROM matches WHERE id = $1', [matchId]).catch(() => {});
     await client.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[senderId, recipientId]]).catch(() => {});
     await client.query('ALTER TABLE gift_address_draft_consent_events ENABLE TRIGGER gift_address_draft_consent_events_immutable').catch(() => {});
+    await client.query('ALTER TABLE gift_delivery_order_events ENABLE TRIGGER gift_delivery_order_events_append_only').catch(() => {});
     await client.query('SELECT pg_advisory_unlock(434236)').catch(() => {});
     client.release();
     await pool.end();
