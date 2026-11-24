@@ -13,6 +13,10 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $gift_draft_actor_snapshot$
 BEGIN
+  IF NEW.actor_user_id IS NULL AND NEW.actor_ref IS NOT NULL THEN
+    RAISE EXCEPTION 'gift address draft consent actor snapshot requires a live actor on insert'
+      USING ERRCODE = '23514';
+  END IF;
   IF NEW.actor_user_id IS NOT NULL
      AND NEW.actor_ref IS NOT NULL
      AND NEW.actor_ref IS DISTINCT FROM NEW.actor_user_id THEN
@@ -49,6 +53,27 @@ BEGIN
     USING ERRCODE = '23514';
 END;
 $draft_consent_immutable$;
+
+
+CREATE OR REPLACE FUNCTION snapshot_gift_delivery_order_event_actor()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $gift_actor_snapshot$
+BEGIN
+  IF NEW.actor_user_id IS NULL AND NEW.actor_ref IS NOT NULL THEN
+    RAISE EXCEPTION 'gift event actor snapshot requires a live actor on insert'
+      USING ERRCODE = '23514';
+  END IF;
+  IF NEW.actor_user_id IS NOT NULL
+     AND NEW.actor_ref IS NOT NULL
+     AND NEW.actor_ref IS DISTINCT FROM NEW.actor_user_id THEN
+    RAISE EXCEPTION 'gift event actor snapshot must match its live reference'
+      USING ERRCODE = '23514';
+  END IF;
+  NEW.actor_ref := COALESCE(NEW.actor_ref, NEW.actor_user_id);
+  RETURN NEW;
+END;
+$gift_actor_snapshot$;
 
 CREATE OR REPLACE FUNCTION prevent_gift_delivery_order_event_mutation()
 RETURNS trigger
