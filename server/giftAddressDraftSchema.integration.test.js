@@ -302,6 +302,47 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     ]);
     assert.equal(deletedDraft.rowCount, 0, 'account tombstoning must delete temporary ciphertext');
     assert.equal(deletedConsent.rows[0].action, 'withdrawn');
+
+    // A non-recipient actor can be erased without rewriting immutable consent history.
+    const auditActorId = randomUUID();
+    await client.query(
+      "INSERT INTO users (id, email, role, status, email_verified_at) VALUES ($1, $2, 'member', 'active', NOW())",
+      [auditActorId, `draft-audit-actor-${auditActorId}@example.invalid`]
+    );
+    await client.query(
+      `INSERT INTO gift_address_draft_consent_events
+         (order_id, recipient_user_id, consent_version, action, actor_user_id)
+       VALUES ($1, $2, 1, 'withdrawn', $3)`,
+      [accountDeleteOrderId, recipientId, auditActorId]
+    );
+    const actorSnapshotBefore = await client.query(
+      'SELECT actor_user_id, actor_ref FROM gift_address_draft_consent_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1',
+      [accountDeleteOrderId]
+    );
+    assert.equal(actorSnapshotBefore.rows[0].actor_user_id, auditActorId);
+    assert.equal(actorSnapshotBefore.rows[0].actor_ref, auditActorId);
+
+    await client.query('SAVEPOINT forbid_direct_actor_null');
+    await assert.rejects(
+      client.query(
+        'UPDATE gift_address_draft_consent_events SET actor_user_id = NULL WHERE order_id = $1 AND actor_user_id = $2',
+        [accountDeleteOrderId, auditActorId]
+      ),
+      error => error.code === '23514',
+      'direct actor nulling must not imitate the FK account-erasure action'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT forbid_direct_actor_null');
+    await client.query('RELEASE SAVEPOINT forbid_direct_actor_null');
+
+    await client.query('DELETE FROM users WHERE id = $1', [auditActorId]);
+    const actorSnapshotAfter = await client.query(
+      'SELECT actor_user_id, actor_ref FROM gift_address_draft_consent_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1',
+      [accountDeleteOrderId]
+    );
+    assert.equal(actorSnapshotAfter.rows[0].actor_user_id, null,
+      'FK account erasure may clear only the live actor reference');
+    assert.equal(actorSnapshotAfter.rows[0].actor_ref, auditActorId,
+      'immutable actor snapshot must preserve original provenance');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     throw error;
