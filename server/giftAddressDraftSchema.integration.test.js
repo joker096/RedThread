@@ -305,6 +305,7 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     assert.equal(deletedConsent.rows[0].action, 'withdrawn');
 
     // A non-recipient actor can be erased without rewriting immutable consent history.
+    await client.query('BEGIN');
     await client.query(
       "INSERT INTO users (id, email, role, status, email_verified_at) VALUES ($1, $2, 'member', 'active', NOW())",
       [auditActorId, `draft-audit-actor-${auditActorId}@example.invalid`]
@@ -377,6 +378,7 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
       'FK account erasure may clear only the gift-event live actor reference');
     assert.equal(giftEventAfter.rows[0].actor_ref, auditActorId,
       'gift-event actor provenance must remain immutable after account erasure');
+    await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     throw error;
