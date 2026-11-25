@@ -197,7 +197,7 @@ test('required backup locations become critical when deployment monitoring enabl
   const report = await collectOpsHealth({ pool, requireBackups: true });
   assert.equal(report.status, 'critical');
   assert.deepEqual(report.configurationIssues, [
-    'backup_locations_not_configured:postgres,privatePhoto,privateVoice'
+    'backup_locations_not_configured:postgres,privatePhoto,privateVoice,identityL3'
   ]);
   assert.equal(opsHealthExitCode(report), 2);
 });
