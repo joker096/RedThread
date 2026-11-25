@@ -219,7 +219,8 @@ export async function collectOpsHealth({
       pool.query(QUEUE_SQL),
       inspectBackupDirectory(postgresBackupDir, { archivePattern: /^vow-postgres-.*\.dump\.age$/, now, thresholds }),
       inspectBackupDirectory(privatePhotoBackupDir, { archivePattern: /^vow-private-media-.*\.tar\.age$/, now, thresholds }),
-      inspectBackupDirectory(privateVoiceBackupDir, { archivePattern: /^vow-private-media-.*\.tar\.age$/, now, thresholds })
+      inspectBackupDirectory(privateVoiceBackupDir, { archivePattern: /^vow-private-media-.*\.tar\.age$/, now, thresholds }),
+      inspectBackupDirectory(identityL3BackupDir, { archivePattern: /^vow-private-media-.*\.tar\.age$/, now, thresholds })
     ]);
     const queues = queueResult.rows.map(row => evaluateQueueHealth(row, { now, thresholds }));
     const backups = {
