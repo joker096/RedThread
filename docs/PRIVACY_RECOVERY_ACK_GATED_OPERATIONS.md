@@ -17,8 +17,9 @@ Ledger outage, rejection, malformed ACK, or timeout prevents the domain callback
 - Operation UUID is also the immutable Ledger event UUID and must be UUIDv4.
 - Deterministic operation identity is domain-separated (`vow-privacy-recovery-operation-v1`) and stable across retries. Callers must not use request timestamps, random UUIDs, or mutable state as the generation component.
 - The deterministic helper is a foundation only; it does not itself make any route ACK-gated.
-- PostgreSQL enforces monotonic state transitions only: pending → acknowledged → applied. Pending cannot jump directly to applied; acknowledged/applied states cannot be downgraded; the persisted Ledger sequence and acknowledgement timestamp cannot be rewritten after ACK.
-- The database constraint and trigger are the final guardrail even if a future route or maintenance script bypasses the application helper.
+- PostgreSQL currently enforces monotonic state transitions only: pending → acknowledged → applied. Pending cannot jump directly to applied; acknowledged/applied states cannot be downgraded; the persisted Ledger sequence and acknowledgement timestamp cannot be rewritten after ACK.
+- **This is not database-level proof of a Ledger ACK.** The current schema does not cryptographically validate the remote ACK and does not require every privacy-domain mutation to reference a matching acknowledged operation. A caller with sufficient SQL privileges can fabricate an acknowledged row or mutate domain tables without using the helper. The guard is therefore an application transaction invariant, not a database-enforced security boundary.
+- The current Compose database bootstrap also uses the image's `POSTGRES_USER` superuser identity as the shared `DATABASE_URL` for API, workers and migrations. Runtime role separation and least-privilege grants are not yet implemented. Do not treat trigger immutability as protection against a superuser or table owner.
 - Reusing an operation UUID with a different event type, subject, resource or schema version is rejected; the original persisted `occurred_at` is reused rather than treated as a conflict.
 - The operation row is committed before contacting the Ledger.
 - Domain changes and the `applied` transition share one PostgreSQL transaction.
@@ -43,6 +44,8 @@ Do not treat a stale preflight result as authorization to apply after ACK. If st
 
 ## Remaining work
 
+- **Release blocker — database authority boundary:** provision a dedicated NOLOGIN schema owner, a constrained migration identity, and non-owner runtime LOGIN roles. Remove the PostgreSQL bootstrap superuser from every API/worker connection string. Define and test per-role table/function grants, including immutable evidence, queues, ACK operations, and trigger ownership. This requires an end-to-end PostgreSQL integration test on the exact Compose topology; do not ship a partial role split.
+- **Release blocker — database-verifiable ACK authorization:** design a non-forgeable acknowledgement proof and a transaction-scoped authorization mechanism that runtime roles cannot spoof. Every protected privacy-domain mutation must be bound to an acknowledged operation with matching event type, subject, resource and lifecycle generation. Custom GUCs alone are not an authorization boundary because a caller can set them.
 - Add PostgreSQL-backed route-level tests for every migrated path: Ledger outage before ACK, database failure after ACK, stale lifecycle change during ACK, duplicate HTTP retry, and concurrent requests.
 - The lease-based ACK repair worker now retries `pending` delivery with bounded backoff. Still add event-specific apply reconciliation for `acknowledged` operations whose domain transaction failed; the generic worker deliberately never performs destructive domain mutations.
 - Audit any other privacy-critical event paths outside `server/index.js` and ensure they cannot bypass ACK-gated operations.
