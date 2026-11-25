@@ -36,6 +36,14 @@ The npm entrypoint invokes `privacy-recovery-admission.sh writer`; the backup sc
 
 The script streams pg_dump directly into age, so plaintext database contents are not written to disk. It creates a custom-format encrypted backup, restricts local permissions, writes a SHA-256 checksum and removes encrypted local backups past the configured retention. It refuses to run without age and a recipient. A local backup is not a disaster-recovery plan: copy the encrypted artifact to off-site/object storage with restricted access and lifecycle policies.
 
+## Separate Compose media volumes — required coverage
+
+The Compose stack stores private photos, voice introductions and encrypted Identity L3 documents in three separate named volumes: `private_photos`, `private_voice_intros` and `private_identity_l3`. The current `backup:private-media` and `backup:bundle` scripts accept one `PRIVATE_MEDIA_DIR`; they do **not** discover or combine those three Docker volumes automatically. A bundle created from only one mount is therefore not a complete Vow private-media backup.
+
+Until a reviewed multi-volume bundle format is implemented, back up each volume separately by mounting it read-only on the trusted backup host and running `backup:private-media` once per root, with a distinct `BACKUP_DIR` for each root. Configure the corresponding photo, voice and L3 backup directories in `backup:verify` / `ops:health`; a missing directory must remain `not_configured` or critical when `OPS_REQUIRE_BACKUPS=true`, never be treated as covered. Preserve the same shared writer-admission lock for every capture. Do not infer that the database+single-media v2 bundle covers all three volumes.
+
+The three captures and the PostgreSQL dump are separate artifacts and are not an atomic cross-volume snapshot. Keep the restore isolated, replay the privacy Ledger and run the physical verifier against all three restored roots plus the separate empty L3 scratch root before any activation. This procedure does not prove erasure from historical backups, off-site replicas or storage-provider version history; backup retention and deletion obligations require a separately defined policy.
+
 ## Restore drill
 
 A restore must target a newly provisioned, isolated staging database. The wrapper never creates, drops, truncates or cleans a database: it checks that the target has no user schemas or objects and refuses to continue otherwise. It also verifies the connected database name uses the dedicated `vow_restore_test` or `vow_restore_dst_` naming convention, so a normal application/production database name is rejected before restore. Do not point it at the live application database.
