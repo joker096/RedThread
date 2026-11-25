@@ -70,10 +70,11 @@ test('operations report fails closed when required off-host backup locations are
   };
   const report = await collectOpsHealth({ pool, now: new Date('2026-11-13T12:00:00Z') });
   assert.equal(report.status, 'critical');
-  assert.deepEqual(report.configurationIssues, ['backup_locations_not_configured:postgres,privatePhoto,privateVoice']);
+  assert.deepEqual(report.configurationIssues, ['backup_locations_not_configured:postgres,privatePhoto,privateVoice,identityL3']);
   assert.equal(report.backups.postgres.status, 'not_configured');
   assert.equal(report.backups.privatePhoto.status, 'not_configured');
   assert.equal(report.backups.privateVoice.status, 'not_configured');
+  assert.equal(report.backups.identityL3.status, 'not_configured');
   assert.equal(opsHealthExitCode(report), 2);
 });
 
@@ -167,7 +168,8 @@ test('operations report reads all durable purge queues from PostgreSQL', {
     databaseUrl: process.env.DATABASE_URL,
     postgresBackupDir: null,
     privatePhotoBackupDir: null,
-    privateVoiceBackupDir: null
+    privateVoiceBackupDir: null,
+    identityL3BackupDir: null
   });
   assert.equal(report.queues.length, 5);
   assert.deepEqual(report.queues.map(queue => queue.queue).sort(), [
@@ -195,7 +197,7 @@ test('required backup locations become critical when deployment monitoring enabl
   const report = await collectOpsHealth({ pool, requireBackups: true });
   assert.equal(report.status, 'critical');
   assert.deepEqual(report.configurationIssues, [
-    'backup_locations_not_configured:postgres,privatePhoto,privateVoice'
+    'backup_locations_not_configured:postgres,privatePhoto,privateVoice,identityL3'
   ]);
   assert.equal(opsHealthExitCode(report), 2);
 });
@@ -240,4 +242,30 @@ test('Healthchecks.io integration rejects non-HTTPS and non-Healthchecks destina
     }),
     /base HTTPS Healthchecks.io ping URL/
   );
+});
+
+
+test('operations health independently requires and verifies the Identity L3 backup location', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'vow-ops-l3-backup-'));
+  try {
+    const archiveName = 'vow-private-media-l3-20261113T115500Z.tar.age';
+    const archivePath = path.join(root, archiveName);
+    const bytes = 'encrypted-l3-fixture';
+    await writeFile(archivePath, bytes);
+    const checksum = createHash('sha256').update(bytes).digest('hex');
+    await writeFile(archivePath + '.sha256', checksum + '  ' + archiveName + '\n');
+    const pool = { async query() { return { rows: [] }; } };
+    const report = await collectOpsHealth({
+      pool,
+      now: new Date('2026-11-13T12:00:00.000Z'),
+      postgresBackupDir: null,
+      privatePhotoBackupDir: null,
+      privateVoiceBackupDir: null,
+      identityL3BackupDir: root
+    });
+    assert.equal(report.backups.identityL3.status, 'healthy');
+    assert.equal(report.configurationIssues[0], 'backup_locations_not_configured:postgres,privatePhoto,privateVoice');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

@@ -203,6 +203,7 @@ export async function collectOpsHealth({
   postgresBackupDir = process.env.OPS_POSTGRES_BACKUP_DIR,
   privatePhotoBackupDir = process.env.OPS_PRIVATE_PHOTO_BACKUP_DIR,
   privateVoiceBackupDir = process.env.OPS_PRIVATE_VOICE_BACKUP_DIR,
+  identityL3BackupDir = process.env.OPS_PRIVATE_IDENTITY_L3_BACKUP_DIR,
   requireBackups = process.env.OPS_REQUIRE_BACKUPS !== 'false'
 } = {}) {
   if (!databaseUrl && !suppliedPool) throw new Error('DATABASE_URL is required');
@@ -214,17 +215,19 @@ export async function collectOpsHealth({
   });
 
   try {
-    const [queueResult, postgresBackup, privatePhotoBackup, privateVoiceBackup] = await Promise.all([
+    const [queueResult, postgresBackup, privatePhotoBackup, privateVoiceBackup, identityL3Backup] = await Promise.all([
       pool.query(QUEUE_SQL),
       inspectBackupDirectory(postgresBackupDir, { archivePattern: /^vow-postgres-.*\.dump\.age$/, now, thresholds }),
       inspectBackupDirectory(privatePhotoBackupDir, { archivePattern: /^vow-private-media-.*\.tar\.age$/, now, thresholds }),
-      inspectBackupDirectory(privateVoiceBackupDir, { archivePattern: /^vow-private-media-.*\.tar\.age$/, now, thresholds })
+      inspectBackupDirectory(privateVoiceBackupDir, { archivePattern: /^vow-private-media-.*\.tar\.age$/, now, thresholds }),
+      inspectBackupDirectory(identityL3BackupDir, { archivePattern: /^vow-private-media-.*\.tar\.age$/, now, thresholds })
     ]);
     const queues = queueResult.rows.map(row => evaluateQueueHealth(row, { now, thresholds }));
     const backups = {
       postgres: postgresBackup,
       privatePhoto: privatePhotoBackup,
-      privateVoice: privateVoiceBackup
+      privateVoice: privateVoiceBackup,
+      identityL3: identityL3Backup
     };
     const unconfiguredBackups = Object.entries(backups)
       .filter(([, backup]) => backup.status === 'not_configured')

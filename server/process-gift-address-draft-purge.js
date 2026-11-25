@@ -1,3 +1,5 @@
+import { assertPrivacyRecoveryAdmission } from './privacyRecoveryAdmissionGuard.js';
+assertPrivacyRecoveryAdmission();
 import 'dotenv/config';
 import pg from 'pg';
 import { purgeExpiredGiftAddressDrafts } from './giftAddressDraftPurge.js';

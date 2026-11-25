@@ -145,3 +145,56 @@ test('voice intro consent state requires same-transaction immutable audit events
     await pool.end();
   }
 });
+
+
+test('physical account deletion cascades voice consent history without weakening direct immutability', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 10_000
+}, async () => {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const client = await pool.connect();
+  const userId = randomUUID();
+  try {
+    await client.query(
+      "INSERT INTO users (id, email, password_hash, status) VALUES ($1, $2, 'test-only-hash', 'active')",
+      [userId, `voice-hard-delete-${userId}@example.invalid`]
+    );
+    await client.query('BEGIN');
+    await client.query(
+      'INSERT INTO profile_voice_intro_consents (user_id, consent_version) VALUES ($1, 1)',
+      [userId]
+    );
+    await client.query(
+      `INSERT INTO profile_voice_intro_consent_events
+         (user_id, actor_user_id, event_type, consent_version, occurred_at)
+       SELECT user_id, user_id, 'granted', consent_version, granted_at
+       FROM profile_voice_intro_consents WHERE user_id = $1`,
+      [userId]
+    );
+    await client.query('COMMIT');
+
+    await client.query('BEGIN');
+    await assert.rejects(
+      client.query('DELETE FROM profile_voice_intro_consent_events WHERE user_id = $1', [userId]),
+      error => error.code === '55000',
+      'direct deletion must remain forbidden for an active account'
+    );
+    await client.query('ROLLBACK');
+
+    await client.query('DELETE FROM users WHERE id = $1', [userId]);
+    const remaining = await client.query(
+      `SELECT
+         (SELECT count(*) FROM profile_voice_intro_consent_events WHERE user_id = $1) AS events,
+         (SELECT count(*) FROM profile_voice_intro_consents WHERE user_id = $1) AS states`,
+      [userId]
+    );
+    assert.equal(Number(remaining.rows[0].events), 0,
+      'physical account erasure must cascade its voice consent audit rows');
+    assert.equal(Number(remaining.rows[0].states), 0,
+      'physical account erasure must cascade current voice consent state');
+  } finally {
+    await client.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
+    client.release();
+    await pool.end();
+  }
+});

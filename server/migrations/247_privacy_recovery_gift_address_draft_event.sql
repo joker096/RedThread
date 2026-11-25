@@ -25,30 +25,37 @@ ALTER TABLE privacy_recovery_events
     OR resource_ref IS NOT NULL
   );
 
--- The original ACK-saga migration used an unnamed CHECK constraint. Find and
--- replace only that event-type CHECK rather than relying on a generated suffix.
+-- The original ACK-saga migration used an unnamed CHECK constraint.
+-- Require exactly one matching event allowlist before replacing it; otherwise
+-- fail closed rather than silently dropping unrelated or duplicate checks.
 DO $migration$
 DECLARE
-  constraint_row RECORD;
+  matching_constraint_count INTEGER;
+  matching_constraint_name TEXT;
 BEGIN
-  FOR constraint_row IN
-    SELECT conname
-      FROM pg_constraint
-     WHERE conrelid = 'privacy_recovery_operations'::regclass
-       AND contype = 'c'
-       AND pg_get_constraintdef(oid) LIKE '%gift_order_consent_withdrawn%'
-  LOOP
-    EXECUTE format(
-      'ALTER TABLE privacy_recovery_operations DROP CONSTRAINT %I',
-      constraint_row.conname
-    );
-  END LOOP;
+  SELECT count(*), (array_agg(conname))[1]
+    INTO matching_constraint_count, matching_constraint_name
+    FROM pg_constraint
+   WHERE conrelid = 'privacy_recovery_operations'::regclass
+     AND contype = 'c'
+     AND pg_get_constraintdef(oid) LIKE '%gift_order_consent_withdrawn%';
+
+  IF matching_constraint_count <> 1 THEN
+    RAISE EXCEPTION
+      'expected exactly one privacy_recovery_operations event-type CHECK, found %',
+      matching_constraint_count;
+  END IF;
+
+  EXECUTE format(
+    'ALTER TABLE privacy_recovery_operations DROP CONSTRAINT %I',
+    matching_constraint_name
+  );
 END;
 $migration$;
 
 ALTER TABLE privacy_recovery_operations
   ADD CONSTRAINT privacy_recovery_operations_event_type_check
-  CHECK (event_payload->>'event_type' IN (
+  CHECK (COALESCE(event_payload->>'event_type', '') IN (
     'account_erasure_requested',
     'voice_intro_consent_withdrawn',
     'voice_intro_erasure_requested',
@@ -66,6 +73,6 @@ ALTER TABLE privacy_recovery_operations
     OR (
       event_payload ? 'resource_ref'
       AND jsonb_typeof(event_payload->'resource_ref') = 'string'
-      AND length(event_payload->>'resource_ref') = 64
+      AND event_payload->>'resource_ref' ~ '^[a-f0-9]{64}$'
     )
   );

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { chmod, chown, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -10,6 +10,11 @@ import { fileURLToPath } from 'node:url';
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const backupScript = path.join(scriptsDir, 'backup-postgres.sh');
 const restoreScript = path.join(scriptsDir, 'restore-postgres.sh');
+const admissionScript = path.join(scriptsDir, 'privacy-recovery-admission.sh');
+const writerUid = process.getuid?.() ?? 1000;
+const writerPrimaryGid = process.getgid?.() ?? writerUid;
+const writerGid = 65534;
+const sudoAvailable = spawnSync('sudo', ['-n', 'true'], { encoding: 'utf8' }).status === 0;
 const stagingConfirmation = 'I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE';
 
 function run(command, args, env) {
@@ -26,23 +31,31 @@ function run(command, args, env) {
   return result;
 }
 
-function databaseUrl(databaseName) {
+function databaseUrl(databaseName, roleName, password) {
   const url = new URL(process.env.DATABASE_URL);
   url.pathname = `/${databaseName}`;
+  if (roleName) url.username = roleName;
+  if (password) url.password = password;
   return url.toString();
 }
 
 test('PostgreSQL backup restores through real age and pg_restore into an isolated empty database', {
-  skip: !process.env.DATABASE_URL ? 'DATABASE_URL is not configured' : false,
+  skip: !process.env.DATABASE_URL ? 'DATABASE_URL is not configured' : (!sudoAvailable || writerUid === 0) ? 'unprivileged writer admission requires passwordless sudo on the integration runner' : false,
   timeout: 120_000
 }, async () => {
   const suffix = `${process.pid}_${Date.now()}`;
   const sourceDatabase = `vow_restore_src_${suffix}`;
   const targetDatabase = `vow_restore_dst_${suffix}`;
+  const ownerRole = `vow_restore_owner_${suffix}`;
+  const restoreRole = `vow_restore_login_${suffix}`;
+  const restorePassword = `Restore-${suffix}-Aa1!`;
   const sourceUrl = databaseUrl(sourceDatabase);
-  const targetUrl = databaseUrl(targetDatabase);
+  const targetUrl = databaseUrl(targetDatabase, restoreRole, restorePassword);
+  const targetAdminUrl = databaseUrl(targetDatabase);
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-postgres-real-restore-'));
   const backupDir = path.join(temporaryRoot, 'backups');
+  const admissionDir = path.join(temporaryRoot, 'admission');
+  const lockFile = path.join(admissionDir, 'writers.lock');
   const identityFile = path.join(temporaryRoot, 'age-identity.txt');
   const admin = new Client({ connectionString: process.env.DATABASE_URL });
   let source;
@@ -50,9 +63,20 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
   let adminConnected = false;
   let sourceCreated = false;
   let targetCreated = false;
+  let ownerRoleCreated = false;
+  let restoreRoleCreated = false;
 
   try {
     run('age-keygen', ['-o', identityFile]);
+    // Provision a real root-owned lock just as the host bootstrap does. The
+    // backup itself runs as the ordinary CI UID with only the writer GID added.
+    // Keep the test's private parent owned by the runner; only the lock
+    // directory itself is root-owned and group-traversable by the writer.
+    run('sudo', ['-n', 'install', '-d', '-o', '0', '-g', String(writerGid), '-m', '2750', admissionDir]);
+    run('sudo', ['-n', 'install', '-o', '0', '-g', String(writerGid), '-m', '0640', '/dev/null', lockFile]);
+    await mkdir(backupDir);
+    await chown(backupDir, writerUid, writerPrimaryGid);
+    await chmod(backupDir, 0o700);
     await chmod(identityFile, 0o600);
     const identity = await readFile(identityFile, 'utf8');
     const recipient = identity.match(/^# public key: (age1[0-9a-z]+)$/m)?.[1];
@@ -62,8 +86,15 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
     adminConnected = true;
     await admin.query(`CREATE DATABASE "${sourceDatabase}"`);
     sourceCreated = true;
-    await admin.query(`CREATE DATABASE "${targetDatabase}"`);
+    await admin.query(`CREATE ROLE "${ownerRole}" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`);
+    ownerRoleCreated = true;
+    await admin.query(`CREATE ROLE "${restoreRole}" LOGIN PASSWORD '${restorePassword}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`);
+    restoreRoleCreated = true;
+    await admin.query(`GRANT "${ownerRole}" TO "${restoreRole}" WITH INHERIT FALSE, SET TRUE`);
+    await admin.query(`CREATE DATABASE "${targetDatabase}" OWNER "${ownerRole}"`);
     targetCreated = true;
+    await admin.query(`REVOKE TEMPORARY ON DATABASE "${targetDatabase}" FROM PUBLIC`);
+    await admin.query(`GRANT CONNECT ON DATABASE "${targetDatabase}" TO "${restoreRole}"`);
 
     source = new Client({ connectionString: sourceUrl });
     await source.connect();
@@ -75,12 +106,16 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
     await source.end();
     source = undefined;
 
-    run('bash', [backupScript], {
-      DATABASE_URL: sourceUrl,
-      BACKUP_AGE_RECIPIENT: recipient,
-      BACKUP_DIR: backupDir,
-      BACKUP_RETENTION_DAYS: '30'
-    });
+    run('sudo', ['-n', 'setpriv', '--reuid', String(writerUid), '--regid', String(writerPrimaryGid),
+      '--groups', String(writerGid), '--', 'env',
+      `PATH=/usr/lib/postgresql/16/bin:${process.env.PATH || ''}`,
+      `PRIVACY_RECOVERY_WRITER_LOCK_FILE=${lockFile}`,
+      `PRIVACY_RECOVERY_WRITER_GID=${writerGid}`,
+      `DATABASE_URL=${sourceUrl}`,
+      `BACKUP_AGE_RECIPIENT=${recipient}`,
+      `BACKUP_DIR=${backupDir}`,
+      'BACKUP_RETENTION_DAYS=30',
+      'bash', admissionScript, 'writer', '--', 'bash', backupScript], {});
     const artifacts = await readdir(backupDir);
     const archiveName = artifacts.find(name => name.endsWith('.dump.age'));
     assert.ok(archiveName, 'encrypted PostgreSQL backup should exist');
@@ -93,10 +128,11 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
       ARCHIVE_FILE: path.join(backupDir, archiveName),
       AGE_IDENTITY_FILE: identityFile,
       RESTORE_DATABASE_URL: targetUrl,
-      RESTORE_CONFIRM_STAGING: stagingConfirmation
+      RESTORE_CONFIRM_STAGING: stagingConfirmation,
+      RESTORE_OWNER_ROLE: ownerRole
     });
 
-    target = new Client({ connectionString: targetUrl });
+    target = new Client({ connectionString: targetAdminUrl });
     await target.connect();
     const restored = await target.query(
       'SELECT id, payload FROM restore_drill_fixture ORDER BY id'
@@ -105,6 +141,14 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
       { id: 1, payload: 'first-private-fixture' },
       { id: 2, payload: 'second-private-fixture' }
     ]);
+
+    const owner = await target.query(
+      'SELECT r.rolname, r.rolcanlogin, c.relowner = r.oid AS owns_fixture ' +
+      'FROM pg_roles r CROSS JOIN pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace ' +
+      'WHERE r.rolname = $1 AND n.nspname = \'public\' AND c.relname = \'restore_drill_fixture\'',
+      [ownerRole]
+    );
+    assert.deepEqual(owner.rows, [{ rolname: ownerRole, rolcanlogin: false, owns_fixture: true }]);
 
     await target.query('CREATE TABLE restore_target_sentinel (id integer PRIMARY KEY)');
     await target.query('INSERT INTO restore_target_sentinel (id) VALUES (99)');
@@ -118,11 +162,12 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
         ARCHIVE_FILE: path.join(backupDir, archiveName),
         AGE_IDENTITY_FILE: identityFile,
         RESTORE_DATABASE_URL: targetUrl,
-        RESTORE_CONFIRM_STAGING: stagingConfirmation
+        RESTORE_CONFIRM_STAGING: stagingConfirmation,
+        RESTORE_OWNER_ROLE: ownerRole
       }
     });
     assert.notEqual(refused.status, 0, 'a non-empty target must be refused');
-    target = new Client({ connectionString: targetUrl });
+    target = new Client({ connectionString: targetAdminUrl });
     await target.connect();
     const sentinel = await target.query('SELECT id FROM restore_target_sentinel');
     assert.deepEqual(sentinel.rows, [{ id: 99 }], 'refused restore must leave existing data untouched');
@@ -134,8 +179,11 @@ test('PostgreSQL backup restores through real age and pg_restore into an isolate
     if (adminConnected) {
       if (targetCreated) await admin.query(`DROP DATABASE IF EXISTS "${targetDatabase}" WITH (FORCE)`).catch(() => {});
       if (sourceCreated) await admin.query(`DROP DATABASE IF EXISTS "${sourceDatabase}" WITH (FORCE)`).catch(() => {});
+      if (restoreRoleCreated) await admin.query(`REVOKE "${ownerRole}" FROM "${restoreRole}"`).catch(() => {});
+      if (restoreRoleCreated) await admin.query(`DROP ROLE IF EXISTS "${restoreRole}"`).catch(() => {});
+      if (ownerRoleCreated) await admin.query(`DROP ROLE IF EXISTS "${ownerRole}"`).catch(() => {});
       await admin.end().catch(() => {});
     }
-    await rm(temporaryRoot, { recursive: true, force: true });
+    spawnSync('sudo', ['-n', 'rm', '-rf', '--', temporaryRoot], { encoding: 'utf8' });
   }
 });

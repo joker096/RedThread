@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { assertPrivacyRecoveryRestoreTarget } from './privacyRecoveryTargetGuard.js';
 
 const EVENT_TYPES = new Set([
   'account_erasure_requested',
@@ -20,6 +20,7 @@ function validEvent(event, expectedSequence) {
     typeof event.subject_ref === 'string' && /^[a-f0-9]{64}$/i.test(event.subject_ref) &&
     (event.resource_ref === null || event.resource_ref === undefined ||
       (typeof event.resource_ref === 'string' && /^[a-f0-9]{64}$/i.test(event.resource_ref))) &&
+    (event.event_type !== 'gift_address_draft_consent_withdrawn' || typeof event.resource_ref === 'string') &&
     typeof event.occurred_at === 'string' && Number.isFinite(Date.parse(event.occurred_at)) &&
     typeof event.received_at === 'string' && Number.isFinite(Date.parse(event.received_at)));
 }
@@ -34,7 +35,8 @@ function canonicalEvent(event) {
 
 export async function stagePrivacyRecoveryEvents(client, {
   snapshotLedgerSequence,
-  events
+  events,
+  env = process.env
 }) {
   if (!client || typeof client.query !== 'function' ||
       !Number.isSafeInteger(snapshotLedgerSequence) || snapshotLedgerSequence < 0 ||
@@ -53,6 +55,9 @@ export async function stagePrivacyRecoveryEvents(client, {
   if (snapshotLedgerSequence > watermark) {
     throw new Error('privacy_recovery_snapshot_watermark_ahead_of_archive');
   }
+  // Verify the actual PostgreSQL session identity on the same client that will
+  // perform staging. Recovery staging is never permitted against an implicit target.
+  await assertPrivacyRecoveryRestoreTarget(client, env);
   const pending = events.filter(event => event.sequence > snapshotLedgerSequence);
   if (pending.length === 0) {
     return { snapshotLedgerSequence, stagedCount: 0, throughSequence: watermark };
@@ -68,6 +73,16 @@ export async function stagePrivacyRecoveryEvents(client, {
         event.subject_ref.toLowerCase(), event.resource_ref?.toLowerCase() ?? null,
         event.occurred_at, event.received_at
       ];
+      // Serialize idempotent staging by immutable identity. The ledger table
+      // is append-only, so SELECT FOR SHARE would incorrectly require UPDATE.
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext('privacy-recovery-stage-event:' || $1::uuid::text))",
+        [event.event_id]
+      );
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext('privacy-recovery-stage-sequence:' || $1::text))",
+        [event.sequence]
+      );
       const inserted = await client.query(
         `INSERT INTO privacy_recovery_events
           (ledger_sequence, event_id, schema_version, event_type, subject_ref, resource_ref, occurred_at, received_at)
@@ -86,7 +101,7 @@ export async function stagePrivacyRecoveryEvents(client, {
                 resource_ref, occurred_at, received_at
            FROM privacy_recovery_events
           WHERE ledger_sequence = $1 OR event_id = $2
-          FOR SHARE`,
+`,
         [event.sequence, event.event_id]
       );
       if (existing.rowCount !== 1) throw new Error('privacy_recovery_stage_conflict_unresolved');

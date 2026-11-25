@@ -4,32 +4,84 @@
 
 Use a deployment secret manager for DATABASE_URL and BACKUP_AGE_RECIPIENT; do not commit credentials. Install PostgreSQL client tools and age on a trusted Linux backup host. Generate an age recipient key pair and keep the private identity offline or in a dedicated secret manager; only the public recipient belongs in BACKUP_AGE_RECIPIENT.
 
+## Runtime writer admission for the application stack
+
+Before starting any API or worker container, provision one persistent host lock directory shared by every Compose service built from the API image. Do not place it under `/run` or another volatile filesystem: the maintenance marker must survive a host reboot so an interrupted deletion/restore cannot silently reopen writers.
+
 ```bash
-chmod +x scripts/backup-postgres.sh
-BACKUP_DIR=/secure/backups BACKUP_RETENTION_DAYS=30 \\
-  BACKUP_AGE_RECIPIENT='age1...' ./scripts/backup-postgres.sh
+# Choose and record one numeric GID consistently across every host.
+PRIVACY_RECOVERY_WRITER_GID='<numeric-writer-group-id>'
+PRIVACY_RECOVERY_WRITER_LOCK_DIR=/var/lib/vow-privacy-admission
+groupadd --system --gid "$PRIVACY_RECOVERY_WRITER_GID" vow-privacy-writers
+install -d -o root -g "$PRIVACY_RECOVERY_WRITER_GID" -m 2750 "$PRIVACY_RECOVERY_WRITER_LOCK_DIR"
+install -o root -g "$PRIVACY_RECOVERY_WRITER_GID" -m 0640 /dev/null "$PRIVACY_RECOVERY_WRITER_LOCK_DIR/writers.lock"
 ```
+
+Set `PRIVACY_RECOVERY_WRITER_GID` and `PRIVACY_RECOVERY_WRITER_LOCK_DIR` in the protected Compose environment. Compose mounts the pre-existing directory read-only into every API, migration, retention and purge container, adds only the configured supplementary group, and refuses to create a missing host path. The API image entrypoint acquires the shared lock before running any command; each database-writing Node entrypoint independently verifies the inherited FD 9 and fails closed when invoked directly. The guard activates whenever `NODE_ENV=production` (or `PRIVACY_RECOVERY_REQUIRE_ADMISSION=true`), so host-managed production services must also set `PRIVACY_RECOVERY_WRITER_LOCK_FILE=/var/lib/vow-privacy-admission/writers.lock` and `PRIVACY_RECOVERY_WRITER_GID` and launch through `privacy-recovery-admission.sh writer -- ...`. A direct `node ...` or `npm run ...` production launch without FD 9 is rejected. Runtime scripts remain root-owned inside the image.
+
+Do not start or restart the application stack until the host directory and lock file have the exact ownership and modes above. The Docker daemon administrator can always override container entrypoints or mount arbitrary files; therefore restrict Docker socket/context access to the trusted deployment and maintenance operators. The admission protocol protects ordinary Compose starts, automatic restarts and direct Node invocations by the unprivileged service account; it is not a security boundary against a hostile host root or Docker administrator.
+
+Before any backup, provision the dedicated writer-admission lock on the trusted host. The lock directory must be owned by root and the configured writer group with mode `2750`; the lock file must be root-owned by that group with mode `0640`. Add the backup service account to the group and set the numeric GID. The drain controller is required for maintenance mode; a backup writer only needs the lock and group configuration.
+
+```bash
+export PRIVACY_RECOVERY_WRITER_LOCK_FILE=/var/lib/vow-privacy-admission/writers.lock
+export PRIVACY_RECOVERY_WRITER_GID='<numeric-writer-group-id>'
+export BACKUP_DIR=/secure/backups
+export BACKUP_RETENTION_DAYS=30
+export BACKUP_AGE_RECIPIENT='age1...'
+npm run backup:postgres
+```
+
+The npm entrypoint invokes `privacy-recovery-admission.sh writer`; the backup script independently verifies that inherited FD 9 refers to the configured lock inode and carries a live shared flock. Direct/manual invocation of `scripts/backup-postgres.sh` without that descriptor fails closed. The shared lock remains held for the complete pg_dump-to-age stream, so exclusive privacy maintenance cannot begin while the backup is reading the database. `backup:private-media` and `backup:bundle` use the same admission protocol; the bundle holds one shared lock across both database and media capture. Do not remove the FD checks or call the underlying scripts outside the admission wrapper.
 
 The script streams pg_dump directly into age, so plaintext database contents are not written to disk. It creates a custom-format encrypted backup, restricts local permissions, writes a SHA-256 checksum and removes encrypted local backups past the configured retention. It refuses to run without age and a recipient. A local backup is not a disaster-recovery plan: copy the encrypted artifact to off-site/object storage with restricted access and lifecycle policies.
 
+## Separate Compose media volumes — required coverage
+
+The Compose stack stores private photos, voice introductions and encrypted Identity L3 documents in three separate named volumes: `private_photos`, `private_voice_intros` and `private_identity_l3`. The current `backup:private-media` and `backup:bundle` scripts accept one `PRIVATE_MEDIA_DIR`; they do **not** discover or combine those three Docker volumes automatically. A bundle created from only one mount is therefore not a complete Vow private-media backup.
+
+Until a reviewed multi-volume bundle format is implemented, back up each volume separately by mounting it read-only on the trusted backup host and running `backup:private-media` once per root, with a distinct `BACKUP_DIR` for each root. Configure the corresponding photo, voice and L3 backup directories in `backup:verify` / `ops:health`; a missing directory must remain `not_configured` or critical when `OPS_REQUIRE_BACKUPS=true`, never be treated as covered. Preserve the same shared writer-admission lock for every capture. Do not infer that the database+single-media v2 bundle covers all three volumes.
+
+The three captures and the PostgreSQL dump are separate artifacts and are not an atomic cross-volume snapshot. Keep the restore isolated, replay the privacy Ledger and run the physical verifier against all three restored roots plus the separate empty L3 scratch root before any activation. This procedure does not prove erasure from historical backups, off-site replicas or storage-provider version history; backup retention and deletion obligations require a separately defined policy.
+
 ## Restore drill
 
-A restore must target a newly provisioned, isolated staging database. The wrapper never creates, drops, truncates or cleans a database: it checks that the target has no user schemas or objects and refuses to continue otherwise. It also verifies the connected database name uses the dedicated `vow_restore_test` or `vow_restore_dst_` naming convention, so a normal application/production database name is rejected before restore. Use a dedicated staging role with only the privileges needed for that database. Do not point it at the live application database.
+A restore must target a newly provisioned, isolated staging database. The wrapper never creates, drops, truncates or cleans a database: it checks that the target has no user schemas or objects and refuses to continue otherwise. It also verifies the connected database name uses the dedicated `vow_restore_test` or `vow_restore_dst_` naming convention, so a normal application/production database name is rejected before restore. Do not point it at the live application database.
+
+The restore path uses three separate identities; do not reuse one role for all stages:
+
+1. A short-lived bootstrap/admin identity provisions the database and roles. It is never supplied to `pg_restore` or the verifier.
+2. A dedicated `NOLOGIN` owner role owns the empty staging database and all restored objects. A dedicated restore LOGIN is granted membership with `INHERIT FALSE, SET TRUE` and no other role memberships. It must not be a superuser, database/schema creator, or have TEMP or direct object write privileges. The wrapper verifies this contract and runs `pg_restore --role="$RESTORE_OWNER_ROLE"`; it refuses to proceed if the owner is not the database owner, is login-capable/elevated, or the restore login inherits owner rights.
+3. A separate read-only verifier LOGIN is provisioned after restore. Grant it only the required SELECT privileges on restored schemas, relations and sequences. It must not be a member of owner or restore roles and must not have TEMP, CREATE, or write privileges. The privacy-recovery target guard remains strict; do not run it as the restore login or owner.
+
+Example provisioning SQL (replace suffixes and use a secret manager for the password; run as the isolated staging bootstrap administrator):
+
+```sql
+CREATE ROLE vow_restore_owner_example NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE vow_restore_login_example LOGIN PASSWORD '<secret>' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT vow_restore_owner_example TO vow_restore_login_example WITH INHERIT FALSE, SET TRUE;
+CREATE DATABASE vow_restore_dst_example OWNER vow_restore_owner_example;
+GRANT CONNECT ON DATABASE vow_restore_dst_example TO vow_restore_login_example;
+REVOKE TEMPORARY ON DATABASE vow_restore_dst_example FROM PUBLIC;
+```
+
+The database owner role receives its database/schema ownership capabilities; the restore LOGIN does not inherit them. Do not grant the verifier membership in either role. After restore, provision the verifier's narrow read-only grants and validate it through an independent connection before any inventory/replay operation.
 
 Keep the age identity out of the application host and shell history. Supply it through a protected secret file and use a separate `RESTORE_DATABASE_URL` so the restore target cannot be confused with the application's `DATABASE_URL`:
 
 ```bash
 sha256sum --check /secure/backups/vow-postgres-YYYYMMDDTHHMMSSZ.dump.age.sha256
-RESTORE_DATABASE_URL='postgresql://restore_user@staging-db/vow_restore_test' \
+RESTORE_DATABASE_URL='postgresql://vow_restore_login_example@staging-db/vow_restore_test' \
+RESTORE_OWNER_ROLE='vow_restore_owner_example' \
 RESTORE_CONFIRM_STAGING=I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE \
 ARCHIVE_FILE=/secure/backups/vow-postgres-YYYYMMDDTHHMMSSZ.dump.age \
 AGE_IDENTITY_FILE=/secure/keys/vow-backup-identity.txt \
 bash scripts/restore-postgres.sh
 ```
 
-The wrapper validates that archive, checksum and identity are regular non-symlink files, verifies SHA-256 before connecting to PostgreSQL, requires an empty target, then streams age decryption directly to `pg_restore`. It does not write a plaintext dump to disk and does not use `--clean`, `DROP DATABASE`, or overwrite existing objects. It uses `--exit-on-error --single-transaction --no-owner --no-acl` so a failed restore rolls back instead of leaving a partially restored staging database; pipeline failures are fatal. Never put the private identity or database password in a command committed to the repository.
+The wrapper validates that archive, checksum and identity are regular non-symlink files, verifies SHA-256 before connecting to PostgreSQL, requires an empty target, then streams age decryption directly to `pg_restore`. It does not write a plaintext dump to disk and does not use `--clean`, `DROP DATABASE`, or overwrite existing objects. It uses `--role="$RESTORE_OWNER_ROLE" --exit-on-error --single-transaction --no-owner --no-acl` so restored objects belong to the dedicated NOLOGIN owner and a failed restore rolls back instead of leaving a partially restored staging database; pipeline failures are fatal. Never put the private identity or database password in a command committed to the repository.
 
-Automated regression coverage is included in `npm test`: `scripts/restore-postgres.test.js` exercises checksum, empty-target and pipeline failure handling with isolated fake client commands; `scripts/restore-postgres.integration.test.js` performs a real encrypted backup and restore against two disposable PostgreSQL databases using `age`, `pg_dump` and `pg_restore`. The CI job installs these tools and runs the integration drill when `DATABASE_URL` is configured. It verifies restored rows and confirms that a second restore into a now-non-empty target is refused without changing existing data. A production-grade restore drill must additionally verify application invariants and record elapsed recovery time.
+Automated regression coverage is included in `npm test`: `scripts/restore-postgres.test.js` exercises checksum, empty-target and pipeline failure handling with isolated fake client commands; `scripts/restore-postgres.integration.test.js` performs a real encrypted backup and restore against disposable PostgreSQL databases using `age`, `pg_dump` and `pg_restore`, with a non-inheriting restore LOGIN and NOLOGIN database/object owner. `scripts/restore-postgres-roles.integration.test.js` separately proves the PostgreSQL 16 role membership, object ownership and read-only verifier boundaries. The CI job installs these tools and runs the integration drill when `DATABASE_URL` is configured. It verifies restored rows and confirms that a second restore into a now-non-empty target is refused without changing existing data. A production-grade restore drill must additionally verify application invariants and record elapsed recovery time.
 
 Verify schema/migrations, account access, profiles, matches, messages, photo metadata and billing state. Do not restore production data into an unapproved development environment. Delete staging copies after verification. The database restore does not restore private media; use the separate private-media restore procedure and reconcile deletion tombstones, consent and moderation state before enabling access.
 
@@ -42,10 +94,11 @@ DATABASE_URL='postgresql://ops_reader@db-host/vow_app' \
 OPS_POSTGRES_BACKUP_DIR=/secure/backups/postgres \
 OPS_PRIVATE_PHOTO_BACKUP_DIR=/secure/backups/private-photos \
 OPS_PRIVATE_VOICE_BACKUP_DIR=/secure/backups/private-voice-intros \
+OPS_PRIVATE_IDENTITY_L3_BACKUP_DIR=/secure/backups/identity-l3 \
 npm run ops:health
 ```
 
-The report covers the private-photo, private-voice-introduction and identity-L3 media purge queues. It returns pending/due/retrying/failed counts, oldest outstanding work and maximum attempts without exposing user IDs or storage paths. It also checks the latest encrypted PostgreSQL/photo/voice backup in each configured directory, verifies that the checksum sidecar exists and contains a well-formed SHA-256 digest, and measures backup age.
+The report covers the private-photo, private-voice-introduction and identity-L3 media purge queues. It returns pending/due/retrying/failed counts, oldest outstanding work and maximum attempts without exposing user IDs or storage paths. It also checks the latest encrypted PostgreSQL/photo/voice/identity-L3 backup in each configured directory, verifies that the checksum sidecar exists and contains a well-formed SHA-256 digest, and measures backup age.
 
 Exit codes are suitable for cron/monitoring integration: `0` healthy, `1` warning, `2` critical or report failure. Defaults warn when a queue has more than 100 pending jobs or its oldest job is at least 60 minutes old; failed L3 purge jobs and work older than 24 hours are critical. Backup age warns at 26 hours and becomes critical at 48 hours. Thresholds are configurable in `scripts/ops-health-report.js`.
 
@@ -55,15 +108,15 @@ The report checks checksum-sidecar presence and format; it deliberately does not
 npm run backup:verify
 ```
 
-This command streams each encrypted archive through SHA-256, compares it with its sidecar (including the expected filename), rejects symlinks and fails on missing/malformed/mismatched artifacts. Exit code `0` means all three backup locations were configured and all matching artifacts verified; `1` means a verification failure; `2` means backup configuration is missing or incomplete. Schedule it after backup creation and before off-site replication; continue to perform isolated restore drills. When `AGE_IDENTITY_FILE` points to a regular, non-symlink age identity, the verifier also streams authenticated decryption directly into `pg_restore --list` for PostgreSQL custom archives or `tar --list` for private-media archives; plaintext is never written to disk. Without that identity the report explicitly returns `cryptographic_validation: not_configured`, so checksum-only verification must not be represented as proof of decryptability or restore readiness.
+This command streams each encrypted archive through SHA-256, compares it with its sidecar (including the expected filename), rejects symlinks and fails on missing/malformed/mismatched artifacts. Exit code `0` means all four backup locations were configured and all matching artifacts verified; `1` means a verification failure; `2` means backup configuration is missing or incomplete. Schedule it after backup creation and before off-site replication; continue to perform isolated restore drills. When `AGE_IDENTITY_FILE` points to a regular, non-symlink age identity, the verifier also streams authenticated decryption directly into `pg_restore --list` for PostgreSQL custom archives or `tar --list` for private-media archives; plaintext is never written to disk. Without that identity the report explicitly returns `cryptographic_validation: not_configured`, so checksum-only verification must not be represented as proof of decryptability or restore readiness.
  An unset backup directory is reported as `not_configured`, not as proof that a backup exists.
 
 Healthchecks.io's Hobbyist plan is $0 and includes 20 monitored jobs, but the provider describes it as intended for personal infrastructure; its FAQ says commercial use is tolerated while expecting businesses to eventually upgrade. Treat it as a development/pre-launch option only unless the provider confirms suitability for Vow. Create one check for the Vow operations report and store its base Ping URL as a secret named `OPS_HEALTHCHECKS_PING_URL` on the trusted scheduler. The report sends a success POST only when healthy and a `/fail` signal for warning/critical results; it sends only aggregate queue counts and backup freshness metadata, not user IDs or filesystem paths. The integration accepts HTTPS URLs on `hc-ping.com` only.
 
-Once all three backup locations are actually configured, set `OPS_REQUIRE_BACKUPS=true` so missing PostgreSQL/photo/voice backup paths become critical instead of `not_configured`. Example protected cron schedule (15-minute cadence):
+Once all four backup locations are actually configured, set `OPS_REQUIRE_BACKUPS=true` so missing PostgreSQL/photo/voice/identity-L3 backup paths become critical instead of `not_configured`. Example protected cron schedule (15-minute cadence):
 
 ```cron
-*/15 * * * * cd /srv/vow && DATABASE_URL='...' OPS_REQUIRE_BACKUPS=true OPS_POSTGRES_BACKUP_DIR=/secure/backups/postgres OPS_PRIVATE_PHOTO_BACKUP_DIR=/secure/backups/photos OPS_PRIVATE_VOICE_BACKUP_DIR=/secure/backups/voice OPS_HEALTHCHECKS_PING_URL='https://hc-ping.com/...' npm run ops:health
+*/15 * * * * cd /srv/vow && DATABASE_URL='...' OPS_REQUIRE_BACKUPS=true OPS_POSTGRES_BACKUP_DIR=/secure/backups/postgres OPS_PRIVATE_PHOTO_BACKUP_DIR=/secure/backups/photos OPS_PRIVATE_VOICE_BACKUP_DIR=/secure/backups/voice OPS_PRIVATE_IDENTITY_L3_BACKUP_DIR=/secure/backups/identity-l3 OPS_HEALTHCHECKS_PING_URL='https://hc-ping.com/...' npm run ops:health
 ```
 
 Configure the Healthchecks check for a 15-minute schedule with a suitable grace period. Do not put the ping URL or database credentials in the repository or command history; use a protected environment file or secret manager. The ping is outbound, so no inbound port or public PostgreSQL access is required.
@@ -268,7 +321,8 @@ Restore both artifacts into isolated targets:
 ```bash
 BACKUP_BUNDLE_DIR=/secure/backups/vow-bundles/<snapshot-id> \
 AGE_IDENTITY_FILE=/secure/escrow/vow-age-identity.txt \
-RESTORE_DATABASE_URL='postgresql://restore_role@db-host/vow_restore_dst_example' \
+RESTORE_DATABASE_URL='postgresql://vow_restore_login_example@db-host/vow_restore_dst_example' \
+RESTORE_OWNER_ROLE='vow_restore_owner_example' \
 RESTORE_CONFIRM_STAGING=I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE \
 RESTORE_DESTINATION=/srv/vow/restore-staging/private-media \
 npm run restore:bundle

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const backupBundleScript = path.join(scriptsDir, 'backup-bundle.sh');
+const admissionScript = path.join(scriptsDir, 'privacy-recovery-admission.sh');
 const restoreBundleScript = path.join(scriptsDir, 'restore-bundle.sh');
 const stagingConfirmation = 'I_UNDERSTAND_THIS_IS_A_DISPOSABLE_STAGING_DATABASE';
 
@@ -26,10 +27,44 @@ function run(command, args, env, timeout = 150_000) {
   return result;
 }
 
-function databaseUrl(databaseName) {
+const sharedGid = 65534;
+const writerUid = process.getuid?.() === 0 ? sharedGid : process.getuid();
+const writerPrimaryGid = process.getgid?.() === 0 ? sharedGid : process.getgid();
+const sudo = process.getuid?.() === 0 ? [] : ['sudo', '-n'];
+
+function rootRun(args) {
+  return spawnSync(sudo.length ? 'sudo' : args[0], sudo.length ? ['-n', ...args] : args.slice(1), { encoding: 'utf8' });
+}
+
+function runAsWriter(command, args, env = {}, timeout = 150_000) {
+  const vars = Object.entries({
+    ...env,
+    PATH: '/usr/lib/postgresql/16/bin:' + (process.env.PATH || ''),
+    PRIVACY_RECOVERY_WRITER_GID: String(sharedGid)
+  }).map(([key, value]) => `${key}=${value}`);
+  const argv = [...sudo, 'setpriv', '--reuid', String(writerUid), '--regid', String(writerPrimaryGid),
+    '--groups', String(sharedGid), '--', 'env', ...vars, command, ...args];
+  const result = spawnSync(argv[0], argv.slice(1), {
+    encoding: 'utf8',
+    timeout,
+    maxBuffer: 4 * 1024 * 1024,
+    env: { ...process.env, PATH: '/usr/lib/postgresql/16/bin:' + (process.env.PATH || '') }
+  });
+  assert.equal(result.status, 0,
+    result.stderr || result.stdout || (command + ' exited with ' + result.status + ' (signal ' + result.signal + ')'));
+  return result;
+}
+
+function databaseUrl(databaseName, roleName, password) {
   const url = new URL(process.env.DATABASE_URL);
   url.pathname = '/' + databaseName;
+  if (roleName) url.username = roleName;
+  if (password) url.password = password;
   return url.toString();
+}
+
+function quoteLiteral(value) {
+  return "'" + value.replaceAll("'", "''") + "'";
 }
 
 function commandAvailable(command) {
@@ -47,18 +82,27 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
   const snapshotId = 'ci_' + suffix;
   const sourceDatabase = 'vow_bundle_src_' + suffix;
   const targetDatabase = 'vow_restore_dst_' + suffix;
+  const ownerRole = 'vow_restore_owner_' + suffix;
+  const restoreRole = 'vow_restore_login_' + suffix;
+  const restorePassword = 'BundleRestore-' + suffix + '-Aa1!';
   const sourceUrl = databaseUrl(sourceDatabase);
-  const targetUrl = databaseUrl(targetDatabase);
+  const targetUrl = databaseUrl(targetDatabase, restoreRole, restorePassword);
+  const targetAdminUrl = databaseUrl(targetDatabase);
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'vow-coordinated-backup-'));
   const backupRoot = path.join(temporaryRoot, 'bundles');
   const mediaRoot = path.join(temporaryRoot, 'private-media');
   const restoredMediaParent = path.join(temporaryRoot, 'restored');
   const restoredMedia = path.join(restoredMediaParent, 'private-media');
   const identityFile = path.join(temporaryRoot, 'age-identity.txt');
+  const lockDir = path.join(temporaryRoot, 'admission');
+  const lockFile = path.join(lockDir, 'writers.lock');
+  const drainFile = path.join(temporaryRoot, 'drain');
   const admin = new Client({ connectionString: process.env.DATABASE_URL });
   let adminConnected = false;
   let sourceCreated = false;
   let targetCreated = false;
+  let ownerRoleCreated = false;
+  let restoreRoleCreated = false;
   let source;
   let target;
 
@@ -69,20 +113,48 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
     const recipient = identity.match(/^# public key: (age1[0-9a-z]+)$/m)?.[1];
     assert.ok(recipient, 'age-keygen must produce an age recipient');
 
+    await writeFile(drainFile, '#!/usr/bin/env bash\nset -eu\nexit 0\n');
+    await chmod(drainFile, 0o700);
+    await mkdir(backupRoot, { mode: 0o700 });
     await mkdir(mediaRoot, { mode: 0o700 });
     await mkdir(path.join(mediaRoot, 'voice'), { recursive: true, mode: 0o700 });
     await mkdir(restoredMediaParent, { mode: 0o700 });
+    const lockDirCreate = rootRun(['install', '-d', '-o', '0', '-g', String(sharedGid), '-m', '2750', lockDir]);
+    assert.equal(lockDirCreate.status, 0, lockDirCreate.stderr);
+    const lockCreate = rootRun(['install', '-o', '0', '-g', String(sharedGid), '-m', '0640', '/dev/null', lockFile]);
+    assert.equal(lockCreate.status, 0, lockCreate.stderr);
+    const drainOwner = rootRun(['chown', '0:0', drainFile]);
+    assert.equal(drainOwner.status, 0, drainOwner.stderr);
+    const drainMode = rootRun(['chmod', '0755', drainFile]);
+    assert.equal(drainMode.status, 0, drainMode.stderr);
+    if (process.getuid?.() === 0) {
+      const rootMode = rootRun(['chmod', '0711', temporaryRoot]);
+      assert.equal(rootMode.status, 0, rootMode.stderr);
+    }
     const photoFixture = Buffer.from('synthetic-private-photo-fixture');
     const voiceFixture = Buffer.from([0, 1, 2, 3, 127, 128, 254, 255]);
     await writeFile(path.join(mediaRoot, 'photo-fixture.bin'), photoFixture, { mode: 0o600 });
     await writeFile(path.join(mediaRoot, 'voice', 'voice-fixture.bin'), voiceFixture, { mode: 0o600 });
+    for (const target of [backupRoot, restoredMediaParent]) {
+      const owner = rootRun(['chown', `${writerUid}:${sharedGid}`, target]);
+      assert.equal(owner.status, 0, owner.stderr);
+    }
+    const mediaOwner = rootRun(['chown', '-R', `${writerUid}:${sharedGid}`, mediaRoot]);
+    assert.equal(mediaOwner.status, 0, mediaOwner.stderr);
 
     await admin.connect();
     adminConnected = true;
     await admin.query('CREATE DATABASE "' + sourceDatabase + '"');
     sourceCreated = true;
-    await admin.query('CREATE DATABASE "' + targetDatabase + '"');
+    await admin.query('CREATE ROLE "' + ownerRole + '" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS');
+    ownerRoleCreated = true;
+    await admin.query('CREATE ROLE "' + restoreRole + '" LOGIN PASSWORD ' + quoteLiteral(restorePassword) + ' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS');
+    restoreRoleCreated = true;
+    await admin.query('GRANT "' + ownerRole + '" TO "' + restoreRole + '" WITH INHERIT FALSE, SET TRUE');
+    await admin.query('CREATE DATABASE "' + targetDatabase + '" OWNER "' + ownerRole + '"');
     targetCreated = true;
+    await admin.query('REVOKE TEMPORARY ON DATABASE "' + targetDatabase + '" FROM PUBLIC');
+    await admin.query('GRANT CONNECT ON DATABASE "' + targetDatabase + '" TO "' + restoreRole + '"');
 
     source = new Client({ connectionString: sourceUrl });
     await source.connect();
@@ -94,13 +166,14 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
     await source.end();
     source = undefined;
 
-    run('bash', [backupBundleScript], {
+    runAsWriter('bash', [admissionScript, 'writer', '--', 'bash', backupBundleScript], {
       DATABASE_URL: sourceUrl,
       PRIVATE_MEDIA_DIR: mediaRoot,
       BACKUP_AGE_RECIPIENT: recipient,
       BACKUP_DIR: backupRoot,
       BACKUP_SNAPSHOT_ID: snapshotId,
-      BACKUP_RETENTION_DAYS: '30'
+      BACKUP_RETENTION_DAYS: '30',
+      PRIVACY_RECOVERY_WRITER_LOCK_FILE: lockFile
     });
     const bundleDir = path.join(backupRoot, snapshotId);
     const manifest = await readFile(path.join(bundleDir, 'manifest.txt'), 'utf8');
@@ -116,16 +189,25 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
       AGE_IDENTITY_FILE: identityFile,
       RESTORE_DATABASE_URL: targetUrl,
       RESTORE_CONFIRM_STAGING: stagingConfirmation,
+      RESTORE_OWNER_ROLE: ownerRole,
       RESTORE_DESTINATION: restoredMedia
     });
 
-    target = new Client({ connectionString: targetUrl });
+    target = new Client({ connectionString: targetAdminUrl });
     await target.connect();
     const rows = await target.query('SELECT id, payload FROM coordinated_restore_fixture ORDER BY id');
     assert.deepEqual(rows.rows, [
       { id: 1, payload: 'database-fixture-one' },
       { id: 2, payload: 'database-fixture-two' }
     ]);
+
+    const owner = await target.query(
+      'SELECT r.rolname, r.rolcanlogin, c.relowner = r.oid AS owns_fixture ' +
+      'FROM pg_roles r CROSS JOIN pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace ' +
+      'WHERE r.rolname = $1 AND n.nspname = \'public\' AND c.relname = \'coordinated_restore_fixture\'',
+      [ownerRole]
+    );
+    assert.deepEqual(owner.rows, [{ rolname: ownerRole, rolcanlogin: false, owns_fixture: true }]);
     await target.end();
     target = undefined;
 
@@ -139,9 +221,12 @@ test('backup artifact pair restores PostgreSQL and private media into isolated s
     if (adminConnected) {
       if (targetCreated) await admin.query('DROP DATABASE IF EXISTS "' + targetDatabase + '" WITH (FORCE)').catch(() => {});
       if (sourceCreated) await admin.query('DROP DATABASE IF EXISTS "' + sourceDatabase + '" WITH (FORCE)').catch(() => {});
+      if (restoreRoleCreated) await admin.query('REVOKE "' + ownerRole + '" FROM "' + restoreRole + '"').catch(() => {});
+      if (restoreRoleCreated) await admin.query('DROP ROLE IF EXISTS "' + restoreRole + '"').catch(() => {});
+      if (ownerRoleCreated) await admin.query('DROP ROLE IF EXISTS "' + ownerRole + '"').catch(() => {});
       await admin.end().catch(() => {});
     }
-    await rm(temporaryRoot, { recursive: true, force: true });
+    rootRun(['rm', '-rf', '--', temporaryRoot]);
   }
 });
 
@@ -192,6 +277,7 @@ test('coordinated restore rejects a tampered encrypted artifact before opening s
         AGE_IDENTITY_FILE: identityFile,
         RESTORE_DATABASE_URL: 'postgres://restore.invalid/never_opened',
         RESTORE_CONFIRM_STAGING: stagingConfirmation,
+        RESTORE_OWNER_ROLE: 'vow_restore_owner_tamper',
         RESTORE_DESTINATION: destination
       }
     });
@@ -242,6 +328,7 @@ test('restore rejects a false atomic-snapshot declaration before touching stagin
         AGE_IDENTITY_FILE: identityFile,
         RESTORE_DATABASE_URL: 'postgres://invalid/staging',
         RESTORE_CONFIRM_STAGING: stagingConfirmation,
+        RESTORE_OWNER_ROLE: 'vow_restore_owner_consistency',
         RESTORE_DESTINATION: destination
       }
     });

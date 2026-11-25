@@ -1,3 +1,5 @@
+import { assertPrivacyRecoveryAdmission } from './privacyRecoveryAdmissionGuard.js';
+assertPrivacyRecoveryAdmission();
 import 'dotenv/config';
 import { lstat, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { queuePrivatePhotoPurges } from './photoPurge.js';
@@ -5,7 +7,7 @@ import { decryptVoiceIntro, encryptVoiceIntro, parseVoiceIntroEncryptionKeyring,
 import { VOICE_INTRO_CONSENT_VERSION, isCurrentVoiceIntroConsentVersion } from './voiceIntroConsent.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency, isAdEventCollectionEnabled } from './adEvents.js';
 import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
@@ -3076,6 +3078,10 @@ app.delete('/api/profiles/me/voice-intro', validateRequestOrigin, requireSession
     }
     if (error?.message === 'account_not_active') {
       return res.status(401).json({ error: 'account_not_active' });
+    }
+    if (error?.message === 'identity_l3_consent_lifecycle_missing_reconciliation_required') {
+      console.error('L3 consent withdrawal requires lifecycle reconciliation:', error.message);
+      return res.status(503).json({ error: 'identity_l3_consent_lifecycle_reconciliation_required' });
     }
     if (String(error?.message || '').startsWith('privacy_recovery_ledger_') ||
         String(error?.message || '').startsWith('privacy_recovery_operation_')) {
@@ -7480,10 +7486,21 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
       : Boolean(current &&
           current.consent_version === expectedConsent.consent_version &&
           current.granted_at === expectedConsent.granted_at &&
-          (current.withdrawn_at === expectedConsent.withdrawn_at ||
-            (!expectedActive && Boolean(current.withdrawn_at))));
+          current.withdrawn_at === expectedConsent.withdrawn_at);
     if (!sameLifecycle || Boolean(current && !current.withdrawn_at) !== expectedActive) {
       throw new Error('identity_l3_consent_state_changed_retry');
+    }
+    if (expectedConsent === null) {
+      const residual = await transactionClient.query(
+        `SELECT
+           (SELECT COUNT(*) FROM identity_l3_upload_tokens WHERE user_id = $1) +
+           (SELECT COUNT(*) FROM identity_l3_submissions WHERE user_id = $1) +
+           (SELECT COUNT(*) FROM identity_l3_media_purge_jobs WHERE user_id = $1) AS residual_count`,
+        [userId]
+      );
+      if (Number(residual.rows[0]?.residual_count || 0) > 0) {
+        throw new Error('identity_l3_consent_lifecycle_missing_reconciliation_required');
+      }
     }
 
     // Revoke every outstanding upload capability before changing submissions.
@@ -7606,71 +7623,61 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
           withdrawn_at: preflight.rows[0].withdrawn_at
         };
     const wasActive = Boolean(expectedConsent && !expectedConsent.withdrawn_at);
+    const failedPurgeSnapshot = await pool.query(
+      `SELECT id::text AS id, updated_at::text AS updated_at
+         FROM identity_l3_media_purge_jobs
+        WHERE user_id = $1 AND status = 'failed'
+        ORDER BY id`,
+      [userId]
+    );
     let result;
 
-    if (!expectedConsent) {
-      // Without a consent lifecycle there is no safe, stable identity for a
-      // withdrawal event. Do not revoke capabilities or alter residual L3 data.
-      const residual = await pool.query(
+    if (expectedConsent && (
+        typeof expectedConsent.granted_at !== 'string' ||
+        expectedConsent.granted_at.length === 0 || expectedConsent.granted_at.length > 64 ||
+        !Number.isSafeInteger(Number(expectedConsent.consent_version)))) {
+      throw new Error('identity_l3_consent_lifecycle_invalid');
+    }
+    const lifecycleGeneration = expectedConsent
+      ? `${expectedConsent.consent_version}:${expectedConsent.granted_at}`
+      : 'missing-consent-lifecycle';
+    const retryGeneration = !wasActive && failedPurgeSnapshot.rowCount > 0
+      ? `:failed-retry:${createHash('sha256')
+          .update(JSON.stringify(failedPurgeSnapshot.rows))
+          .digest('hex')}`
+      : '';
+    const operationId = derivePrivacyRecoveryOperationId({
+      eventType: 'identity_l3_consent_withdrawn',
+      userId,
+      resourceId: 'identity-l3-consent',
+      generation: `${lifecycleGeneration}${retryGeneration}`
+    });
+    const operation = await runAckGatedPrivacyRecoveryOperation({
+      pool,
+      operationId,
+      event: { eventType: 'identity_l3_consent_withdrawn', userId },
+      apply: transactionClient => applyWithdrawal(transactionClient, expectedConsent, wasActive)
+    });
+    if (operation.duplicate) {
+      const counts = await pool.query(
         `SELECT
-           EXISTS (SELECT 1 FROM identity_l3_upload_tokens WHERE user_id = $1) OR
-           EXISTS (SELECT 1 FROM identity_l3_submissions WHERE user_id = $1) OR
-           EXISTS (SELECT 1 FROM identity_l3_media_purge_jobs WHERE user_id = $1)
-           AS has_residual_l3_state`,
+           COUNT(*) FILTER (WHERE status IN ('queued', 'processing'))::int AS pending,
+           COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
+         FROM identity_l3_media_purge_jobs
+        WHERE user_id = $1`,
         [userId]
       );
-      if (residual.rows[0]?.has_residual_l3_state) {
-        throw new Error('identity_l3_consent_lifecycle_missing_reconciliation_required');
-      }
+      const pendingCount = Number(counts.rows[0]?.pending || 0);
+      const failedCount = Number(counts.rows[0]?.failed || 0);
       result = {
-        withdrawn: false,
-        purgeStatus: 'complete',
-        pendingPurgeJobs: 0,
-        failedPurgeJobs: 0,
+        withdrawn: wasActive,
+        purgeStatus: failedCount > 0 ? 'failed' : pendingCount > 0 ? 'pending' : 'complete',
+        pendingPurgeJobs: pendingCount,
+        failedPurgeJobs: failedCount,
         requeuedFailedJobs: 0
       };
     } else {
-      if (typeof expectedConsent.granted_at !== 'string' ||
-          expectedConsent.granted_at.length === 0 || expectedConsent.granted_at.length > 64 ||
-          !Number.isSafeInteger(Number(expectedConsent.consent_version))) {
-        throw new Error('identity_l3_consent_lifecycle_invalid');
-      }
-      // Both first-time withdrawal and retry/cleanup of an already-withdrawn
-      // lifecycle require the same durable Ledger ACK. The operation ID is
-      // lifecycle-stable, so retries cannot manufacture a second event.
-      const operationId = derivePrivacyRecoveryOperationId({
-        eventType: 'identity_l3_consent_withdrawn',
-        userId,
-        resourceId: 'identity-l3-consent',
-        generation: `${expectedConsent.consent_version}:${expectedConsent.granted_at}`
-      });
-      const operation = await runAckGatedPrivacyRecoveryOperation({
-        pool,
-        operationId,
-        event: { eventType: 'identity_l3_consent_withdrawn', userId },
-        apply: transactionClient => applyWithdrawal(transactionClient, expectedConsent, wasActive),
-        applyDuplicate: transactionClient => applyWithdrawal(transactionClient, expectedConsent, false)
-      });
       result = operation.result;
-      if (!result) {
-        const counts = await pool.query(
-          `SELECT
-             COUNT(*) FILTER (WHERE status IN ('queued', 'processing'))::int AS pending,
-             COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
-             FROM identity_l3_media_purge_jobs
-            WHERE user_id = $1`,
-          [userId]
-        );
-        const pending = Number(counts.rows[0]?.pending || 0);
-        const failed = Number(counts.rows[0]?.failed || 0);
-        result = {
-          withdrawn: wasActive,
-          purgeStatus: failed > 0 ? 'failed' : pending > 0 ? 'pending' : 'complete',
-          pendingPurgeJobs: pending,
-          failedPurgeJobs: failed,
-          requeuedFailedJobs: 0
-        };
-      }
     }
 
     return res.json({
@@ -7689,9 +7696,6 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
     }
     if (error?.message === 'account_not_active') {
       return res.status(401).json({ error: 'account_not_active' });
-    }
-    if (error?.message === 'identity_l3_consent_lifecycle_missing_reconciliation_required') {
-      return res.status(503).json({ error: 'identity_l3_consent_lifecycle_reconciliation_required' });
     }
     if (String(error?.message || '').startsWith('privacy_recovery_ledger_') ||
         String(error?.message || '').startsWith('privacy_recovery_operation_')) {

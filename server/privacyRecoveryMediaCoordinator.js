@@ -8,7 +8,8 @@ const SUPPORTED_MEDIA_EVENTS = new Set([
   'private_photo_erasure_requested',
   'voice_intro_erasure_requested',
   'voice_intro_consent_withdrawn',
-  'identity_l3_consent_withdrawn'
+  'identity_l3_consent_withdrawn',
+  'gift_address_draft_consent_withdrawn'
 ]);
 
 function assertIsolatedRestore(env) {

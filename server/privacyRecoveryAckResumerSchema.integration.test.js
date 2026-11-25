@@ -220,6 +220,129 @@ test('PostgreSQL ACK saga accepts address-draft withdrawal only with its pseudon
        VALUES ($1, $1, $2::jsonb)`,
       [operationId, JSON.stringify(payload)]
     );
+
+    const migrationConstraints = await client.query(
+      `SELECT conname
+         FROM pg_constraint
+        WHERE conrelid = 'privacy_recovery_operations'::regclass
+          AND conname IN (
+            'privacy_recovery_operations_event_type_check',
+            'privacy_recovery_operations_draft_resource_check'
+          )
+        ORDER BY conname`
+    );
+    assert.deepEqual(migrationConstraints.rows.map(row => row.conname), [
+      'privacy_recovery_operations_draft_resource_check',
+      'privacy_recovery_operations_event_type_check'
+    ], 'migration 247 must install explicit event-type and address-draft resource constraints');
+
+    const requiredPayloadConstraint = await client.query(
+      `SELECT conname FROM pg_constraint
+        WHERE conrelid = 'privacy_recovery_operations'::regclass
+          AND conname = 'privacy_recovery_operations_required_payload_fields_check'`
+    );
+    assert.equal(requiredPayloadConstraint.rowCount, 1,
+      'migration 249 must require identity, schema version, subject and timestamp fields');
+
+    const ackMetadataConstraint = await client.query(
+      `SELECT conname FROM pg_constraint
+        WHERE conrelid = 'privacy_recovery_operations'::regclass
+          AND conname = 'privacy_recovery_operations_ack_metadata_required_check'`
+    );
+    assert.equal(ackMetadataConstraint.rowCount, 1,
+      'migration 250 must require a ledger sequence and acknowledgement timestamp');
+
+    for (const invalidAck of [
+      { status: 'acknowledged', ledger_sequence: null, acknowledged_at: '2026-11-18T08:00:00.000Z', applied_at: null },
+      { status: 'acknowledged', ledger_sequence: 19, acknowledged_at: null, applied_at: null },
+      { status: 'applied', ledger_sequence: null, acknowledged_at: '2026-11-18T08:00:00.000Z', applied_at: '2026-11-18T08:01:00.000Z' }
+    ]) {
+      const invalidId = randomUUID();
+      const savepoint = `invalid_ack_metadata_${invalidId.replaceAll('-', '')}`;
+      await client.query(`SAVEPOINT ${savepoint}`);
+      await assert.rejects(
+        client.query(
+          `INSERT INTO privacy_recovery_operations
+             (operation_id, event_id, event_payload, status, ledger_sequence, acknowledged_at, applied_at)
+           VALUES ($1, $1, $2::jsonb, $3, $4, $5, $6)`,
+          [
+            invalidId,
+            JSON.stringify({ ...payload, event_id: invalidId }),
+            invalidAck.status,
+            invalidAck.ledger_sequence,
+            invalidAck.acknowledged_at,
+            invalidAck.applied_at
+          ]
+        ),
+        error => error.code === '23514',
+        `ACK saga must reject incomplete metadata for ${invalidAck.status} operations`
+      );
+      await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+    }
+
+    const unsupportedId = randomUUID();
+    await client.query('SAVEPOINT unsupported_event');
+    await assert.rejects(
+      client.query(
+        `INSERT INTO privacy_recovery_operations (operation_id, event_id, event_payload)
+         VALUES ($1, $1, $2::jsonb)`,
+        [unsupportedId, JSON.stringify({
+          ...payload, event_id: unsupportedId, event_type: 'unrecognized_privacy_event'
+        })]
+      ),
+      error => error.code === '23514',
+      'ACK saga must reject event types outside its allowlist'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT unsupported_event');
+
+    const missingEventTypeId = randomUUID();
+    await client.query('SAVEPOINT missing_event_type');
+    await assert.rejects(
+      client.query(
+        `INSERT INTO privacy_recovery_operations (operation_id, event_id, event_payload)
+         VALUES ($1, $1, $2::jsonb)`,
+        [missingEventTypeId, JSON.stringify({
+          ...payload, event_id: missingEventTypeId, event_type: undefined
+        })]
+      ),
+      error => error.code === '23514',
+      'ACK saga must reject payloads that omit event_type'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT missing_event_type');
+
+    for (const field of ['event_id', 'schema_version', 'subject_ref']) {
+      const invalidId = randomUUID();
+      const invalidPayload = { ...payload, event_id: invalidId };
+      delete invalidPayload[field];
+      const savepoint = `missing_required_${field}`;
+      await client.query(`SAVEPOINT ${savepoint}`);
+      await assert.rejects(
+        client.query(
+          `INSERT INTO privacy_recovery_operations (operation_id, event_id, event_payload)
+           VALUES ($1, $1, $2::jsonb)`,
+          [invalidId, JSON.stringify(invalidPayload)]
+        ),
+        error => error.code === '23514',
+        `ACK saga must reject payloads missing ${field}`
+      );
+      await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+    }
+
+    const malformedId = randomUUID();
+    await client.query('SAVEPOINT malformed_resource');
+    await assert.rejects(
+      client.query(
+        `INSERT INTO privacy_recovery_operations (operation_id, event_id, event_payload)
+         VALUES ($1, $1, $2::jsonb)`,
+        [malformedId, JSON.stringify({
+          ...payload, event_id: malformedId, resource_ref: 'z'.repeat(64)
+        })]
+      ),
+      error => error.code === '23514',
+      'address-draft resource reference must be 64 lowercase hexadecimal characters'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT malformed_resource');
+
     await client.query('SAVEPOINT missing_resource');
     await assert.rejects(
       client.query(
@@ -236,5 +359,89 @@ test('PostgreSQL ACK saga accepts address-draft withdrawal only with its pseudon
   } finally {
     client.release();
     await db.end();
+  }
+});
+
+
+test('expired ACK lease takeover is safe when the stale worker returns after the replacement worker ACKs', {
+  skip: !process.env.DATABASE_URL,
+  timeout: 30_000
+}, async () => {
+  const db = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
+  const ledger = await startTestPrivacyRecoveryLedger();
+  const operationId = randomUUID();
+  const payload = {
+    event_id: operationId,
+    schema_version: 1,
+    event_type: 'private_photo_erasure_requested',
+    subject_ref: 'f'.repeat(64),
+    resource_ref: 'e'.repeat(64),
+    occurred_at: '2026-11-20T08:00:00.000Z'
+  };
+  const env = {
+    NODE_ENV: 'test',
+    PRIVACY_RECOVERY_LEDGER_REQUIRED: 'true',
+    PRIVACY_RECOVERY_LEDGER_URL: ledger.url,
+    PRIVACY_RECOVERY_LEDGER_HMAC_SECRET: 'test-ledger-hmac-secret-'.padEnd(40, 'x')
+  };
+  let signalFirstFetch;
+  const firstFetchStarted = new Promise(resolve => { signalFirstFetch = resolve; });
+  let releaseFirstFetch;
+  const firstFetchGate = new Promise(resolve => { releaseFirstFetch = resolve; });
+
+  try {
+    await db.query(
+      `INSERT INTO privacy_recovery_operations (operation_id, event_id, event_payload)
+       VALUES ($1, $1, $2::jsonb)`,
+      [operationId, JSON.stringify(payload)]
+    );
+
+    const staleWorker = resumePendingPrivacyRecoveryLedgerAcks({
+      pool: db, env, operationIds: [operationId], leaseMs: 10_000,
+      fetchImpl: async (url, options) => {
+        signalFirstFetch();
+        await firstFetchGate;
+        return fetch(url, options);
+      }
+    });
+    await firstFetchStarted;
+
+    // Simulate the first process being paused beyond its lease while its HTTP
+    // request is still in flight. A replacement worker may now claim the row.
+    await db.query(
+      `UPDATE privacy_recovery_operations
+          SET ack_lease_expires_at = statement_timestamp() - INTERVAL '1 second'
+        WHERE operation_id = $1`,
+      [operationId]
+    );
+
+    const replacement = await resumePendingPrivacyRecoveryLedgerAcks({
+      pool: db, env, operationIds: [operationId], fetchImpl: fetch
+    });
+    assert.deepEqual(replacement, { claimed: 1, acknowledged: 1, deferred: 0, leaseLost: 0 });
+
+    releaseFirstFetch();
+    const staleResult = await staleWorker;
+    assert.deepEqual(staleResult, { claimed: 1, acknowledged: 0, deferred: 0, leaseLost: 1 },
+      'the expired worker must not overwrite the replacement worker ACK');
+
+    const stored = await db.query(
+      `SELECT status, ledger_sequence, ack_attempts, ack_lease_token
+         FROM privacy_recovery_operations WHERE operation_id = $1`,
+      [operationId]
+    );
+    assert.deepEqual(stored.rows[0], {
+      status: 'acknowledged',
+      ledger_sequence: '1',
+      ack_attempts: 2,
+      ack_lease_token: null
+    });
+    assert.equal(ledger.events.length, 1,
+      'both deliveries must resolve to one durable Ledger event and sequence');
+  } finally {
+    releaseFirstFetch?.();
+    await db.query('DELETE FROM privacy_recovery_operations WHERE operation_id = $1', [operationId]).catch(() => {});
+    await db.end();
+    await ledger.close().catch(() => {});
   }
 });

@@ -6,17 +6,20 @@ COPY . .
 RUN npm run build
 
 FROM node:22-alpine AS api
-RUN apk add --no-cache ffmpeg
+RUN apk add --no-cache bash coreutils ffmpeg util-linux
 ENV NODE_ENV=production
+ENV PRIVACY_RECOVERY_REQUIRE_ADMISSION=true
+ENV PRIVACY_RECOVERY_WRITER_LOCK_FILE=/run/vow-privacy/writers.lock
 WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 COPY server ./server
 COPY scripts ./scripts
-RUN mkdir -p /app/uploads/private-photos /app/uploads/private-identity-l3 /app/uploads/private-voice-intros /run/identity-l3-tmp && chmod 700 /app/uploads/private-identity-l3 /run/identity-l3-tmp && chown -R node:node /app /run/identity-l3-tmp
+RUN mkdir -p /app/uploads/private-photos /app/uploads/private-identity-l3 /app/uploads/private-voice-intros /run/identity-l3-tmp && chmod 700 /app/uploads/private-identity-l3 /run/identity-l3-tmp && chown -R node:node /app/uploads /run/identity-l3-tmp
 USER node
+ENTRYPOINT ["bash", "scripts/privacy-recovery-admission.sh", "writer", "--"]
 EXPOSE 3001
-CMD ["npm", "run", "start:api"]
+CMD ["node", "server/index.js"]
 
 FROM nginx:1.28-alpine AS web
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf

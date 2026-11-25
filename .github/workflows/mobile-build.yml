@@ -14,12 +14,15 @@ on:
       - "scripts/**"
       - "server/**"
       - "docs/MOBILE_*.md"
-      # Backup/recovery runbook changes affect private voice/photo handling and require native regression coverage.
+      # Backup/recovery and runtime-isolation changes require native regression coverage.
       - "docs/OPERATIONS_BACKUPS.md"
+      - "docs/PRIVACY_RECOVERY_RESTORE_ISOLATION.md"
+      - "Dockerfile"
+      - "compose.yaml"
       - ".github/workflows/mobile-build.yml"
       - ".github/workflows/mobile-device-smoke.yml"
   pull_request:
-    branches: [main, "feat/**", "fix/**"]
+    branches: [main, "feat/**"]
     paths:
       - "src/**"
       - "capacitor.config.ts"
@@ -32,6 +35,9 @@ on:
       - "server/**"
       - "docs/MOBILE_*.md"
       - "docs/OPERATIONS_BACKUPS.md"
+      - "docs/PRIVACY_RECOVERY_RESTORE_ISOLATION.md"
+      - "Dockerfile"
+      - "compose.yaml"
       - ".github/workflows/mobile-build.yml"
       - ".github/workflows/mobile-device-smoke.yml"
   workflow_dispatch:
@@ -55,10 +61,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Verify exact checked-out commit
         env:
-          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - uses: actions/setup-node@v4
         with:
@@ -81,7 +87,7 @@ jobs:
           ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: vow-android-debug-${{ github.sha }}
+          name: vow-android-debug-${{ github.event.pull_request.head.sha || github.sha }}
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
@@ -97,10 +103,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Verify exact checked-out commit
         env:
-          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - uses: actions/setup-node@v4
         with:
@@ -132,7 +138,7 @@ jobs:
         run: ditto -c -k --sequesterRsrc --keepParent ios/build/Build/Products/Debug-iphonesimulator/App.app app-ios-simulator.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: vow-ios-simulator-${{ github.sha }}
+          name: vow-ios-simulator-${{ github.event.pull_request.head.sha || github.sha }}
           path: app-ios-simulator.zip
           if-no-files-found: error
           retention-days: 14

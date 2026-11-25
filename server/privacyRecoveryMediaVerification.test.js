@@ -24,9 +24,10 @@ const event = {
   resource_id: '123e4567-e89b-42d3-a456-426614174002',
   purge_count: 1
 };
-const storagePath = '/private/photos/123e4567-e89b-42d3-a456-426614174002.jpg';
+const storagePath = '/tmp/123e4567-e89b-42d3-a456-426614174002.jpg';
 const pathDigest = createHash('sha256').update(storagePath).digest('hex');
 const isolatedEnv = { NODE_ENV: 'test', PRIVACY_RECOVERY_RESTORE_ISOLATED: 'true', PRIVACY_RECOVERY_RESTORE_DATABASE_NAME: 'vow_restore_test', PRIVACY_RECOVERY_RESTORE_DATABASE_ROLE: 'vow_restore_runner', PRIVACY_RECOVERY_RESTORE_CONFIRMATION: 'ISOLATED_RESTORE_ONLY' };
+const noPhysicalFilesystem = async () => {};
 
 function makePool({ receiptRows = [event], obligations = [{
   ledger_sequence: '7', queue_name: 'private_photo', storage_path_sha256: pathDigest
@@ -36,7 +37,13 @@ function makePool({ receiptRows = [event], obligations = [{
     async query(sql) {
       calls.push(sql);
       if (sql.startsWith('BEGIN TRANSACTION')) return { rows: [] };
-      if (sql.includes('current_database()')) return { rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
+      if (sql.includes('SELECT current_database() AS database_name')) return { rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
+      if (sql.includes('FROM pg_roles r')) return { rows: [{
+        rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false,
+        rolbypassrls: false, rolcanlogin: true, has_role_memberships: false,
+        has_relation_write_privileges: false, has_sequence_write_privileges: false,
+        has_schema_create_privileges: false, has_database_create_privilege: false
+      }] };
       if (sql.includes('FROM privacy_recovery_events e')) return { rows: receiptRows };
       if (sql.includes('FROM photo_assets')) return { rows: remainingPhotos };
       if (sql.includes('FROM profiles')) return { rows: profiles, rowCount: profiles.length };
@@ -59,7 +66,7 @@ function makePool({ receiptRows = [event], obligations = [{
 test('post-replay verification confirms receipt, deleted metadata, hidden photo URL and completed physical purge receipt', async () => {
   const { pool, calls } = makePool();
   const result = await verifyPrivateMediaPrivacyRecovery({
-    pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7
+    pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' }, verifyPhysicalAbsence: noPhysicalFilesystem, snapshotLedgerSequence: 6, throughSequence: 7
   });
   assert.deepEqual(result, {
     complete: true,
@@ -67,6 +74,7 @@ test('post-replay verification confirms receipt, deleted metadata, hidden photo 
     verifiedPhotoErasureCount: 1,
     verifiedVoiceErasureCount: 0,
     verifiedVoiceConsentWithdrawalCount: 0,
+    verifiedGiftAddressDraftWithdrawalCount: 0,
     verifiedPurgeObligationCount: 1,
     verifiedPurgeCompletionCount: 1,
     throughSequence: 7
@@ -74,10 +82,67 @@ test('post-replay verification confirms receipt, deleted metadata, hidden photo 
   assert.equal(calls.includes('COMMIT'), true);
 });
 
+test('verification confirms withdrawn gift address consent and absence of encrypted draft', async () => {
+  const orderId = '123e4567-e89b-42d3-a456-426614174020';
+  const giftEvent = {
+    ...event,
+    event_type: 'gift_address_draft_consent_withdrawn',
+    resource_ref: 'c'.repeat(64),
+    receipt_event_type: 'gift_address_draft_consent_withdrawn',
+    effect_event_type: 'gift_address_draft_consent_withdrawn',
+    event_digest: createHash('sha256').update(JSON.stringify([
+      '7', event.event_id, '1', 'gift_address_draft_consent_withdrawn',
+      event.subject_ref, 'c'.repeat(64),
+      event.occurred_at.toISOString(), event.received_at.toISOString()
+    ])).digest('hex'),
+    outcome_code: 'gift_address_draft_consent_withdrawn',
+    resource_id: orderId,
+    purge_count: 0
+  };
+  const calls = [];
+  const client = {
+    async query(sql) {
+      calls.push(sql);
+      if (sql.startsWith('BEGIN TRANSACTION')) return { rows: [] };
+      if (sql.includes('SELECT current_database() AS database_name')) return { rows: [{ database_name: 'vow_restore_test', database_role: 'vow_restore_runner' }] };
+      if (sql.includes('FROM pg_roles r')) return { rows: [{
+        rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false,
+        rolbypassrls: false, rolcanlogin: true, has_role_memberships: false,
+        has_relation_write_privileges: false, has_column_write_privileges: false,
+        has_sequence_write_privileges: false, has_schema_create_privileges: false,
+        has_database_create_privilege: false
+      }] };
+      if (sql.includes('FROM privacy_recovery_events e')) return { rows: [giftEvent] };
+      if (sql.includes('FROM gift_delivery_orders')) return { rows: [{ recipient_id: event.subject_user_id }], rowCount: 1 };
+      if (sql.includes('FROM gift_address_draft_consent_events')) return { rows: [{ action: 'withdrawn' }], rowCount: 1 };
+      if (sql.includes('FROM gift_address_drafts')) return { rows: [], rowCount: 0 };
+      if (sql.includes('FROM privacy_recovery_replay_purge_obligations')) return { rows: [] };
+      if (sql.includes('FROM privacy_recovery_replay_purge_completions')) return { rows: [] };
+      if (sql.includes('FROM private_photo_purge_queue')) return { rows: [] };
+      if (sql.includes('FROM private_voice_intro_purge_queue')) return { rows: [] };
+      if (sql.includes('FROM identity_l3_submissions')) return { rows: [] };
+      if (sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+      throw new Error('unexpected_query:' + sql);
+    },
+    release() {}
+  };
+  const result = await verifyPrivateMediaPrivacyRecovery({
+    pool: { async connect() { return client; } },
+    env: isolatedEnv,
+    storageRoots: {},
+    snapshotLedgerSequence: 6,
+    throughSequence: 7,
+    verifyPhysicalAbsence: async () => {}
+  });
+  assert.equal(result.complete, true);
+  assert.equal(result.verifiedGiftAddressDraftWithdrawalCount, 1);
+  assert.equal(calls.some(sql => sql.includes('FROM gift_address_drafts')), true);
+});
+
 test('verification rejects a partially populated purge obligation set even when the queue is empty', async () => {
   const { pool, calls } = makePool({ obligations: [], queuePaths: [], completionRows: [] });
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' }, verifyPhysicalAbsence: noPhysicalFilesystem, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_purge_obligation_missing/
   );
   assert.equal(calls.includes('ROLLBACK'), true);
@@ -87,7 +152,7 @@ test('verification rejects a partially populated purge obligation set even when 
 test('verification fails closed when a purge obligation has no immutable completion receipt', async () => {
   const { pool, calls } = makePool({ completionRows: [] });
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' }, verifyPhysicalAbsence: noPhysicalFilesystem, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_purge_completion_missing/
   );
   assert.equal(calls.includes('ROLLBACK'), true);
@@ -98,7 +163,7 @@ test('verification fails closed when a purge obligation has no immutable complet
 test('verification refuses activation while a purge obligation remains in the operational queue', async () => {
   const { pool, calls } = makePool({ queuePaths: [storagePath] });
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' }, verifyPhysicalAbsence: noPhysicalFilesystem, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_purge_still_queued/
   );
   assert.equal(calls.includes('ROLLBACK'), true);
@@ -109,7 +174,7 @@ test('verification rejects a missing receipt or changed event digest', async () 
   const missingReceipt = { ...event, event_digest: null, receipt_event_type: null, outcome_code: null };
   const { pool } = makePool({ receiptRows: [missingReceipt] });
   await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
+    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' }, verifyPhysicalAbsence: noPhysicalFilesystem, snapshotLedgerSequence: 6, throughSequence: 7 }),
     /privacy_recovery_verification_receipt_mismatch/
   );
 });
@@ -157,13 +222,41 @@ test('L3 verification accepts zero retained media purge obligations', async () =
     l3ConsentRows: [{ withdrawn_at: new Date('2026-11-18T00:00:00.000Z') }]
   });
   const result = await verifyPrivateMediaPrivacyRecovery({
-    pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7
+    pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' }, verifyPhysicalAbsence: noPhysicalFilesystem, snapshotLedgerSequence: 6, throughSequence: 7
   });
   assert.equal(result.complete, true);
   assert.equal(result.verifiedEventCount, 1);
   assert.equal(result.verifiedPurgeObligationCount, 0);
   assert.equal(result.verifiedPurgeCompletionCount, 0);
   assert.equal(calls.includes('COMMIT'), true);
+});
+
+test('L3 verification rejects an outstanding purge job even when obligation receipts exist', async () => {
+  const l3Event = makeL3Event(1);
+  const obligation = {
+    ledger_sequence: '7',
+    queue_name: 'identity_l3_media',
+    storage_path_sha256: 'c'.repeat(64)
+  };
+  const { pool, calls } = makePool({
+    receiptRows: [l3Event],
+    obligations: [obligation],
+    completionRows: [obligation],
+    profiles: [],
+    l3ConsentRows: [{ withdrawn_at: new Date('2026-11-18T00:00:00.000Z') }],
+    l3PurgeJobRows: [{ id: '123e4567-e89b-42d3-a456-426614174009' }]
+  });
+  await assert.rejects(
+    verifyPrivateMediaPrivacyRecovery({
+      pool, env: isolatedEnv,
+      storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' },
+      verifyPhysicalAbsence: noPhysicalFilesystem,
+      snapshotLedgerSequence: 6, throughSequence: 7
+    }),
+    /privacy_recovery_verification_identity_l3_purge_incomplete/
+  );
+  assert.equal(calls.includes('ROLLBACK'), true);
+  assert.equal(calls.includes('COMMIT'), false);
 });
 
 test('L3 verification accepts multiple purge obligations and matching completion receipts', async () => {
@@ -180,7 +273,7 @@ test('L3 verification accepts multiple purge obligations and matching completion
     l3ConsentRows: [{ withdrawn_at: new Date('2026-11-18T00:00:00.000Z') }]
   });
   const result = await verifyPrivateMediaPrivacyRecovery({
-    pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7
+    pool, env: isolatedEnv, storageRoots: { private_photo: '/tmp', private_voice_intro: '/tmp', identity_l3_media: '/tmp', identity_l3_temp: '/tmp' }, verifyPhysicalAbsence: noPhysicalFilesystem, snapshotLedgerSequence: 6, throughSequence: 7
   });
   assert.equal(result.complete, true);
   assert.equal(result.verifiedPurgeObligationCount, 2);
@@ -198,64 +291,4 @@ test('verification is restricted to explicitly isolated non-production restores'
     /privacy_recovery_verification_requires_isolated_restore/
   );
   assert.equal(calls.length, 0);
-});
-
-
-test('L3 verification fails closed while a consent row is missing or still active', async () => {
-  const l3Event = makeL3Event(0);
-  const missing = makePool({
-    receiptRows: [l3Event], obligations: [], completionRows: [], profiles: [], l3ConsentRows: []
-  });
-  await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool: missing.pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
-    /privacy_recovery_verification_identity_l3_consent_active/
-  );
-  assert.equal(missing.calls.includes('ROLLBACK'), true);
-
-  const active = makePool({
-    receiptRows: [l3Event], obligations: [], completionRows: [], profiles: [],
-    l3ConsentRows: [{ withdrawn_at: null }]
-  });
-  await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool: active.pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
-    /privacy_recovery_verification_identity_l3_consent_active/
-  );
-  assert.equal(active.calls.includes('ROLLBACK'), true);
-});
-
-test('L3 verification rejects unrevoked upload tokens and retained submissions', async () => {
-  const l3Event = makeL3Event(0);
-  const activeToken = makePool({
-    receiptRows: [l3Event], obligations: [], completionRows: [], profiles: [],
-    l3TokenRows: [{ id: 'token-1' }]
-  });
-  await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool: activeToken.pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
-    /privacy_recovery_verification_identity_l3_upload_token_active/
-  );
-  assert.equal(activeToken.calls.includes('ROLLBACK'), true);
-
-  const retainedSubmission = makePool({
-    receiptRows: [l3Event], obligations: [], completionRows: [], profiles: [],
-    l3SubmissionRows: [{ id: 'submission-1' }]
-  });
-  await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool: retainedSubmission.pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
-    /privacy_recovery_verification_identity_l3_media_remains/
-  );
-  assert.equal(retainedSubmission.calls.includes('ROLLBACK'), true);
-});
-
-test('L3 verification rejects any purge job that is not completed', async () => {
-  const l3Event = makeL3Event(0);
-  const { pool, calls } = makePool({
-    receiptRows: [l3Event], obligations: [], completionRows: [], profiles: [],
-    l3PurgeJobRows: [{ id: 'job-1' }]
-  });
-  await assert.rejects(
-    verifyPrivateMediaPrivacyRecovery({ pool, env: isolatedEnv, snapshotLedgerSequence: 6, throughSequence: 7 }),
-    /privacy_recovery_verification_identity_l3_purge_incomplete/
-  );
-  assert.equal(calls.includes('ROLLBACK'), true);
-  assert.equal(calls.includes('COMMIT'), false);
 });

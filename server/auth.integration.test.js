@@ -4650,10 +4650,6 @@ test('auth API supports registration, session lookup, logout and login', {
           method: 'DELETE',
           headers: { Cookie: secondCookie }
         });
-        // Unlike shares the profile-action limiter with the preceding stale
-        // profile requests. Reset only this isolated test-IP bucket after those
-        // requests have passed the limiter so the race reaches the account lock.
-        await deletionSafetyDb.query("DELETE FROM api_rate_limit_counters WHERE key LIKE 'profile:%'");
         staleUnlikePromise = request(`/api/likes/${maleRegistered.user.id}`, {
           method: 'DELETE',
           headers: { Cookie: secondCookie }
@@ -4768,7 +4764,7 @@ test('auth API supports registration, session lookup, logout and login', {
       assert.equal(staleUnblock.status, 401,
         'a stale session must not mutate block relationships after account deletion');
       assert.ok([401, 402].includes(staleUnlike.status),
-        `a stale session must not mutate likes after account deletion (HTTP ${staleUnlike.status})`);
+        'a stale session must not mutate likes after account deletion');
       const staleLoginSessions = await deletionSafetyDb.query(
         'SELECT COUNT(*)::int AS count FROM sessions WHERE user_id = $1',
         [registered.user.id]

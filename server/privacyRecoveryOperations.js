@@ -97,11 +97,9 @@ async function persistIntent(pool, operationId, payload) {
  * this transaction; it must not perform external side effects.
  */
 export async function runAckGatedPrivacyRecoveryOperation({
-  pool, operationId, event, apply, applyDuplicate = null,
-  env = process.env, fetchImpl = globalThis.fetch, now = Date.now
+  pool, operationId, event, apply, env = process.env, fetchImpl = globalThis.fetch, now = Date.now
 }) {
-  if (!pool || typeof pool.connect !== 'function' || typeof apply !== 'function' ||
-      (applyDuplicate !== null && typeof applyDuplicate !== 'function')) {
+  if (!pool || typeof pool.connect !== 'function' || typeof apply !== 'function') {
     throw new TypeError('privacy_recovery_operation_dependencies_invalid');
   }
   assertUuid(operationId);
@@ -185,20 +183,8 @@ export async function runAckGatedPrivacyRecoveryOperation({
       if (locked.rowCount !== 1) throw new Error('privacy_recovery_operation_intent_missing');
       const operation = locked.rows[0];
       if (operation.status === 'applied') {
-        // A caller may perform a narrowly scoped, retry-safe follow-up for
-        // obligations created by this already-ACKed lifecycle (for example,
-        // requeueing a failed physical purge). The durable ACK remains the
-        // authorization boundary; the callback still runs under this row lock
-        // and the same PostgreSQL transaction.
-        const result = applyDuplicate ? await applyDuplicate(client) : undefined;
         await client.query('COMMIT');
-        return {
-          operationId,
-          applied: true,
-          duplicate: true,
-          sequence: Number(operation.ledger_sequence),
-          ...(result === undefined ? {} : { result })
-        };
+        return { operationId, applied: true, duplicate: true, sequence: Number(operation.ledger_sequence) };
       }
       if (operation.status !== 'acknowledged') {
         throw new Error('privacy_recovery_operation_ack_required');

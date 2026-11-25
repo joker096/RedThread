@@ -9,7 +9,8 @@ import { pathToFileURL } from 'node:url';
 const BACKUP_SETS = Object.freeze([
   { name: 'postgres', directoryEnv: 'OPS_POSTGRES_BACKUP_DIR', pattern: /^vow-postgres-.*\.dump\.age$/ },
   { name: 'privatePhoto', directoryEnv: 'OPS_PRIVATE_PHOTO_BACKUP_DIR', pattern: /^vow-private-media-.*\.tar\.age$/ },
-  { name: 'privateVoice', directoryEnv: 'OPS_PRIVATE_VOICE_BACKUP_DIR', pattern: /^vow-private-media-.*\.tar\.age$/ }
+  { name: 'privateVoice', directoryEnv: 'OPS_PRIVATE_VOICE_BACKUP_DIR', pattern: /^vow-private-media-.*\.tar\.age$/ },
+  { name: 'identityL3', directoryEnv: 'OPS_PRIVATE_IDENTITY_L3_BACKUP_DIR', pattern: /^vow-private-media-.*\.tar\.age$/ }
 ]);
 
 async function sha256File(filePath) {

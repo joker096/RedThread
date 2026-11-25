@@ -20,6 +20,7 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
   const ttlOrderId = randomUUID();
   const accountDeleteOrderId = randomUUID();
   const matchPurgeOrderId = randomUUID();
+  const auditActorId = randomUUID();
   try {
     const installed = await client.query(`
       SELECT
@@ -38,6 +39,14 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
       account_purge: true, match_purge: true, block_purge: true,
       report_purge: true, screening_purge: true
     });
+
+    const consentActorConstraint = await client.query(
+      `SELECT conname FROM pg_constraint
+        WHERE conrelid = 'gift_address_draft_consent_events'::regclass
+          AND conname = 'gift_address_draft_consent_grant_actor_required_check'`
+    );
+    assert.equal(consentActorConstraint.rowCount, 1,
+      'migration 251 must require a recipient actor for granted consent');
 
     await client.query('BEGIN');
     await client.query(
@@ -68,6 +77,20 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
         [id, recipientId]
       );
     }
+
+    await client.query('SAVEPOINT missing_consent_actor');
+    await assert.rejects(
+      client.query(
+        `INSERT INTO gift_address_draft_consent_events
+           (order_id, recipient_user_id, consent_version, action, actor_user_id)
+         VALUES ($1, $2, 1, 'granted', NULL)`,
+        [orderId, recipientId]
+      ),
+      error => error.code === '23514',
+      'granted consent must not pass with a missing actor'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT missing_consent_actor');
+    await client.query('RELEASE SAVEPOINT missing_consent_actor');
 
     const nonce = Buffer.alloc(12, 11);
     const tag = Buffer.alloc(16, 12);
@@ -280,17 +303,99 @@ test('temporary gift address drafts are isolated, consent-bound, and purged on s
     ]);
     assert.equal(deletedDraft.rowCount, 0, 'account tombstoning must delete temporary ciphertext');
     assert.equal(deletedConsent.rows[0].action, 'withdrawn');
+
+    // A non-recipient actor can be erased without rewriting immutable consent history.
+    await client.query('BEGIN');
+    await client.query(
+      "INSERT INTO users (id, email, role, status, email_verified_at) VALUES ($1, $2, 'member', 'active', NOW())",
+      [auditActorId, `draft-audit-actor-${auditActorId}@example.invalid`]
+    );
+    await client.query(
+      `INSERT INTO gift_address_draft_consent_events
+         (order_id, recipient_user_id, consent_version, action, actor_user_id)
+       VALUES ($1, $2, 1, 'withdrawn', $3)`,
+      [accountDeleteOrderId, recipientId, auditActorId]
+    );
+    const actorSnapshotBefore = await client.query(
+      'SELECT actor_user_id, actor_ref FROM gift_address_draft_consent_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1',
+      [accountDeleteOrderId]
+    );
+    assert.equal(actorSnapshotBefore.rows[0].actor_user_id, auditActorId);
+    assert.equal(actorSnapshotBefore.rows[0].actor_ref, auditActorId);
+
+    await client.query(
+      `INSERT INTO gift_delivery_order_events
+         (order_id, actor_user_id, actor_type, event_type, metadata)
+       VALUES ($1, $2, 'system', 'safety_hold', '{}'::jsonb)`,
+      [accountDeleteOrderId, auditActorId]
+    );
+    const giftEventBefore = await client.query(
+      'SELECT actor_user_id, actor_ref FROM gift_delivery_order_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1',
+      [accountDeleteOrderId]
+    );
+    assert.equal(giftEventBefore.rows[0].actor_user_id, auditActorId);
+    assert.equal(giftEventBefore.rows[0].actor_ref, auditActorId);
+
+    await client.query('SAVEPOINT forbid_direct_gift_event_actor_null');
+    await assert.rejects(
+      client.query(
+        'UPDATE gift_delivery_order_events SET actor_user_id = NULL WHERE order_id = $1 AND actor_user_id = $2',
+        [accountDeleteOrderId, auditActorId]
+      ),
+      error => error.code === '55000',
+      'direct gift-event actor nulling must be rejected'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT forbid_direct_gift_event_actor_null');
+    await client.query('RELEASE SAVEPOINT forbid_direct_gift_event_actor_null');
+
+    await client.query('SAVEPOINT forbid_direct_actor_null');
+    await assert.rejects(
+      client.query(
+        'UPDATE gift_address_draft_consent_events SET actor_user_id = NULL WHERE order_id = $1 AND actor_user_id = $2',
+        [accountDeleteOrderId, auditActorId]
+      ),
+      error => error.code === '23514',
+      'direct actor nulling must not imitate the FK account-erasure action'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT forbid_direct_actor_null');
+    await client.query('RELEASE SAVEPOINT forbid_direct_actor_null');
+
+    await client.query('DELETE FROM users WHERE id = $1', [auditActorId]);
+    const actorSnapshotAfter = await client.query(
+      'SELECT actor_user_id, actor_ref FROM gift_address_draft_consent_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1',
+      [accountDeleteOrderId]
+    );
+    assert.equal(actorSnapshotAfter.rows[0].actor_user_id, null,
+      'FK account erasure may clear only the live actor reference');
+    assert.equal(actorSnapshotAfter.rows[0].actor_ref, auditActorId,
+      'immutable actor snapshot must preserve original provenance');
+
+    const giftEventAfter = await client.query(
+      'SELECT actor_user_id, actor_ref FROM gift_delivery_order_events WHERE order_id = $1 ORDER BY id DESC LIMIT 1',
+      [accountDeleteOrderId]
+    );
+    assert.equal(giftEventAfter.rows[0].actor_user_id, null,
+      'FK account erasure may clear only the gift-event live actor reference');
+    assert.equal(giftEventAfter.rows[0].actor_ref, auditActorId,
+      'gift-event actor provenance must remain immutable after account erasure');
+    await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
     throw error;
   } finally {
     await client.query('ALTER TABLE gift_address_draft_consent_events DISABLE TRIGGER gift_address_draft_consent_events_immutable').catch(() => {});
+    await client.query('ALTER TABLE gift_delivery_order_events DISABLE TRIGGER gift_delivery_order_events_append_only').catch(() => {});
+    await client.query('ALTER TABLE gift_delivery_orders DISABLE TRIGGER gift_delivery_orders_no_delete').catch(() => {});
     await client.query('DELETE FROM gift_address_drafts WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
     await client.query('DELETE FROM gift_address_draft_consent_events WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
+    await client.query('DELETE FROM gift_delivery_order_events WHERE order_id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
     await client.query('DELETE FROM gift_delivery_orders WHERE id = ANY($1::uuid[])', [[orderId, ttlOrderId, accountDeleteOrderId, matchPurgeOrderId]]).catch(() => {});
+    await client.query('DELETE FROM users WHERE id = $1', [auditActorId]).catch(() => {});
     await client.query('DELETE FROM matches WHERE id = $1', [matchId]).catch(() => {});
     await client.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[senderId, recipientId]]).catch(() => {});
     await client.query('ALTER TABLE gift_address_draft_consent_events ENABLE TRIGGER gift_address_draft_consent_events_immutable').catch(() => {});
+    await client.query('ALTER TABLE gift_delivery_order_events ENABLE TRIGGER gift_delivery_order_events_append_only').catch(() => {});
+    await client.query('ALTER TABLE gift_delivery_orders ENABLE TRIGGER gift_delivery_orders_no_delete').catch(() => {});
     await client.query('SELECT pg_advisory_unlock(434236)').catch(() => {});
     client.release();
     await pool.end();
