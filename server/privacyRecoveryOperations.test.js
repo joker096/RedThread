@@ -403,3 +403,17 @@ test('a client with an unsuccessful rollback is destroyed instead of returned to
   assert.equal(releasedWith?.message, 'domain_transaction_failed',
     'failed transaction clients must be released with an error so pg destroys them');
 });
+
+
+test('L3 consent withdrawal routes every lifecycle through ACK gating and handles duplicate ACK completion', () => {
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  const start = source.indexOf("app.delete('/api/identity/l3/consent'");
+  const end = source.indexOf("\napp.", start + 10);
+  const route = source.slice(start, end > start ? end : undefined);
+  assert.ok(route.includes('runAckGatedPrivacyRecoveryOperation({'));
+  assert.ok(route.includes("generation: expectedConsent"));
+  assert.ok(route.includes("identity_l3_consent_lifecycle_missing_reconciliation_required"));
+  assert.ok(route.includes('if (operation.duplicate)'));
+  assert.ok(route.includes('FROM identity_l3_media_purge_jobs'));
+  assert.equal(route.includes('client = await pool.connect()'), false);
+});

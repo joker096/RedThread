@@ -7486,6 +7486,18 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
     if (!sameLifecycle || Boolean(current && !current.withdrawn_at) !== expectedActive) {
       throw new Error('identity_l3_consent_state_changed_retry');
     }
+    if (expectedConsent === null) {
+      const residual = await transactionClient.query(
+        `SELECT
+           (SELECT COUNT(*) FROM identity_l3_upload_tokens WHERE user_id = $1) +
+           (SELECT COUNT(*) FROM identity_l3_submissions WHERE user_id = $1) +
+           (SELECT COUNT(*) FROM identity_l3_media_purge_jobs WHERE user_id = $1) AS residual_count`,
+        [userId]
+      );
+      if (Number(residual.rows[0]?.residual_count || 0) > 0) {
+        throw new Error('identity_l3_consent_lifecycle_missing_reconciliation_required');
+      }
+    }
 
     // Revoke every outstanding upload capability before changing submissions.
     await transactionClient.query(
@@ -7609,32 +7621,46 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
     const wasActive = Boolean(expectedConsent && !expectedConsent.withdrawn_at);
     let result;
 
-    if (wasActive) {
-      if (typeof expectedConsent.granted_at !== 'string' ||
-          expectedConsent.granted_at.length === 0 || expectedConsent.granted_at.length > 64 ||
-          !Number.isSafeInteger(Number(expectedConsent.consent_version))) {
-        throw new Error('identity_l3_consent_lifecycle_invalid');
-      }
-      const operationId = derivePrivacyRecoveryOperationId({
-        eventType: 'identity_l3_consent_withdrawn',
-        userId,
-        resourceId: 'identity-l3-consent',
-        generation: `${expectedConsent.consent_version}:${expectedConsent.granted_at}`
-      });
-      const operation = await runAckGatedPrivacyRecoveryOperation({
-        pool,
-        operationId,
-        event: { eventType: 'identity_l3_consent_withdrawn', userId },
-        apply: transactionClient => applyWithdrawal(transactionClient, expectedConsent, true)
-      });
-      result = operation.result;
+    if (expectedConsent && (
+        typeof expectedConsent.granted_at !== 'string' ||
+        expectedConsent.granted_at.length === 0 || expectedConsent.granted_at.length > 64 ||
+        !Number.isSafeInteger(Number(expectedConsent.consent_version)))) {
+      throw new Error('identity_l3_consent_lifecycle_invalid');
+    }
+    const operationId = derivePrivacyRecoveryOperationId({
+      eventType: 'identity_l3_consent_withdrawn',
+      userId,
+      resourceId: 'identity-l3-consent',
+      generation: expectedConsent
+        ? `${expectedConsent.consent_version}:${expectedConsent.granted_at}`
+        : 'missing-consent-lifecycle'
+    });
+    const operation = await runAckGatedPrivacyRecoveryOperation({
+      pool,
+      operationId,
+      event: { eventType: 'identity_l3_consent_withdrawn', userId },
+      apply: transactionClient => applyWithdrawal(transactionClient, expectedConsent, wasActive)
+    });
+    if (operation.duplicate) {
+      const counts = await pool.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE status IN ('queued', 'processing'))::int AS pending,
+           COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
+         FROM identity_l3_media_purge_jobs
+        WHERE user_id = $1`,
+        [userId]
+      );
+      const pendingCount = Number(counts.rows[0]?.pending || 0);
+      const failedCount = Number(counts.rows[0]?.failed || 0);
+      result = {
+        withdrawn: wasActive,
+        purgeStatus: failedCount > 0 ? 'failed' : pendingCount > 0 ? 'pending' : 'complete',
+        pendingPurgeJobs: pendingCount,
+        failedPurgeJobs: failedCount,
+        requeuedFailedJobs: 0
+      };
     } else {
-      // Cleanup remains idempotent even if consent was withdrawn previously.
-      // If a grant races this path, applyWithdrawal rejects the stale snapshot.
-      client = await pool.connect();
-      await client.query('BEGIN');
-      result = await applyWithdrawal(client, expectedConsent, false);
-      await client.query('COMMIT');
+      result = operation.result;
     }
 
     return res.json({
