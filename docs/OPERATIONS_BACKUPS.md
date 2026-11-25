@@ -94,6 +94,7 @@ DATABASE_URL='postgresql://ops_reader@db-host/vow_app' \
 OPS_POSTGRES_BACKUP_DIR=/secure/backups/postgres \
 OPS_PRIVATE_PHOTO_BACKUP_DIR=/secure/backups/private-photos \
 OPS_PRIVATE_VOICE_BACKUP_DIR=/secure/backups/private-voice-intros \
+OPS_PRIVATE_IDENTITY_L3_BACKUP_DIR=/secure/backups/identity-l3 \
 npm run ops:health
 ```
 
