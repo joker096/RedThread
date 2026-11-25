@@ -411,7 +411,7 @@ test('L3 consent withdrawal routes every lifecycle through ACK gating and handle
   const end = source.indexOf("\napp.", start + 10);
   const route = source.slice(start, end > start ? end : undefined);
   assert.ok(route.includes('runAckGatedPrivacyRecoveryOperation({'));
-  assert.ok(route.includes("generation: expectedConsent"));
+  assert.ok(route.includes('const lifecycleGeneration = expectedConsent'));
   assert.ok(route.includes("identity_l3_consent_lifecycle_missing_reconciliation_required"));
   assert.ok(route.includes('if (operation.duplicate)'));
   assert.ok(route.includes('FROM identity_l3_media_purge_jobs'));
