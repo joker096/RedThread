@@ -253,7 +253,7 @@ test('operations health independently requires and verifies the Identity L3 back
     const bytes = 'encrypted-l3-fixture';
     await writeFile(archivePath, bytes);
     const checksum = createHash('sha256').update(bytes).digest('hex');
-    await writeFile(archivePath + '.sha256', checksum + '  ' + archiveName + '\\n');
+    await writeFile(archivePath + '.sha256', checksum + '  ' + archiveName + '\n');
     const pool = { async query() { return { rows: [] }; } };
     const report = await collectOpsHealth({
       pool,
