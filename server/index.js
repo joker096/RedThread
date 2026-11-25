@@ -7,7 +7,7 @@ import { decryptVoiceIntro, encryptVoiceIntro, parseVoiceIntroEncryptionKeyring,
 import { VOICE_INTRO_CONSENT_VERSION, isCurrentVoiceIntroConsentVersion } from './voiceIntroConsent.js';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { validateAdEventPayload, classifyDuplicateAdEvent, hasExplicitAdConsent, evaluateAdEventFrequency, isAdEventCollectionEnabled } from './adEvents.js';
 import { evaluateAdCampaignEligibility, isCampaignCountryAllowed, resolveProfileCountryCode } from './adCampaignRegistry.js';
 import { AD_EVENT_FREQUENCY_COUNTS_SQL } from './adEventFrequencyQuery.js';
@@ -7623,6 +7623,13 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
           withdrawn_at: preflight.rows[0].withdrawn_at
         };
     const wasActive = Boolean(expectedConsent && !expectedConsent.withdrawn_at);
+    const failedPurgeSnapshot = await pool.query(
+      `SELECT id::text AS id, updated_at::text AS updated_at
+         FROM identity_l3_media_purge_jobs
+        WHERE user_id = $1 AND status = 'failed'
+        ORDER BY id`,
+      [userId]
+    );
     let result;
 
     if (expectedConsent && (
@@ -7631,13 +7638,19 @@ app.delete('/api/identity/l3/consent', validateRequestOrigin, requireSession, id
         !Number.isSafeInteger(Number(expectedConsent.consent_version)))) {
       throw new Error('identity_l3_consent_lifecycle_invalid');
     }
+    const lifecycleGeneration = expectedConsent
+      ? `${expectedConsent.consent_version}:${expectedConsent.granted_at}`
+      : 'missing-consent-lifecycle';
+    const retryGeneration = !wasActive && failedPurgeSnapshot.rowCount > 0
+      ? `:failed-retry:${createHash('sha256')
+          .update(JSON.stringify(failedPurgeSnapshot.rows))
+          .digest('hex')}`
+      : '';
     const operationId = derivePrivacyRecoveryOperationId({
       eventType: 'identity_l3_consent_withdrawn',
       userId,
       resourceId: 'identity-l3-consent',
-      generation: expectedConsent
-        ? `${expectedConsent.consent_version}:${expectedConsent.granted_at}`
-        : 'missing-consent-lifecycle'
+      generation: `${lifecycleGeneration}${retryGeneration}`
     });
     const operation = await runAckGatedPrivacyRecoveryOperation({
       pool,
