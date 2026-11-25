@@ -415,5 +415,8 @@ test('L3 consent withdrawal routes every lifecycle through ACK gating and handle
   assert.ok(route.includes("identity_l3_consent_lifecycle_missing_reconciliation_required"));
   assert.ok(route.includes('if (operation.duplicate)'));
   assert.ok(route.includes('FROM identity_l3_media_purge_jobs'));
+  assert.ok(route.includes('failedPurgeSnapshot'));
+  assert.ok(route.includes('createHash(\'sha256\')'),
+    'a changed failed-job snapshot must create a new retry-stable ACK operation');
   assert.equal(route.includes('client = await pool.connect()'), false);
 });
