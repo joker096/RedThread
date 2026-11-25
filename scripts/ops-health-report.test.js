@@ -75,7 +75,6 @@ test('operations report fails closed when required off-host backup locations are
   assert.equal(report.backups.privatePhoto.status, 'not_configured');
   assert.equal(report.backups.privateVoice.status, 'not_configured');
   assert.equal(report.backups.identityL3.status, 'not_configured');
-  assert.equal(report.backups.identityL3.status, 'not_configured');
   assert.equal(opsHealthExitCode(report), 2);
 });
 
