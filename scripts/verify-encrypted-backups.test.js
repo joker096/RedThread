@@ -86,6 +86,7 @@ test('reports missing configuration separately from verified backups', async () 
   const report = await verifyConfiguredEncryptedBackups({});
   assert.equal(report.status, 'not_configured');
   assert.ok(report.results.every(result => result.status === 'not_configured'));
+  assert.deepEqual(report.results.map(result => result.name), ['postgres', 'privatePhoto', 'privateVoice', 'identityL3']);
 });
 
 test('partial backup configuration is not reported as fully verified', async () => {
@@ -98,7 +99,7 @@ test('partial backup configuration is not reported as fully verified', async () 
     });
     assert.equal(report.status, 'partially_configured');
     assert.deepEqual(report.results.map(result => result.status), [
-      'verified', 'not_configured', 'not_configured'
+      'verified', 'not_configured', 'not_configured', 'not_configured'
     ]);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -185,5 +186,19 @@ test('rejects a symlinked age identity before inspecting backup archives', async
   } finally {
     await rm(root, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
+  }
+});
+
+
+test('verifies Identity L3 archives from their dedicated backup directory', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'vow-backup-l3-'));
+  try {
+    await addBackup(root, 'vow-private-media-l3-20261113T120000Z.tar.age', 'encrypted-l3-fixture');
+    const report = await verifyConfiguredEncryptedBackups({ OPS_PRIVATE_IDENTITY_L3_BACKUP_DIR: root });
+    assert.equal(report.status, 'partially_configured');
+    const l3 = report.results.find(result => result.name === 'identityL3');
+    assert.deepEqual(l3, { name: 'identityL3', status: 'verified', checked: 1, failures: [] });
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
