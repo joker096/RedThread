@@ -122,19 +122,26 @@ test('physical user/provider deletion cannot cascade private object metadata bef
       provider_documents: 1
     }, 'tombstoning queues photo/voice deletion while retaining provider docs without a purge workflow');
 
-    await client.query('DELETE FROM provider_verification_documents WHERE id = $1', [documentId]);
-    await client.query('DELETE FROM partner_providers WHERE id = $1', [providerId]);
-    await client.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[photoUserId, voiceUserId, providerUserId]]);
-    await client.query('COMMIT');
+    await client.query('SAVEPOINT before_unverified_provider_document_delete');
+    await assert.rejects(
+      client.query('DELETE FROM provider_verification_documents WHERE id = $1', [documentId]),
+      error => error.code === '55000' &&
+        error.constraint === 'provider_verification_document_purge_required',
+      'provider verification document metadata must remain until physical purge is verifiably complete'
+    );
+    await client.query('ROLLBACK TO SAVEPOINT before_unverified_provider_document_delete');
+    await client.query('RELEASE SAVEPOINT before_unverified_provider_document_delete');
+
+    const retainedProviderDocument = await client.query(
+      'SELECT private_storage_key FROM provider_verification_documents WHERE id = $1',
+      [documentId]
+    );
+    assert.equal(retainedProviderDocument.rows[0]?.private_storage_key, providerStorageKey);
+
+    // Keep the entire fixture transactional: rollback removes test rows and
+    // queue records without bypassing the production deletion guard.
   } finally {
     await client.query('ROLLBACK').catch(() => {});
-    await client.query('DELETE FROM photo_assets WHERE user_id = ANY($1::uuid[])', [[photoUserId, voiceUserId, providerUserId]]).catch(() => {});
-    await client.query('DELETE FROM profile_voice_intros WHERE user_id = ANY($1::uuid[])', [[photoUserId, voiceUserId, providerUserId]]).catch(() => {});
-    await client.query('DELETE FROM provider_verification_documents WHERE id = $1', [documentId]).catch(() => {});
-    await client.query('DELETE FROM partner_providers WHERE id = $1', [providerId]).catch(() => {});
-    await client.query('DELETE FROM private_photo_purge_queue WHERE storage_path = $1', [photoPath]).catch(() => {});
-    await client.query('DELETE FROM private_voice_intro_purge_queue WHERE storage_path = $1', [voicePath]).catch(() => {});
-    await client.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[photoUserId, voiceUserId, providerUserId]]).catch(() => {});
     client.release();
     await pool.end();
   }
